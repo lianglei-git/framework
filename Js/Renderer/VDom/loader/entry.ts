@@ -1,0 +1,6 @@
+
+
+const VDomLoader = {
+    server: "",
+    web: ""
+}
