@@ -15,7 +15,7 @@ type IChunkLoader = (props: {
   isNext?: boolean;
 }) => React.JSX.Element;
 
-const ChunkLoader: IChunkLoader = ({
+const ChunkReactLoader: IChunkLoader = ({
   Component,
   isNext = false,
   params,
@@ -59,7 +59,7 @@ const ChunkLoader: IChunkLoader = ({
       <>
         {Component}
         {NextCm && (
-          <ChunkLoader
+          <ChunkReactLoader
             Component={NextCm.Cmp}
             params={NextCm.params}
             onLoad={NextCm.onLoad}
@@ -72,7 +72,7 @@ const ChunkLoader: IChunkLoader = ({
   return null;
 };
 /**
- * 
+ * 我也不是很清楚应该为此命名为甚么，比如：按顺序await？
  * @example
 const Example = () => {
   let arr = Array(10).fill(1);
@@ -93,7 +93,7 @@ const Example = () => {
         // 使用引用对象
         const reflect = { index };
         return (
-          <ChunkLoader
+          <ChunkReactLoader
             key={index}
             Component={<ExamCmp cur={reflect} />}
             params={reflect}
@@ -111,4 +111,4 @@ setTimeout(() => {
 }, 4000);
 */
 
-export { ChunkLoader };
+export { ChunkReactLoader };
