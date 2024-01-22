@@ -1,0 +1,81 @@
+html {
+  --gray6: red;
+}
+
+
+.memu-react {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+
+  .button-group {
+    display: flex;
+    align-items: center;
+    border-radius: 4px;
+    transition: all .2s;
+    margin-right: 5px;
+
+    &:hover {
+      background-color: var(--gray6);
+    }
+
+    li {
+      outline: none;
+      border: none;
+      cursor: pointer;
+      font-size: var(--size18);
+      color: var(--gray8);
+      border-radius: 5px;
+      padding: 6px;
+      background: none;
+      transition: all .2s;
+
+      &:hover {
+        color: var(--gray1);
+      }
+
+      &.active {
+        background-color: var(--gray5);
+        color: var(--master_color_6);
+      }
+
+      &:first-child {
+        margin-right: 2px;
+      }
+    }
+  }
+
+
+
+  .group {
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    border-right: 1px solid var(--gray6);
+
+    li {
+      font-size: var(--size18);
+      margin: 0 1px;
+      padding: 7px;
+      border-radius: 5px;
+      cursor: pointer;
+      color: var(--gray8);
+      list-style: none;
+
+      &:hover {
+        background-color: var(--gray5);
+      }
+    }
+
+    &:last-child {
+      border: none;
+    }
+  }
+
+  li[aria-disabled="true"] {
+    color: var(--gray5);
+    cursor: not-allowed;
+    background-color: transparent !important;
+  }
+}
