@@ -66,6 +66,10 @@ html {
       &:hover {
         background-color: var(--gray5);
       }
+
+      &.active {
+        background-color: var(--gray5);
+      }
     }
 
     &:last-child {
@@ -73,9 +77,15 @@ html {
     }
   }
 
-  li[aria-disabled="true"] {
+  li[aria-disabled="true"],
+  ul[aria-disabled="true"] {
     color: var(--gray5);
     cursor: not-allowed;
     background-color: transparent !important;
+  }
+
+  ul[aria-disabled="true"] {
+    pointer-events: none !important;
+    filter: opacity(0.5);
   }
 }

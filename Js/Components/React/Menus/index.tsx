@@ -17,9 +17,15 @@ let MenuButtonGroup = observer((props: { info: MenuTypesChildren }) => {
   const title = toFunc(info.label)();
   const key = toFunc(info.key)();
   const children = toFunc(info.children)();
-
+  const disabled = toFunc(info.disabled)();
+  const visible = toFunc(info.visible)();
+  if (!visible) return null;
   return (
-    <ul title={title} className={toClassName("button-group", key)}>
+    <ul
+      title={title}
+      className={toClassName("button-group", key)}
+      aria-disabled={disabled}
+    >
       {children?.map((child) => {
         const key = toFunc(child.key)();
         if (child.type == "button") {
@@ -41,17 +47,24 @@ let MenuButtonItem = observer(({ info }: { info: MenuTypesChildren }) => {
   const key = toFunc(info.key)();
   const label = toFunc(info.label)();
   const icon = toFunc(info.icon)();
+  const visible = toFunc(info.visible)();
   const disabled = toFunc(info.disabled)();
   const domAttributes = info.domAttributes || {};
+  const active = toFunc(info.active)();
+
+  if (!visible) return null;
+  const Icon =
+    typeof icon == "string" ? <i className={toClassName(icon)}></i> : icon;
+
   return (
     <li
       key={key}
       title={label}
-      className={toClassName("menu-button", key)}
+      className={toClassName("menu-button", key, active ? "active" : "")}
       aria-disabled={disabled}
       {...(!disabled ? domAttributes : {})}
     >
-      <i className={toClassName(icon)}></i>
+      {Icon}
     </li>
   );
 });
@@ -61,8 +74,13 @@ let MenuSingleItem = observer(({ info }: { info: MenuTypesChildren }) => {
   const label = toFunc(info.label)();
   const icon = toFunc(info.icon)();
   const disabled = toFunc(info.disabled)();
+  const visible = toFunc(info.visible)();
   const active = toFunc(info.active)();
   const domAttributes = info.domAttributes || {};
+  if (!visible) return null;
+  const Icon =
+    typeof icon == "string" ? <i className={toClassName(icon)}></i> : icon;
+
   return (
     <li
       key={key}
@@ -71,7 +89,7 @@ let MenuSingleItem = observer(({ info }: { info: MenuTypesChildren }) => {
       aria-disabled={disabled}
       {...(!disabled ? domAttributes : {})}
     >
-      <i className={toClassName(icon)}></i>
+      {Icon}
     </li>
   );
 });

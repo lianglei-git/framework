@@ -21,7 +21,7 @@ type MenuTypesChildren = {
     // 如果为null或者false则不展示
     icon?: IAdapterFunc<string | boolean | null | JSX.Element>;
     domAttributes?: DOMAttributes<HTMLElement>;
-    children?: MenuTypesChildren[];
+    children?: MenuTypesChildren[] | (() => MenuTypesChildren[]);
 };
 type MenuTypes = {
     visible: IAdapterFunc<boolean>;
