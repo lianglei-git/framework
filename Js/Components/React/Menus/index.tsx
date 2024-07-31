@@ -1,5 +1,6 @@
 import { MenuTypes, MenuTypesChildren, toFunc } from "./type";
 import { observer } from "mobx-react-lite";
+import { useRef } from "react";
 import "./index.less";
 const formatMemuConfig = (cfg: MenuTypes) => {
   // cfg.map(menu => {
@@ -93,35 +94,47 @@ let MenuSingleItem = observer(({ info }: { info: MenuTypesChildren }) => {
     </li>
   );
 });
-let MenuBasic = observer(({ memuConfig }: { memuConfig: MenuTypes }) => {
-  const _memuConfig = formatMemuConfig(memuConfig);
 
-  return (
-    <div className="memu-react">
-      {_memuConfig.map((group) => {
-        const key = toFunc(group.key)();
-        const title = toFunc(group.groupName)();
-        const children = toFunc(group.children)();
-        return (
-          <ul key={key} className={toClassName("group", key)} title={title}>
-            {children.map((item) => {
-              const key = toFunc(item.key)();
+let MenuBasic = observer(
+  ({
+    memuConfig,
+    menuContainerRef,
+    className,
+  }: {
+    memuConfig: MenuTypes;
+    menuContainerRef?: any;
+    className?: string;
+  }) => {
+    const _memuConfig = formatMemuConfig(memuConfig);
+    const privateRef = useRef(null);
+    let _ref = menuContainerRef || privateRef;
+    return (
+      <div className={["memu-react", className].join(" ")} ref={_ref}>
+        {_memuConfig.map((group) => {
+          const key = toFunc(group.key)();
+          const title = toFunc(group.groupName)();
+          const children = toFunc(group.children)();
+          return (
+            <ul key={key} className={toClassName("group", key)} title={title}>
+              {children.map((item) => {
+                const key = toFunc(item.key)();
 
-              if (item.type == "button") {
-                return <MenuButtonItem info={item} key={key} />;
-              }
-              if (item.type == "single") {
-                return <MenuSingleItem info={item} key={key} />;
-              }
-              if (item.type == "group-button") {
-                return <MenuButtonGroup info={item} key={key} />;
-              }
-            })}
-          </ul>
-        );
-      })}
-    </div>
-  );
-});
+                if (item.type == "button") {
+                  return <MenuButtonItem info={item} key={key} />;
+                }
+                if (item.type == "single") {
+                  return <MenuSingleItem info={item} key={key} />;
+                }
+                if (item.type == "group-button") {
+                  return <MenuButtonGroup info={item} key={key} />;
+                }
+              })}
+            </ul>
+          );
+        })}
+      </div>
+    );
+  }
+);
 
 export { MenuBasic };
