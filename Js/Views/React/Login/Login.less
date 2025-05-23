@@ -1,0 +1,226 @@
+@font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+@bg-gray-100: #f3f4f6;
+@bg-blue-50: #dbeafe;
+@text-gray-600: #4b5563;
+@text-gray-700: #374151;
+@text-gray-800: #1f2937;
+@text-gray-500: #6b7280;
+@text-blue-600: #2563eb;
+@text-blue-700: #1d4ed8;
+@border-gray-300: #d1d5db;
+@focus-ring-blue-500: #3b82f6;
+
+body {
+  font-family: @font-family;
+  background-color: @bg-gray-100;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.login-container {
+  background-color: white;
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  width: 100%;
+  max-width: 56rem;
+  display: flex;
+  flex-direction: column;
+  @media (min-width: 768px) {
+    flex-direction: row;
+  }
+}
+
+.left-section {
+  width: 100%;
+  @media (min-width: 768px) {
+    width: 50%;
+  }
+  background-color: @bg-blue-50;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  h2 {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: @text-blue-600;
+    margin-top: 1.5rem;
+  }
+
+  p {
+    color: @text-gray-600;
+    margin-top: 0.5rem;
+  }
+}
+
+.right-section {
+  width: 100%;
+  @media (min-width: 768px) {
+    width: 50%;
+  }
+  padding: 2rem;
+  @media (min-width: 768px) {
+    padding: 3rem;
+  }
+
+  .form-title {
+    text-align: center;
+    margin-bottom: 2rem;
+
+    h1 {
+      font-size: 1.875rem;
+      font-weight: bold;
+      color: @text-gray-800;
+    }
+
+    p {
+      color: @text-gray-500;
+      margin-top: 0.5rem;
+    }
+  }
+
+  form {
+    .input-group {
+      margin-bottom: 1.5rem;
+
+      label {
+        display: block;
+        font-size: 0.875rem;
+        font-weight: medium;
+        color: @text-gray-700;
+        margin-bottom: 0.25rem;
+      }
+
+      .input-wrapper {
+        position: relative;
+
+        .icon {
+          position: absolute;
+          top: 0;
+          bottom: 0;
+          left: 0.75rem;
+          display: flex;
+          align-items: center;
+          pointer-events: none;
+          color: @text-gray-500;
+        }
+
+        input {
+          width: 100%;
+          padding-left: 2.5rem;
+          padding-right: 0.75rem;
+          padding-top: 0.5rem;
+          padding-bottom: 0.5rem;
+          border: 1px solid @border-gray-300;
+          border-radius: 0.375rem;
+          &:focus {
+            outline: none;
+            border-color: @focus-ring-blue-500;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+          }
+        }
+      }
+    }
+
+    .remember-forgot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+
+      .remember-me {
+        display: flex;
+        align-items: center;
+
+        input {
+          width: 1rem;
+          height: 1rem;
+          color: @text-blue-600;
+          border: 1px solid @border-gray-300;
+          border-radius: 0.25rem;
+          &:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+          }
+        }
+
+        label {
+          margin-left: 0.5rem;
+          font-size: 0.875rem;
+          color: @text-gray-700;
+        }
+      }
+
+      .forgot-password {
+        font-size: 0.875rem;
+        color: @text-blue-600;
+        &:hover {
+          color: @text-blue-700;
+        }
+      }
+    }
+
+    button {
+      width: 100%;
+      display: flex;
+      justify-content: center;
+      padding-top: 0.5rem;
+      padding-bottom: 0.5rem;
+      padding-left: 1rem;
+      padding-right: 1rem;
+      border: none;
+      border-radius: 0.375rem;
+      box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      font-size: 0.875rem;
+      font-weight: medium;
+      color: white;
+      background-color: @text-blue-600;
+      &:hover {
+        background-color: @text-blue-700;
+      }
+      &:focus {
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5), 0 0 0 1px white;
+      }
+    }
+  }
+
+  .register-text {
+    margin-top: 2rem;
+    text-align: center;
+    font-size: 0.875rem;
+    color: @text-gray-500;
+
+    a {
+      color: @text-blue-600;
+      &:hover {
+        color: @text-blue-700;
+      }
+    }
+  }
+
+  .language-select {
+    margin-top: 2rem;
+    display: flex;
+    justify-content: center;
+    gap: 1rem;
+
+    a {
+      color: @text-gray-500;
+      &:hover {
+        color: @text-gray-700;
+      }
+    }
+  }
+}
