@@ -1,27 +1,46 @@
 import React, { useState } from 'react';
 import './Login.less';
+import { observer } from 'mobx-react-lite';
+import bgurl from "./a06866bb87e0a8d7afff8a72faf7d86a.png"
 
-const Login: React.FC = () => {
+import { globalUserStore } from "./UserStore"
+
+const Login: React.FC = observer(() => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    console.log('登录信息:', {
-      username,
-      password,
-      rememberMe
-    });
-    alert('登录成功!');
+    // console.log('登录信息:', {
+    //   username,
+    //   password,
+    //   rememberMe
+    // });
+    globalUserStore.login(
+      {
+        username,
+        password,
+      },
+      () => {
+        console.log("登录成功！！！")
+        setTimeout(() => {
+          window.close()
+        }, 300)
+      }
+    )
   };
+
+  if (globalUserStore.isLogin) {
+    return <div> 已登录</div>
+  }
 
   return (
     <div className="login-container">
       {/* 左侧插画部分 */}
       <div className="left-section">
         <img
-          src="https://aidev.gemcoder.com/staticResource/echoAiSystemImages/a06866bb87e0a8d7afff8a72faf7d86a.png"
+          src={bgurl}
           alt="欢迎插画"
         />
         <h2>欢迎回来</h2>
@@ -83,7 +102,7 @@ const Login: React.FC = () => {
               <a href="javascript:void(0);">忘记密码?</a>
             </div>
           </div>
-          <button type="submit">登 录</button>
+          <button className='login' type="submit">登 录</button>
         </form>
         <div className="register-text">
           <p>
@@ -105,6 +124,6 @@ const Login: React.FC = () => {
       </div>
     </div>
   );
-};
+});
 
-export default Login;
+export { Login };

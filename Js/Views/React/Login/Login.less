@@ -12,16 +12,34 @@
 
 body {
   font-family: @font-family;
-  background-color: @bg-gray-100;
   min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 1rem;
+  position: relative;
+
+  &::before {
+    z-index: -1;
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    left: 0;
+    top: 0;
+    content: "";
+    // background-image: url(src/assets/img/bk4.png);
+    background-image: url(https://api.kdcc.cn);
+    // 先这样做吧，然后后面在在后台写一个逻辑这个写在了next.md文档中 bing图片
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    opacity: 0.6;
+  }
 }
 
+
 .login-container {
-  background-color: white;
+  margin: 0 auto;
+  margin-top: 15vh;
   border-radius: 0.75rem;
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
   overflow: hidden;
@@ -29,6 +47,7 @@ body {
   max-width: 56rem;
   display: flex;
   flex-direction: column;
+
   @media (min-width: 768px) {
     flex-direction: row;
   }
@@ -36,10 +55,12 @@ body {
 
 .left-section {
   width: 100%;
+
   @media (min-width: 768px) {
     width: 50%;
   }
-  background-color: @bg-blue-50;
+
+  background-color: rgba(150, 190, 227, 0.934);
   padding: 2rem;
   display: flex;
   flex-direction: column;
@@ -67,10 +88,14 @@ body {
 
 .right-section {
   width: 100%;
+  background-color: white;
+
   @media (min-width: 768px) {
     width: 50%;
   }
+
   padding: 2rem;
+
   @media (min-width: 768px) {
     padding: 3rem;
   }
@@ -94,6 +119,7 @@ body {
   form {
     .input-group {
       margin-bottom: 1.5rem;
+      // margin-bottom: 1.5rem;
 
       label {
         display: block;
@@ -118,13 +144,14 @@ body {
         }
 
         input {
-          width: 100%;
+          width: 90%;
           padding-left: 2.5rem;
           padding-right: 0.75rem;
           padding-top: 0.5rem;
           padding-bottom: 0.5rem;
           border: 1px solid @border-gray-300;
           border-radius: 0.375rem;
+
           &:focus {
             outline: none;
             border-color: @focus-ring-blue-500;
@@ -149,6 +176,7 @@ body {
           color: @text-blue-600;
           border: 1px solid @border-gray-300;
           border-radius: 0.25rem;
+
           &:focus {
             outline: none;
             box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
@@ -165,6 +193,7 @@ body {
       .forgot-password {
         font-size: 0.875rem;
         color: @text-blue-600;
+
         &:hover {
           color: @text-blue-700;
         }
@@ -186,14 +215,20 @@ body {
       font-weight: medium;
       color: white;
       background-color: @text-blue-600;
+
       &:hover {
         background-color: @text-blue-700;
       }
+
       &:focus {
         outline: none;
         box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5), 0 0 0 1px white;
       }
     }
+  }
+
+  .login {
+    margin-top: 1.15rem;
   }
 
   .register-text {
@@ -204,6 +239,7 @@ body {
 
     a {
       color: @text-blue-600;
+
       &:hover {
         color: @text-blue-700;
       }
@@ -218,6 +254,7 @@ body {
 
     a {
       color: @text-gray-500;
+
       &:hover {
         color: @text-gray-700;
       }

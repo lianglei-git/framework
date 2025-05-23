@@ -1,6 +1,5 @@
 import { computed, makeObservable, observable, reaction } from "mobx";
 import { getAvatarSrc, getDefatilsUserInfoAPI, loginAPIv1 } from "./api";
-import { Message } from "@sparrowend/ui";
 
 export enum UserLevelENUM {
   SuperUser = 0,
@@ -28,26 +27,12 @@ class UserStore {
     makeObservable(this);
     this.getLocalStorageUserInfo()
 
-    let infinitiesMsg;
-    reaction(
-      () => this.showLoginPage,
-      () => {
-        if (this.showLoginPage) {
-          infinitiesMsg = Message.info({
-            message: "登录后会刷新页面",
-            duration: 0,
-          });
-        } else {
-          infinitiesMsg.close();
-        }
-      }
-    );
   }
 
   login = ({ username, password }, callback?: () => void) => {
     loginAPIv1({ username, password }).then(async (res) => {
       const type = res.data.code == 0 ? "success" : "error";
-      console.message(type, res.data.message);
+      console.log(type, res.data.message);
       if (res.data.code == 0) {
         this.info.token = res.data.token;
         // 第一次登录请求一下详细信息
@@ -66,6 +51,7 @@ class UserStore {
       }
     });
   };
+
 
   getLocalStorageUserInfo() {
     const info = localStorage.getItem("t_remeberInfo");
@@ -117,4 +103,7 @@ class UserStore {
   }
 }
 
-export default UserStore;
+const globalUserStore = new UserStore()
+export {
+  globalUserStore
+};
