@@ -1,6 +1,12 @@
-import { computed, makeObservable, observable, reaction } from "mobx";
+import { computed, makeAutoObservable, observable, reaction } from "mobx";
 import { getAvatarSrc, getDefatilsUserInfoAPI, loginAPIv1 } from "./api";
 
+const localStorage = globalThis.localStorage || {
+  getItem: () => null,
+  setItem: () => null,
+  removeItem: () => null,
+  clear: () => null,
+}
 export enum UserLevelENUM {
   SuperUser = 0,
   Developer = 1,
@@ -10,8 +16,8 @@ export enum UserLevelENUM {
 }
 
 class UserStore {
-  @observable showLoginPage: boolean = false;
-  @observable detailsUserInfo: any = null;
+  showLoginPage: boolean = false;
+  detailsUserInfo: any = null;
   static basicInfo = {
     username: "",
     nickname: "",
@@ -21,10 +27,10 @@ class UserStore {
     avatar: undefined,
     role: UserLevelENUM["NormalUser"],
   };
-  @observable info = UserStore.basicInfo;
+  info = UserStore.basicInfo;
 
   constructor() {
-    makeObservable(this);
+    makeAutoObservable(this);
     this.getLocalStorageUserInfo()
 
   }
@@ -84,7 +90,7 @@ class UserStore {
     return this.info.id;
   }
 
-  @computed get avatarSrc() {
+  get avatarSrc() {
     return getAvatarSrc(this.info.avatar);
   }
 
