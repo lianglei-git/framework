@@ -16,6 +16,23 @@ const loginAPIv1 = async (params: { username: string, password: string }) => {
     return await axios.get(basicUrl + '/vn/login?' + str)
 }
 
+const registerAPI = async (params: {
+    username: string,
+    password: string,
+    nickname: string,
+    email?: string,
+    mobile?: string,
+    sex?: string,
+    birthday?: string,
+    remark?: string
+}) => {
+    return await axios.post(basicUrl + '/vn/register', params, {
+        headers: {
+            "Content-Type": "application/json"
+        }
+    })
+}
+
 const updateUserInfoAPI = async (params: any) => {
     return await axios.post(basicUrl + '/vn/updateUserInfo', params, {
         headers: {
@@ -40,6 +57,7 @@ const getAvatarSrc = (p: string | undefined) => {
 
 export {
     loginAPIv1,
+    registerAPI,
     updateUserInfoAPI,
     getAvatarSrc,
     getDefatilsUserInfoAPI

@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import './Login.less';
 import { observer } from 'mobx-react-lite';
 import bgurl from "./a06866bb87e0a8d7afff8a72faf7d86a.png"
-
+import { Register } from './Register';
 import { globalUserStore } from "./UserStore"
 
 const Login: React.FC = observer(() => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
+  const [showRegister, setShowRegister] = useState(false);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -33,6 +34,10 @@ const Login: React.FC = observer(() => {
 
   if (globalUserStore.isLogin) {
     return <div> 已登录</div>
+  }
+
+  if (showRegister) {
+    return <Register />
   }
 
   return (
@@ -107,7 +112,7 @@ const Login: React.FC = observer(() => {
         <div className="register-text">
           <p>
             还没有账号?
-            <a href="javascript:void(0);">立即注册</a>
+            <a href="javascript:void(0);" onClick={() => setShowRegister(true)}>立即注册</a>
           </p>
         </div>
         <div className="language-select">
