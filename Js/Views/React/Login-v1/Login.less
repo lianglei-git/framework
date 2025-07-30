@@ -1,0 +1,590 @@
+@font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+
+.login-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f8f9fa;
+  font-family: @font-family;
+  // padding: 40px 20px;
+}
+
+.login-card {
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  padding: 48px 40px;
+  width: 100%;
+  max-width: 520px;
+  height: 80vh;
+  max-height: 600px;
+  text-align: center;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 0 0 40px 0;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.login-content,
+.register-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 0;
+}
+
+.account-login-form {
+  margin-bottom: 32px;
+}
+
+.input-field {
+  margin-bottom: 24px;
+
+  input {
+    width: 100%;
+    padding: 16px 20px;
+    border: 1px solid #d1d5db;
+    border-radius: 12px;
+    font-size: 16px;
+    background: #ffffff;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    box-sizing: border-box;
+
+    &:focus {
+      outline: none;
+      border-color: #4f46e5;
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+    }
+
+    &::placeholder {
+      color: #9ca3af;
+      font-size: 16px;
+    }
+  }
+}
+
+.signin-btn {
+  width: 100%;
+  background: #4f46e5;
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  padding: 16px 20px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+  margin-bottom: 8px;
+
+  &:hover:not(:disabled) {
+    background: #3730a3;
+    transform: translateY(-1px);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0);
+  }
+
+  &:disabled {
+    background: #d1d5db;
+    cursor: not-allowed;
+    transform: none;
+  }
+}
+
+.register-link,
+.login-link {
+  margin: 24px 0;
+  font-size: 15px;
+  color: #6b7280;
+  line-height: 1.5;
+
+  .link-btn {
+    background: none;
+    border: none;
+    color: #4f46e5;
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 500;
+    margin-left: 4px;
+    padding: 0;
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+.divider {
+  position: relative;
+  text-align: center;
+  margin: 32px 0;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: #e5e7eb;
+  }
+
+  span {
+    background: #ffffff;
+    padding: 0 20px;
+    color: #6b7280;
+    font-size: 15px;
+    font-weight: 500;
+  }
+}
+
+.social-login {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.social-btn {
+  width: 100%;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  padding: 16px 20px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.1s ease;
+
+  &:hover {
+    border-color: #9ca3af;
+    background: #f9fafb;
+    transform: translateY(-1px);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
+
+  .social-icon {
+    font-size: 20px;
+  }
+}
+
+.register-form {
+  margin-bottom: 32px;
+}
+
+.code-field {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 24px;
+
+  input {
+    flex: 1;
+    padding: 16px 20px;
+    border: 1px solid #d1d5db;
+    border-radius: 12px;
+    font-size: 16px;
+    background: #ffffff;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    box-sizing: border-box;
+
+    &:focus {
+      outline: none;
+      border-color: #4f46e5;
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+    }
+
+    &::placeholder {
+      color: #9ca3af;
+      font-size: 16px;
+    }
+  }
+
+  .send-code-btn {
+    background: #4f46e5;
+    color: #ffffff;
+    border: none;
+    border-radius: 12px;
+    padding: 16px 20px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.2s ease, transform 0.1s ease;
+
+    &:hover:not(:disabled) {
+      background: #3730a3;
+      transform: translateY(-1px);
+    }
+
+    &:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    &:disabled {
+      background: #d1d5db;
+      cursor: not-allowed;
+      transform: none;
+    }
+  }
+}
+
+.error-message {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  padding: 16px 20px;
+  margin: 20px 0;
+  color: #dc2626;
+  font-size: 14px;
+  text-align: left;
+  line-height: 1.4;
+}
+
+.footer-links {
+  margin-top: auto;
+  padding-top: 32px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  font-size: 14px;
+
+  .footer-link {
+    background: none;
+    border: none;
+    color: #6b7280;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0;
+    transition: color 0.2s ease;
+
+    &:hover {
+      color: #4f46e5;
+    }
+  }
+
+  .separator {
+    color: #d1d5db;
+    font-size: 16px;
+  }
+}
+
+// 微信登录弹窗
+.wechat-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modal-content {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 32px;
+  max-width: 360px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 32px;
+
+  h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: #1f2937;
+  }
+
+  .close-btn {
+    background: none;
+    border: none;
+    font-size: 28px;
+    color: #6b7280;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: background-color 0.2s ease, color 0.2s ease;
+
+    &:hover {
+      background: #f3f4f6;
+      color: #1f2937;
+    }
+  }
+}
+
+.qr-container {
+  min-height: 240px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.qr-placeholder {
+  text-align: center;
+
+  .qr-icon {
+    font-size: 56px;
+    margin-bottom: 20px;
+  }
+
+  p {
+    color: #6b7280;
+    margin-bottom: 20px;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+}
+
+.qr-code-section {
+  text-align: center;
+
+  img {
+    width: 180px;
+    height: 180px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  }
+
+  p {
+    color: #6b7280;
+    margin-bottom: 20px;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+}
+
+.wechat-btn,
+.refresh-btn {
+  background: #07c160;
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  padding: 16px 20px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease, transform 0.1s ease;
+
+  &:hover:not(:disabled) {
+    background: #06ad56;
+    transform: translateY(-1px);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0);
+  }
+
+  &:disabled {
+    background: #d1d5db;
+    cursor: not-allowed;
+    transform: none;
+  }
+}
+
+.success-state {
+  text-align: center;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+
+  .success-icon {
+    width: 56px;
+    height: 56px;
+    background: #10b981;
+    color: #ffffff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    margin: 0 auto 20px;
+  }
+
+  h2 {
+    font-size: 24px;
+    font-weight: 600;
+    color: #1f2937;
+    margin: 0 0 12px 0;
+  }
+
+  p {
+    font-size: 16px;
+    color: #6b7280;
+    margin: 0;
+    line-height: 1.5;
+  }
+}
+
+.password-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 32px;
+  padding: 20px;
+  background: #f8f9fa;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+
+  .user-avatar {
+    width: 48px;
+    height: 48px;
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+    color: #ffffff;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 600;
+    margin-right: 16px;
+  }
+
+  .user-details {
+    flex: 1;
+    text-align: left;
+
+    .user-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: #1f2937;
+      margin-bottom: 4px;
+    }
+
+    .user-email {
+      font-size: 14px;
+      color: #6b7280;
+    }
+  }
+
+  .back-btn {
+    background: none;
+    border: none;
+    color: #4f46e5;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 8px 12px;
+    border-radius: 6px;
+    transition: background-color 0.2s ease;
+
+    &:hover {
+      background: rgba(79, 70, 229, 0.1);
+    }
+  }
+}
+
+.password-form {
+  width: 100%;
+  margin-bottom: 24px;
+}
+
+.password-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+
+  .action-link {
+    background: none;
+    border: none;
+    color: #4f46e5;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 0;
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+// 响应式设计
+@media (max-width: 480px) {
+  .login-container {
+    padding: 20px 16px;
+  }
+
+  .login-card {
+    padding: 40px 24px;
+    height: 85vh;
+    max-height: 500px;
+  }
+
+  .title {
+    font-size: 24px;
+    margin-bottom: 32px;
+  }
+
+  .input-field input,
+  .signin-btn,
+  .social-btn {
+    padding: 14px 16px;
+  }
+
+  .code-field {
+    flex-direction: column;
+    gap: 12px;
+
+    .send-code-btn {
+      padding: 14px 16px;
+    }
+  }
+
+  .qr-code-section img {
+    width: 160px;
+    height: 160px;
+  }
+
+  .modal-content {
+    padding: 24px;
+  }
+}

@@ -242,7 +242,7 @@ const Register: React.FC = observer(() => {
                         {errors.mobile && <div className="error-message">{errors.mobile}</div>}
                     </div>
 
-                    {/* <div className="input-group">
+                    <div className="input-group">
                         <label htmlFor="sex">性别</label>
                         <div className="input-wrapper">
                             <div className="icon">
@@ -260,9 +260,9 @@ const Register: React.FC = observer(() => {
                                 <option value="其他">其他</option>
                             </select>
                         </div>
-                    </div> */}
+                    </div>
 
-                    {/* <div className="input-group">
+                    <div className="input-group">
                         <label htmlFor="birthday">生日</label>
                         <div className="input-wrapper">
                             <div className="icon">
@@ -276,9 +276,9 @@ const Register: React.FC = observer(() => {
                                 onChange={handleInputChange}
                             />
                         </div>
-                    </div> */}
+                    </div>
 
-                    {/* <div className="input-group">
+                    <div className="input-group">
                         <label htmlFor="remark">个性签名</label>
                         <div className="input-wrapper">
                             <div className="icon">
@@ -293,7 +293,7 @@ const Register: React.FC = observer(() => {
                                 rows={3}
                             />
                         </div>
-                    </div> */}
+                    </div>
 
                     <button
                         className='login'
