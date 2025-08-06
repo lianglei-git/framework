@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>微信扫码登录示例</title>
+    <style>
+        body {
+            font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .login-container {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+        }
+
+        .logo {
+            width: 60px;
+            height: 60px;
+            background: #07c160;
+            border-radius: 12px;
+            margin: 0 auto 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 24px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 2rem;
+        }
+
+        .qr-container {
+            margin: 2rem 0;
+            padding: 1rem;
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            min-height: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .qr-code {
+            width: 180px;
+            height: 180px;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f9f9f9;
+        }
+
+        .status {
+            margin-top: 1rem;
+            padding: 0.5rem;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .status.pending {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .status.scanned {
+            background: #fff3e0;
+            color: #f57c00;
+        }
+
+        .status.success {
+            background: #e8f5e8;
+            color: #388e3c;
+        }
+
+        .status.expired {
+            background: #ffebee;
+            color: #d32f2f;
+        }
+
+        .refresh-btn {
+            background: #07c160;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-top: 1rem;
+        }
+
+        .refresh-btn:hover {
+            background: #06ad56;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #07c160;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="login-container">
+        <div class="logo">微</div>
+        <h1>微信扫码登录</h1>
+        <p class="subtitle">请使用微信扫描二维码登录</p>
+
+        <div class="qr-container">
+            <div class="qr-code" id="qrCode">
+                <div class="loading"></div>
+            </div>
+        </div>
+
+        <div class="status pending" id="status">
+            正在生成二维码...
+        </div>
+
+        <button class="refresh-btn" id="refreshBtn" onclick="generateQRCode()" style="display: none;">
+            刷新二维码
+        </button>
+    </div>
+
+    <script>
+        let currentState = '';
+        let statusCheckInterval = null;
+
+        // 生成二维码
+        async function generateQRCode() {
+            const qrCode = document.getElementById('qrCode');
+            const status = document.getElementById('status');
+            const refreshBtn = document.getElementById('refreshBtn');
+
+            // 显示加载状态
+            qrCode.innerHTML = '<div class="loading"></div>';
+            status.className = 'status pending';
+            status.textContent = '正在生成二维码...';
+            refreshBtn.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/v1/auth/wechat/qr-code');
+                const data = await response.json();
+
+                if (data.code === 200) {
+                    currentState = data.data.state;
+
+                    // 显示二维码（这里使用简单的URL显示，实际应该生成二维码图片）
+                    qrCode.innerHTML = `
+                        <div style="text-align: center;">
+                            <div style="font-size: 12px; color: #666; margin-bottom: 8px;">扫码登录</div>
+                            <div style="font-size: 10px; color: #999; word-break: break-all;">
+                                ${data.data.qr_url.substring(0, 50)}...
+                            </div>
+                        </div>
+                    `;
+
+                    status.className = 'status pending';
+                    status.textContent = '请使用微信扫描二维码';
+
+                    // 开始轮询状态
+                    startStatusCheck();
+                } else {
+                    throw new Error(data.message);
+                }
+            } catch (error) {
+                console.error('生成二维码失败:', error);
+                qrCode.innerHTML = '<div style="color: #d32f2f;">生成失败</div>';
+                status.className = 'status expired';
+                status.textContent = '生成二维码失败，请重试';
+                refreshBtn.style.display = 'block';
+            }
+        }
+
+        // 检查登录状态
+        async function checkLoginStatus() {
+            if (!currentState) return;
+
+            try {
+                const response = await fetch(`/api/v1/auth/wechat/status/${currentState}`);
+                const data = await response.json();
+
+                if (data.code === 200) {
+                    const status = document.getElementById('status');
+
+                    if (data.data.status === 'pending') {
+                        status.className = 'status pending';
+                        status.textContent = '请使用微信扫描二维码';
+                    } else if (data.data.status === 'scanned') {
+                        status.className = 'status scanned';
+                        status.textContent = '已扫描，请在微信中确认登录';
+                    } else if (data.data.status === 'confirmed') {
+                        status.className = 'status success';
+                        status.textContent = '登录成功！正在跳转...';
+
+                        // 停止轮询
+                        stopStatusCheck();
+
+                        // 保存token
+                        if (data.data.token) {
+                            localStorage.setItem('auth_token', data.data.token);
+                        }
+
+                        // 跳转到主页
+                        setTimeout(() => {
+                            window.location.href = '/dashboard';
+                        }, 1000);
+                    }
+                } else if (data.code === 410) {
+                    // 二维码过期
+                    const status = document.getElementById('status');
+                    status.className = 'status expired';
+                    status.textContent = '二维码已过期，请刷新';
+                    document.getElementById('refreshBtn').style.display = 'block';
+                    stopStatusCheck();
+                }
+            } catch (error) {
+                console.error('检查状态失败:', error);
+            }
+        }
+
+        // 开始轮询状态
+        function startStatusCheck() {
+            stopStatusCheck(); // 先停止之前的轮询
+            statusCheckInterval = setInterval(checkLoginStatus, 2000); // 每2秒检查一次
+        }
+
+        // 停止轮询状态
+        function stopStatusCheck() {
+            if (statusCheckInterval) {
+                clearInterval(statusCheckInterval);
+                statusCheckInterval = null;
+            }
+        }
+
+        // 页面加载时生成二维码
+        window.addEventListener('load', generateQRCode);
+
+        // 页面卸载时清理轮询
+        window.addEventListener('beforeunload', stopStatusCheck);
+    </script>
+</body>
+
+</html>

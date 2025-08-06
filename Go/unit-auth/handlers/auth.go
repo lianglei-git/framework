@@ -1,0 +1,957 @@
+package handlers
+
+import (
+	"errors"
+	"net/http"
+	"time"
+	"unit-auth/models"
+	"unit-auth/services"
+	"unit-auth/utils"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+)
+
+// 用户注册
+func Register(db *gorm.DB, mailer *utils.Mailer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req models.RegisterRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid request data: " + err.Error(),
+			})
+			return
+		}
+
+		// 检查邮箱是否已存在
+		var existingUser models.User
+		if err := db.Where("email = ?", req.Email).First(&existingUser).Error; err == nil {
+			c.JSON(http.StatusConflict, models.Response{
+				Code:    409,
+				Message: "Email already exists",
+			})
+			return
+		}
+
+		// 检查用户名是否已存在
+		if err := db.Where("username = ?", req.Username).First(&existingUser).Error; err == nil {
+			c.JSON(http.StatusConflict, models.Response{
+				Code:    409,
+				Message: "Username already exists",
+			})
+			return
+		}
+
+		// 验证邮箱验证码
+		var verification models.EmailVerification
+		if err := db.Where("email = ? AND code = ? AND type = ? AND used = ? AND expires_at > ?",
+			req.Email, req.Code, "register", false, time.Now()).First(&verification).Error; err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid or expired verification code",
+			})
+			return
+		}
+
+		// 创建用户
+		user := models.User{
+			Email:         &req.Email,
+			Username:      req.Username,
+			Nickname:      req.Nickname,
+			Password:      req.Password,
+			EmailVerified: true,
+			Role:          "user",
+			Status:        "active",
+		}
+
+		if err := user.HashPassword(); err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to hash password",
+			})
+			return
+		}
+
+		// 使用事务确保数据一致性
+		tx := db.Begin()
+		defer func() {
+			if r := recover(); r != nil {
+				tx.Rollback()
+			}
+		}()
+
+		// 创建用户
+		if err := tx.Create(&user).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to create user",
+			})
+			return
+		}
+
+		// 标记验证码为已使用
+		if err := tx.Model(&verification).Update("used", true).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to update verification code",
+			})
+			return
+		}
+
+		// 提交事务
+		if err := tx.Commit().Error; err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to commit transaction",
+			})
+			return
+		}
+
+		// 发送欢迎邮件（异步）
+		if user.Email != nil {
+			go mailer.SendWelcomeEmail(*user.Email, user.Username)
+		}
+
+		c.JSON(http.StatusCreated, models.Response{
+			Code:    201,
+			Message: "User registered successfully",
+			Data:    user.ToResponse(),
+		})
+	}
+}
+
+// 用户登录
+func Login(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req models.LoginRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid request data: " + err.Error(),
+			})
+			return
+		}
+
+		// 查找用户
+		var user models.User
+		if err := db.Where("email = ?", req.Email).First(&user).Error; err != nil {
+			c.JSON(http.StatusUnauthorized, models.Response{
+				Code:    401,
+				Message: "Invalid email or password",
+			})
+			return
+		}
+
+		// 检查用户状态
+		if user.Status != "active" {
+			c.JSON(http.StatusForbidden, models.Response{
+				Code:    403,
+				Message: "Account is disabled",
+			})
+			return
+		}
+
+		// 验证密码
+		if !user.CheckPassword(req.Password) {
+			c.JSON(http.StatusUnauthorized, models.Response{
+				Code:    401,
+				Message: "Invalid email or password",
+			})
+			return
+		}
+
+		// 生成JWT Token
+		var email string
+		if user.Email != nil {
+			email = *user.Email
+		}
+		token, err := utils.GenerateToken(user.ID, email, user.Role)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to generate token",
+			})
+			return
+		}
+
+		// 更新最后登录时间
+		now := time.Now()
+		db.Model(&user).Update("last_login_at", &now)
+
+		c.JSON(http.StatusOK, models.Response{
+			Code:    200,
+			Message: "Login successful",
+			Data: models.LoginResponse{
+				User:  user.ToResponse(),
+				Token: token,
+			},
+		})
+	}
+}
+
+// UnifiedLogin 统一登录接口
+func UnifiedLogin(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req models.UnifiedLoginRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid request data: " + err.Error(),
+			})
+			return
+		}
+
+		// 识别账号类型
+		accountType := utils.IdentifyAccountType(req.Account)
+		if accountType == utils.AccountTypeUnknown {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid account format. Please use email, phone number, or username",
+			})
+			return
+		}
+
+		// 根据账号类型查找用户
+		var user models.User
+		var queryErr error
+
+		switch accountType {
+		case utils.AccountTypeEmail:
+			queryErr = db.Where("email = ?", req.Account).First(&user).Error
+		case utils.AccountTypePhone:
+			queryErr = db.Where("phone = ?", req.Account).First(&user).Error
+		case utils.AccountTypeUsername:
+			queryErr = db.Where("username = ?", req.Account).First(&user).Error
+		}
+
+		if queryErr != nil {
+			c.JSON(http.StatusUnauthorized, models.Response{
+				Code:    401,
+				Message: "Invalid account or password",
+			})
+			return
+		}
+
+		// 检查用户状态
+		if user.Status != "active" {
+			c.JSON(http.StatusForbidden, models.Response{
+				Code:    403,
+				Message: "Account is disabled",
+			})
+			return
+		}
+
+		// 验证密码
+		if !user.CheckPassword(req.Password) {
+			c.JSON(http.StatusUnauthorized, models.Response{
+				Code:    401,
+				Message: "Invalid account or password",
+			})
+			return
+		}
+
+		// 生成JWT Token
+		var identifier string
+		if user.Email != nil && *user.Email != "" {
+			identifier = *user.Email
+		} else if user.Phone != nil && *user.Phone != "" {
+			identifier = *user.Phone
+		} else {
+			identifier = user.ID
+		}
+
+		token, err := utils.GenerateToken(user.ID, identifier, user.Role)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to generate token",
+			})
+			return
+		}
+
+		// 更新最后登录时间
+		now := time.Now()
+		db.Model(&user).Update("last_login_at", &now)
+
+		c.JSON(http.StatusOK, models.Response{
+			Code:    200,
+			Message: "Login successful",
+			Data: models.LoginResponse{
+				User:  user.ToResponse(),
+				Token: token,
+			},
+		})
+	}
+}
+
+// 发送邮箱验证码
+func SendEmailCode(db *gorm.DB, mailer *utils.Mailer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req models.SendEmailCodeRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid request data: " + err.Error(),
+			})
+			return
+		}
+
+		// 检查是否在1分钟内已经发送过验证码
+		var recentVerification models.EmailVerification
+		if err := db.Where("email = ? AND type = ? AND created_at > ?",
+			req.Email, req.Type, time.Now().Add(-time.Minute)).First(&recentVerification).Error; err == nil {
+			c.JSON(http.StatusTooManyRequests, models.Response{
+				Code:    429,
+				Message: "Please wait 1 minute before requesting another code",
+			})
+			return
+		}
+
+		// 生成验证码
+		code := utils.GenerateVerificationCode()
+		expiresAt := time.Now().Add(10 * time.Minute)
+
+		// 保存验证码到数据库
+		verification := models.EmailVerification{
+			Email:     req.Email,
+			Code:      code,
+			Type:      req.Type,
+			ExpiresAt: expiresAt,
+			Used:      false,
+		}
+
+		if err := db.Create(&verification).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to save verification code",
+			})
+			return
+		}
+
+		// 发送邮件
+		if err := mailer.SendVerificationCode(req.Email, code, req.Type); err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to send verification code",
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, models.Response{
+			Code:    200,
+			Message: "Verification code sent successfully",
+		})
+	}
+}
+
+// 发送短信验证码
+func SendSMSCode(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req models.SendSMSCodeRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid request data: " + err.Error(),
+			})
+			return
+		}
+
+		// 检查是否在1分钟内已经发送过验证码
+		var recentVerification models.SMSVerification
+		if err := db.Where("phone = ? AND type = ? AND created_at > ?",
+			req.Phone, req.Type, time.Now().Add(-time.Minute)).First(&recentVerification).Error; err == nil {
+			c.JSON(http.StatusTooManyRequests, models.Response{
+				Code:    429,
+				Message: "Please wait 1 minute before requesting another code",
+			})
+			return
+		}
+
+		// 生成验证码
+		code := utils.GenerateVerificationCode()
+		expiresAt := time.Now().Add(5 * time.Minute) // 短信验证码5分钟过期
+
+		// 保存验证码到数据库
+		verification := models.SMSVerification{
+			Phone:     req.Phone,
+			Code:      code,
+			Type:      req.Type,
+			ExpiresAt: expiresAt,
+			Used:      false,
+		}
+
+		if err := db.Create(&verification).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to save verification code",
+			})
+			return
+		}
+
+		// TODO: 集成短信服务商API
+		// 这里应该调用短信服务商的API发送验证码
+		// 目前只是模拟发送成功
+
+		c.JSON(http.StatusOK, models.Response{
+			Code:    200,
+			Message: "SMS verification code sent successfully",
+			Data: gin.H{
+				"code": code, // 开发环境返回验证码，生产环境应该移除
+			},
+		})
+	}
+}
+
+// 验证邮箱
+func VerifyEmail(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req models.VerifyEmailRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid request data: " + err.Error(),
+			})
+			return
+		}
+
+		// 查找验证码
+		var verification models.EmailVerification
+		if err := db.Where("email = ? AND code = ? AND used = ? AND expires_at > ?",
+			req.Email, req.Code, false, time.Now()).First(&verification).Error; err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid or expired verification code",
+			})
+			return
+		}
+
+		// 标记验证码为已使用
+		db.Model(&verification).Update("used", true)
+
+		c.JSON(http.StatusOK, models.Response{
+			Code:    200,
+			Message: "Email verified successfully",
+		})
+	}
+}
+
+// 忘记密码
+func ForgotPassword(db *gorm.DB, mailer *utils.Mailer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req models.ForgotPasswordRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid request data: " + err.Error(),
+			})
+			return
+		}
+
+		// 检查用户是否存在
+		var user models.User
+		if err := db.Where("email = ?", req.Email).First(&user).Error; err != nil {
+			c.JSON(http.StatusNotFound, models.Response{
+				Code:    404,
+				Message: "User not found",
+			})
+			return
+		}
+
+		// 发送重置密码验证码
+		code := utils.GenerateVerificationCode()
+		expiresAt := time.Now().Add(10 * time.Minute)
+
+		verification := models.EmailVerification{
+			Email:     req.Email,
+			Code:      code,
+			Type:      "reset_password",
+			ExpiresAt: expiresAt,
+			Used:      false,
+		}
+
+		if err := db.Create(&verification).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to save verification code",
+			})
+			return
+		}
+
+		if err := mailer.SendVerificationCode(req.Email, code, "reset_password"); err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to send verification code",
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, models.Response{
+			Code:    200,
+			Message: "Password reset code sent successfully",
+		})
+	}
+}
+
+// 重置密码
+func ResetPassword(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req models.ResetPasswordRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid request data: " + err.Error(),
+			})
+			return
+		}
+
+		// 验证重置密码验证码
+		var verification models.EmailVerification
+		if err := db.Where("email = ? AND code = ? AND type = ? AND used = ? AND expires_at > ?",
+			req.Email, req.Code, "reset_password", false, time.Now()).First(&verification).Error; err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid or expired verification code",
+			})
+			return
+		}
+
+		// 更新用户密码
+		var user models.User
+		if err := db.Where("email = ?", req.Email).First(&user).Error; err != nil {
+			c.JSON(http.StatusNotFound, models.Response{
+				Code:    404,
+				Message: "User not found",
+			})
+			return
+		}
+
+		user.Password = req.Password
+		if err := user.HashPassword(); err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to hash password",
+			})
+			return
+		}
+
+		if err := db.Save(&user).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to update password",
+			})
+			return
+		}
+
+		// 标记验证码为已使用
+		db.Model(&verification).Update("used", true)
+
+		c.JSON(http.StatusOK, models.Response{
+			Code:    200,
+			Message: "Password reset successfully",
+		})
+	}
+}
+
+// PhoneLogin 手机号登录
+func PhoneLogin(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req models.PhoneLoginRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid request data: " + err.Error(),
+			})
+			return
+		}
+
+		// 验证手机号格式
+		if utils.IdentifyAccountType(req.Phone) != utils.AccountTypePhone {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid phone number format",
+			})
+			return
+		}
+
+		// 创建短信服务
+		smsService := services.NewMockSMSService(db)
+		smsHandler := services.NewSMSHandler(db, smsService)
+
+		// 验证验证码
+		verification, err := smsHandler.VerifyCode(req.Phone, req.Code, "login")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: err.Error(),
+			})
+			return
+		}
+
+		// 查找或创建用户
+		var user models.User
+		if err := db.Where("phone = ?", req.Phone).First(&user).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				// 创建新用户
+				user = models.User{
+					Phone:         &req.Phone,
+					Username:      req.Phone,
+					Nickname:      "手机用户",
+					PhoneVerified: true,
+					Role:          "user",
+					Status:        "active",
+					// 邮箱字段为NULL，因为手机号登录用户可能没有邮箱
+				}
+
+				if err := db.Create(&user).Error; err != nil {
+					c.JSON(http.StatusInternalServerError, models.Response{
+						Code:    500,
+						Message: "Failed to create user",
+					})
+					return
+				}
+			} else {
+				c.JSON(http.StatusInternalServerError, models.Response{
+					Code:    500,
+					Message: "Database error",
+				})
+				return
+			}
+		}
+
+		// 检查用户状态
+		if user.Status != "active" {
+			c.JSON(http.StatusForbidden, models.Response{
+				Code:    403,
+				Message: "Account is disabled",
+			})
+			return
+		}
+
+		// 生成JWT Token
+		var identifier string
+		if user.Phone != nil {
+			identifier = *user.Phone
+		} else {
+			identifier = user.ID
+		}
+
+		token, err := utils.GenerateToken(user.ID, identifier, user.Role)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to generate token",
+			})
+			return
+		}
+
+		// 标记验证码为已使用
+		if err := smsHandler.MarkCodeAsUsed(verification); err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to mark verification code as used",
+			})
+			return
+		}
+
+		// 更新最后登录时间
+		now := time.Now()
+		db.Model(&user).Update("last_login_at", &now)
+
+		c.JSON(http.StatusOK, models.Response{
+			Code:    200,
+			Message: "Phone login successful",
+			Data: models.LoginResponse{
+				User:  user.ToResponse(),
+				Token: token,
+			},
+		})
+	}
+}
+
+// SendPhoneCode 发送手机验证码
+func SendPhoneCode(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req models.SendPhoneCodeRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid request data: " + err.Error(),
+			})
+			return
+		}
+
+		// 创建短信服务
+		smsService := services.NewMockSMSService(db)
+		smsHandler := services.NewSMSHandler(db, smsService)
+
+		// 发送验证码
+		verification, err := smsHandler.SendVerificationCode(req.Phone, req.Type)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, models.Response{
+			Code:    200,
+			Message: "Verification code sent successfully",
+			Data: gin.H{
+				"phone":      req.Phone,
+				"type":       req.Type,
+				"expires_at": verification.ExpiresAt,
+			},
+		})
+	}
+}
+
+// PhoneResetPassword 手机号重置密码
+func PhoneResetPassword(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req models.PhoneResetPasswordRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid request data: " + err.Error(),
+			})
+			return
+		}
+
+		// 验证手机号格式
+		if utils.IdentifyAccountType(req.Phone) != utils.AccountTypePhone {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid phone number format",
+			})
+			return
+		}
+
+		// 验证重置密码验证码
+		var verification models.SMSVerification
+		if err := db.Where("phone = ? AND code = ? AND type = ? AND used = ? AND expires_at > ?",
+			req.Phone, req.Code, "reset_password", false, time.Now()).First(&verification).Error; err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid or expired verification code",
+			})
+			return
+		}
+
+		// 查找用户
+		var user models.User
+		if err := db.Where("phone = ?", req.Phone).First(&user).Error; err != nil {
+			c.JSON(http.StatusNotFound, models.Response{
+				Code:    404,
+				Message: "User not found",
+			})
+			return
+		}
+
+		// 更新用户密码
+		user.Password = req.Password
+		if err := user.HashPassword(); err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to hash password",
+			})
+			return
+		}
+
+		if err := db.Save(&user).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to update password",
+			})
+			return
+		}
+
+		// 标记验证码为已使用
+		db.Model(&verification).Update("used", true)
+
+		c.JSON(http.StatusOK, models.Response{
+			Code:    200,
+			Message: "Password reset successfully",
+		})
+	}
+}
+
+// PhoneDirectLogin 手机号验证码直接登录（自动注册）
+func PhoneDirectLogin(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req models.PhoneLoginRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid request data: " + err.Error(),
+			})
+			return
+		}
+
+		// 验证手机号格式
+		if utils.IdentifyAccountType(req.Phone) != utils.AccountTypePhone {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid phone number format",
+			})
+			return
+		}
+
+		// 创建短信服务
+		smsService := services.NewMockSMSService(db)
+		smsHandler := services.NewSMSHandler(db, smsService)
+
+		// 验证验证码
+		verification, err := smsHandler.VerifyCode(req.Phone, req.Code, "login")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: err.Error(),
+			})
+			return
+		}
+
+		// 使用事务确保数据一致性
+		tx := db.Begin()
+		defer func() {
+			if r := recover(); r != nil {
+				tx.Rollback()
+			}
+		}()
+
+		// 查找或创建用户
+		var user models.User
+		var isNewUser bool
+
+		if err := tx.Where("phone = ?", req.Phone).First(&user).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				// 创建新用户
+				isNewUser = true
+				now := time.Now()
+				user = models.User{
+					Phone:         &req.Phone,
+					Username:      req.Phone,
+					Nickname:      "手机用户",
+					PhoneVerified: true,
+					Role:          "user",
+					Status:        "active",
+					LoginCount:    1,
+					LastLoginAt:   &now,
+				}
+
+				if err := tx.Create(&user).Error; err != nil {
+					tx.Rollback()
+					c.JSON(http.StatusInternalServerError, models.Response{
+						Code:    500,
+						Message: "Failed to create user",
+					})
+					return
+				}
+			} else {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, models.Response{
+					Code:    500,
+					Message: "Database error",
+				})
+				return
+			}
+		} else {
+			// 更新现有用户的登录信息
+			user.LoginCount++
+			now := time.Now()
+			user.LastLoginAt = &now
+
+			if err := tx.Save(&user).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, models.Response{
+					Code:    500,
+					Message: "Failed to update user login info",
+				})
+				return
+			}
+		}
+
+		// 检查用户状态
+		if user.Status != "active" {
+			tx.Rollback()
+			c.JSON(http.StatusForbidden, models.Response{
+				Code:    403,
+				Message: "Account is disabled",
+			})
+			return
+		}
+
+		// 生成JWT Token
+		var identifier string
+		if user.Phone != nil {
+			identifier = *user.Phone
+		} else {
+			identifier = user.ID
+		}
+
+		token, err := utils.GenerateToken(user.ID, identifier, user.Role)
+		if err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to generate token",
+			})
+			return
+		}
+
+		// 标记验证码为已使用
+		if err := smsHandler.MarkCodeAsUsed(verification); err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to mark verification code as used",
+			})
+			return
+		}
+
+		// 提交事务
+		if err := tx.Commit().Error; err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to commit transaction",
+			})
+			return
+		}
+
+		// 记录登录日志
+		loginLog := models.LoginLog{
+			UserID:    user.ID,
+			Provider:  "phone",
+			IP:        c.ClientIP(),
+			UserAgent: c.GetHeader("User-Agent"),
+			Success:   true,
+		}
+		db.Create(&loginLog)
+
+		// 返回响应
+		response := models.Response{
+			Code:    200,
+			Message: "Login successful",
+			Data: models.LoginResponse{
+				User:  user.ToResponse(),
+				Token: token,
+			},
+		}
+
+		// 如果是新用户，添加特殊标识
+		if isNewUser {
+			response.Message = "Registration and login successful"
+			response.Data = gin.H{
+				"user":        user.ToResponse(),
+				"token":       token,
+				"is_new_user": true,
+				"welcome_msg": "Welcome! Your account has been created successfully.",
+			}
+		}
+
+		c.JSON(http.StatusOK, response)
+	}
+}

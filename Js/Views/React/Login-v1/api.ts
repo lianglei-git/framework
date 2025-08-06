@@ -2,7 +2,7 @@
 // 做最简单的一版本登录
 import axios from 'axios'
 import queryString from '../../../utils/queryString'
-import { globalUserStore } from './UserStore'
+import { globalUserStore } from './src/stores/UserStore'
 const basicUrl = import.meta.env.DEV ? "" : "https://sparrowui.cn/translate"
 
 const getCommonHeaders = () => {
