@@ -203,7 +203,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({ onSwitchToRegister, onForgotPassw
         // 临时存储sessionStorage
         window.sessionStorage.setItem('github_access', 'true')
         //   = 'https://github.com/login/oauth/authorize?client_id=Ov23li5H25mAnW2AWrr1&scope=read:user';
-        window.location.href = await getOAuthURLAPI('github', {})
+        window.location.href = await getOAuthURLAPI('github', location.search.split('?')?.[1])
     }
 
     const verifyForComponent = () => {

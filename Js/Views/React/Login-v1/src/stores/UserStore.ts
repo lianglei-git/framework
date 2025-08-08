@@ -67,7 +67,8 @@ class UserStore {
     }
 
     get avatarSrc() {
-        return userApi.getAvatarSrc(this.info.avatar)
+        return this.info.avatar
+        // return userApi.getAvatarSrc(this.info.avatar)
     }
 
     get isLogin() {
@@ -112,77 +113,6 @@ class UserStore {
             case UserRole.USER:
             default:
                 return UserLevelENUM.NormalUser
-        }
-    }
-
-    // 登录方法 - 兼容现有API
-    login = async ({ username, password }: { username: string, password: string }, callback?: () => void) => {
-        this.isLoading = true
-        this.error = null
-
-        try {
-            const response = await userApi.getProfile() // 这里应该调用登录API，暂时用getProfile代替
-            const type = response ? "success" : "error"
-            console.log(type, response ? "登录成功" : "登录失败")
-
-            if (response) {
-                this.info.token = "mock_token" // 实际应该从登录响应中获取
-                // 第一次登录请求一下详细信息
-                await this.requestUserDetailsInfo()
-                this.info = {
-                    username,
-                    remark: this.detailsUserInfo?.meta?.bio || "",
-                    nickname: this.detailsUserInfo?.meta?.nickname || username,
-                    token: "mock_token",
-                    id: this.detailsUserInfo?.id || "",
-                    avatar: this.detailsUserInfo?.avatar,
-                    role: this.detailsUserInfo?.role ? this.convertUserRole(this.detailsUserInfo.role) : UserLevelENUM.NormalUser,
-                }
-                this.setLocalStorageUserInfo()
-                this.notifyLoginListeners() // 触发登录监听器
-                callback?.()
-            }
-        } catch (error: any) {
-            this.error = error.message || "登录失败"
-            console.error("登录错误:", error)
-        } finally {
-            this.isLoading = false
-        }
-    }
-
-    // 新的登录方法 - 使用模块化架构
-    loginWithNewAPI = async (loginData: { account: string, password: string, remember_me?: boolean }) => {
-        this.isLoading = true
-        this.error = null
-
-        try {
-            const response = await userApi.getProfile() // 这里应该调用新的登录API
-
-            if (response) {
-                this.info = {
-                    username: loginData.account,
-                    nickname: response.meta?.nickname || loginData.account,
-                    remark: response.meta?.bio || "",
-                    token: "mock_token", // 实际应该从响应中获取
-                    id: response.id || "",
-                    avatar: response.avatar,
-                    role: response.role ? this.convertUserRole(response.role) : UserLevelENUM.NormalUser,
-                }
-
-                if (loginData.remember_me) {
-                    this.setLocalStorageUserInfo()
-                }
-
-                this.notifyLoginListeners() // 触发登录监听器
-                return response
-            } else {
-                throw new Error("登录失败")
-            }
-        } catch (error: any) {
-            this.error = error.message || "登录失败"
-            throw error
-        } finally {
-            this.isLoading = false
         }
     }
 

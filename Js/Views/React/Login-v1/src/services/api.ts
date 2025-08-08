@@ -20,6 +20,7 @@ import {
 import axios from 'axios'
 import queryString from '../../../../../utils/queryString'
 import apiClient from './axiosInterceptor'
+import { getGenresType } from '../utils/getGenresType'
 
 // 基础配置 - 对接后端unit-auth服务
 const basicUrl = import.meta.env.DEV ? "http://localhost:8080" : "https://sparrowui.cn/translate"
@@ -27,7 +28,9 @@ const basicUrl = import.meta.env.DEV ? "http://localhost:8080" : "https://sparro
 // 获取通用请求头
 const getCommonHeaders = (token?: string) => {
     const headers: Record<string, string> = {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        // 这就是归属项目的ID，用于区分不同的项目
+        'X-Genres-Type': getGenresType() || ''
     }
 
     if (token) {

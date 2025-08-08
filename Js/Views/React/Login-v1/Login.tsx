@@ -35,7 +35,7 @@ const Login: React.FC = observer(() => {
           // 清理URL中的code/state
           const url = new URL(window.location.href)
           url.searchParams.delete('code')
-          url.searchParams.delete('state')
+          // url.searchParams.delete('state')
           isGithubAccess = false;
           window.history.replaceState({}, document.title, url.toString())
         }
