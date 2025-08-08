@@ -102,7 +102,7 @@ func main() {
 
 	// 设置监控路由
 	router.SetupMonitoringRoutes(r, monitoringService)
-
+	r.Use(middleware.AutoRefreshMiddleware())
 	// API路由组
 	api := r.Group("/api/v1")
 	{
@@ -137,6 +137,12 @@ func main() {
 			auth.POST("/phone-login", handlers.PhoneLogin(db))
 			auth.POST("/phone-direct-login", handlers.PhoneDirectLogin(db)) // 直接登录（自动注册）
 			auth.POST("/phone-reset-password", handlers.PhoneResetPassword(db))
+
+			auth.POST("/refresh-token", handlers.RefreshToken())                              // 简单续签
+			auth.POST("/refresh-with-refresh-token", handlers.RefreshTokenWithRefreshToken()) // 双Token续签
+			auth.GET("/token-status", handlers.CheckTokenStatus())                            // 检查token状态
+			auth.POST("/login-with-remember", handlers.LoginWithRememberMe(db))               // 记住我登录
+			auth.POST("/login-with-token-pair", handlers.LoginWithTokenPair(db))              // 双Token登录
 		}
 
 		// 需要认证的路由

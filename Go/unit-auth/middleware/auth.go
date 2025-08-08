@@ -5,11 +5,13 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unit-auth/models"
 	"unit-auth/services"
 	"unit-auth/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 // JWT认证中间件
@@ -170,5 +172,51 @@ func AdminMiddleware() gin.HandlerFunc {
 		}
 
 		c.Next()
+	}
+}
+
+// 在 handlers/auth.go 中添加
+// LoginWithRememberMe 支持记住我的登录
+func LoginWithRememberMe(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req models.LoginWithRememberMeRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid request data: " + err.Error(),
+			})
+			return
+		}
+
+		// 验证用户（省略验证逻辑...）
+		var user models.User
+		// ... 用户验证逻辑
+
+		// 根据是否选择"记住我"生成不同的token
+		var token string
+		var err error
+
+		if req.RememberMe {
+			token, err = utils.GenerateRememberMeToken(user.ID, *user.Email, user.Role)
+		} else {
+			token, err = utils.GenerateAccessToken(user.ID, *user.Email, user.Role)
+		}
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to generate token",
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, models.Response{
+			Code:    200,
+			Message: "Login successful",
+			Data: models.LoginResponse{
+				User:  user.ToResponse(),
+				Token: token,
+			},
+		})
 	}
 }

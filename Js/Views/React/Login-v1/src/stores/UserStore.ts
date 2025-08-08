@@ -1,6 +1,6 @@
 import { computed, makeAutoObservable, observable, reaction } from "mobx"
 import { User, UserRole } from '../types'
-import { userApi } from '../services/api'
+import { authApi, userApi } from '../services/api'
 import { storageManager } from "../utils"
 
 // 用户等级枚举
@@ -25,7 +25,7 @@ const basicUserInfo = {
     remark: "",
     token: "",
     id: "",
-    avatar: undefined,
+    avatar: undefined as string | undefined,
     role: UserLevelENUM.NormalUser,
 }
 
@@ -36,6 +36,9 @@ class UserStore {
     info = { ...basicUserInfo }
     isLoading: boolean = false
     error: string | null = null
+
+    // 登录状态监听器
+    private loginListeners: (() => void)[] = []
 
     constructor() {
         makeAutoObservable(this)
@@ -75,6 +78,43 @@ class UserStore {
         return this.info.role
     }
 
+    // 更新token
+    updateToken = (newToken: string) => {
+        this.info.token = newToken
+        this.setLocalStorageUserInfo()
+        console.log('Token已更新')
+    }
+
+    // 添加登录状态监听器
+    addLoginListener = (listener: () => void) => {
+        this.loginListeners.push(listener)
+    }
+
+    removeLoginListener = (listener: () => void) => {
+        const index = this.loginListeners.indexOf(listener)
+        if (index > -1) {
+            this.loginListeners.splice(index, 1)
+        }
+    }
+
+    // 触发登录状态变化
+    private notifyLoginListeners = () => {
+        this.loginListeners.forEach(listener => listener())
+    }
+
+    // 将UserRole转换为UserLevelENUM
+    private convertUserRole(role: UserRole): UserLevelENUM {
+        switch (role) {
+            case UserRole.ADMIN:
+                return UserLevelENUM.SuperUser
+            case UserRole.MODERATOR:
+                return UserLevelENUM.Developer
+            case UserRole.USER:
+            default:
+                return UserLevelENUM.NormalUser
+        }
+    }
+
     // 登录方法 - 兼容现有API
     login = async ({ username, password }: { username: string, password: string }, callback?: () => void) => {
         this.isLoading = true
@@ -91,14 +131,15 @@ class UserStore {
                 await this.requestUserDetailsInfo()
                 this.info = {
                     username,
-                    remark: this.detailsUserInfo?.remark || "",
-                    nickname: this.detailsUserInfo?.nickname || username,
+                    remark: this.detailsUserInfo?.meta?.bio || "",
+                    nickname: this.detailsUserInfo?.meta?.nickname || username,
                     token: "mock_token",
                     id: this.detailsUserInfo?.id || "",
                     avatar: this.detailsUserInfo?.avatar,
-                    role: this.detailsUserInfo?.role || UserLevelENUM.NormalUser,
+                    role: this.detailsUserInfo?.role ? this.convertUserRole(this.detailsUserInfo.role) : UserLevelENUM.NormalUser,
                 }
                 this.setLocalStorageUserInfo()
+                this.notifyLoginListeners() // 触发登录监听器
                 callback?.()
             }
         } catch (error: any) {
@@ -120,18 +161,19 @@ class UserStore {
             if (response) {
                 this.info = {
                     username: loginData.account,
-                    nickname: response.nickname || loginData.account,
-                    remark: response.remark || "",
+                    nickname: response.meta?.nickname || loginData.account,
+                    remark: response.meta?.bio || "",
                     token: "mock_token", // 实际应该从响应中获取
                     id: response.id || "",
                     avatar: response.avatar,
-                    role: response.role || UserLevelENUM.NormalUser,
+                    role: response.role ? this.convertUserRole(response.role) : UserLevelENUM.NormalUser,
                 }
 
                 if (loginData.remember_me) {
                     this.setLocalStorageUserInfo()
                 }
 
+                this.notifyLoginListeners() // 触发登录监听器
                 return response
             } else {
                 throw new Error("登录失败")
@@ -150,24 +192,27 @@ class UserStore {
     }
 
     // 登出
-    logout = () => {
-        localStorage.setItem("t_remeberInfo", "")
+    logout = async () => {
+        await authApi.logout();
+        storageManager.clearAuthData();
         this.info = { ...basicUserInfo }
         this.error = null
+        this.notifyLoginListeners() // 触发登录监听器
     }
 
     // 设置用户信息
     setUserInfo = (userInfo: any, token: string) => {
         this.info = {
             username: userInfo.username || userInfo.openid || '',
-            nickname: userInfo.nickname || '',
-            remark: userInfo.remark || '',
+            nickname: userInfo.meta?.nickname || userInfo.nickname || '',
+            remark: userInfo.meta?.bio || userInfo.remark || '',
             token: token || '',
             id: userInfo.id || '',
             avatar: userInfo.avatar || userInfo.headimgurl || undefined,
-            role: userInfo.role || UserLevelENUM.NormalUser,
+            role: userInfo.role ? this.convertUserRole(userInfo.role) : UserLevelENUM.NormalUser,
         }
         this.setLocalStorageUserInfo()
+        this.notifyLoginListeners() // 触发登录监听器
     }
 
     // 更新用户信息
@@ -177,7 +222,15 @@ class UserStore {
 
         try {
             const updatedUser = await userApi.updateProfile(userData)
-            this.info = { ...this.info, ...updatedUser }
+            this.info = {
+                ...this.info,
+                username: updatedUser.username,
+                nickname: updatedUser.meta?.nickname || this.info.nickname,
+                remark: updatedUser.meta?.bio || this.info.remark,
+                id: updatedUser.id,
+                avatar: updatedUser.avatar,
+                role: updatedUser.role ? this.convertUserRole(updatedUser.role) : this.info.role,
+            }
             this.setLocalStorageUserInfo()
             return updatedUser
         } catch (error: any) {
@@ -209,10 +262,11 @@ class UserStore {
                     ...this.info,
                     ...authinfo,
                     username: authinfo.user.username,
-                    nickname: authinfo.user.nickname,
-                    remark: authinfo.user.remark,
+                    nickname: authinfo.user.meta?.nickname || authinfo.user.nickname,
+                    remark: authinfo.user.meta?.bio || authinfo.user.remark,
                     id: authinfo.user.id,
-                    avatar: authinfo.user.meta?.avatar || undefined,
+                    avatar: authinfo.user.avatar || authinfo.user.meta?.avatar || undefined,
+                    role: authinfo.user.role ? this.convertUserRole(authinfo.user.role) : UserLevelENUM.NormalUser,
                 }
             } catch (error) {
                 console.error("解析本地存储用户信息失败:", error)
@@ -241,7 +295,7 @@ class UserStore {
 
     // 检查用户权限
     hasRole = (role: string): boolean => {
-        return this.info.role === role
+        return this.info.role === this.convertUserRole(role as UserRole)
     }
 
     // 检查是否为管理员

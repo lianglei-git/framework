@@ -558,3 +558,42 @@ func (u *User) BeforeCreate(tx *gorm.DB) error {
 
 	return nil
 }
+
+// 在 models/user.go 中添加新的请求结构
+
+// LoginWithRememberMeRequest 支持记住我的登录请求
+type LoginWithRememberMeRequest struct {
+	Account    string `json:"account" binding:"required"`  // 账号（邮箱/用户名/手机号）
+	Password   string `json:"password" binding:"required"` // 密码
+	RememberMe bool   `json:"remember_me"`                 // 是否记住我
+}
+
+// LoginWithTokenPairRequest 支持双Token的登录请求
+type LoginWithTokenPairRequest struct {
+	Account  string `json:"account" binding:"required"`  // 账号（邮箱/用户名/手机号）
+	Password string `json:"password" binding:"required"` // 密码
+}
+
+// RefreshTokenRequest 刷新token请求
+type RefreshTokenRequest struct {
+	RefreshToken string `json:"refresh_token" binding:"required"`
+}
+
+// TokenStatusResponse Token状态响应
+type TokenStatusResponse struct {
+	UserID         string    `json:"user_id"`
+	Email          string    `json:"email"`
+	Role           string    `json:"role"`
+	TokenType      string    `json:"token_type"`
+	ExpiresAt      time.Time `json:"expires_at"`
+	IsExpiringSoon bool      `json:"is_expiring_soon"`
+}
+
+// TokenPairResponse 双Token响应
+type TokenPairResponse struct {
+	User             UserResponse `json:"user"`
+	AccessToken      string       `json:"access_token"`
+	RefreshToken     string       `json:"refresh_token"`
+	ExpiresIn        int64        `json:"expires_in"`
+	RefreshExpiresIn int64        `json:"refresh_expires_in"`
+}
