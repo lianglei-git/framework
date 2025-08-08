@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unit-auth/middleware"
 	"unit-auth/models"
 	"unit-auth/services"
 	"unit-auth/utils"
@@ -55,16 +56,25 @@ func Register(db *gorm.DB, mailer *utils.Mailer) gin.HandlerFunc {
 			return
 		}
 
-		// 创建用户
+		// 读取项目Key（若有）
+		projectKey := ""
+		if keyVal, ok := c.Get(middleware.CtxProjectKey); ok {
+			projectKey = keyVal.(string)
+		}
+
+		// 创建用户（服务内强制映射；失败回滚注册）
 		newUser, err := services.RegisterUser(db, mailer, services.RegistrationOptions{
-			Email:         &req.Email,
-			Username:      req.Username,
-			Nickname:      req.Nickname,
-			Password:      req.Password,
-			EmailVerified: true,
-			Role:          "user",
-			Status:        "active",
-			SendWelcome:   true,
+			Email:                &req.Email,
+			Username:             req.Username,
+			Nickname:             req.Nickname,
+			Password:             req.Password,
+			EmailVerified:        true,
+			Role:                 "user",
+			Status:               "active",
+			SendWelcome:          true,
+			ProjectKey:           projectKey,
+			GinContext:           c,
+			StrictProjectMapping: projectKey != "",
 		})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to create user: " + err.Error()})
@@ -77,10 +87,29 @@ func Register(db *gorm.DB, mailer *utils.Mailer) gin.HandlerFunc {
 			return
 		}
 
+		// 生成Token（含项目Claims）
+		identifier := req.Email
+		localID := ""
+		if v, ok := c.Get("local_user_id"); ok {
+			if s, ok2 := v.(string); ok2 {
+				localID = s
+			}
+		}
+		var token string
+		if projectKey != "" && localID != "" {
+			token, err = utils.GenerateTokenWithProject(newUser.ID, identifier, newUser.Role, projectKey, localID)
+		} else {
+			token, err = utils.GenerateToken(newUser.ID, identifier, newUser.Role)
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
+			return
+		}
+
 		c.JSON(http.StatusCreated, models.Response{
 			Code:    201,
 			Message: "Register successfully",
-			Data:    newUser.ToResponse(),
+			Data:    models.LoginResponse{User: newUser.ToResponse(), Token: token},
 		})
 	}
 }
@@ -90,52 +119,48 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req models.LoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, models.Response{
-				Code:    400,
-				Message: "Invalid request data: " + err.Error(),
-			})
+			c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: "Invalid request data: " + err.Error()})
 			return
 		}
 
 		// 查找用户
 		var user models.User
 		if err := db.Where("email = ?", req.Email).First(&user).Error; err != nil {
-			c.JSON(http.StatusUnauthorized, models.Response{
-				Code:    401,
-				Message: "Invalid email or password",
-			})
+			c.JSON(http.StatusUnauthorized, models.Response{Code: 401, Message: "Invalid email or password"})
 			return
 		}
 
 		// 检查用户状态
 		if user.Status != "active" {
-			c.JSON(http.StatusForbidden, models.Response{
-				Code:    403,
-				Message: "Account is disabled",
-			})
+			c.JSON(http.StatusForbidden, models.Response{Code: 403, Message: "Account is disabled"})
 			return
 		}
 
 		// 验证密码
 		if !user.CheckPassword(req.Password) {
-			c.JSON(http.StatusUnauthorized, models.Response{
-				Code:    401,
-				Message: "Invalid email or password",
-			})
+			c.JSON(http.StatusUnauthorized, models.Response{Code: 401, Message: "Invalid email or password"})
 			return
 		}
 
-		// 生成JWT Token
-		var email string
-		if user.Email != nil {
-			email = *user.Email
+		// 生成紧凑JWT（含项目映射）
+		projectKey := ""
+		if keyVal, ok := c.Get(middleware.CtxProjectKey); ok {
+			projectKey = keyVal.(string)
 		}
-		token, err := utils.GenerateToken(user.ID, email, user.Role)
+		localID := ""
+		if projectKey != "" {
+			var pm models.ProjectMapping
+			if err := db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Debug().Error; err == nil {
+				localID = pm.LocalUserID
+			}
+		}
+		identifier := ""
+		if user.Email != nil {
+			identifier = *user.Email
+		}
+		token, err := utils.GenerateCompactAccessToken(user.ID, identifier, user.Role, projectKey, localID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.Response{
-				Code:    500,
-				Message: "Failed to generate token",
-			})
+			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
 			return
 		}
 
@@ -143,14 +168,7 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 		now := time.Now()
 		db.Model(&user).Update("last_login_at", &now)
 
-		c.JSON(http.StatusOK, models.Response{
-			Code:    200,
-			Message: "Login successful",
-			Data: models.LoginResponse{
-				User:  user.ToResponse(),
-				Token: token,
-			},
-		})
+		c.JSON(http.StatusOK, models.Response{Code: 200, Message: "Login successful", Data: models.LoginResponse{User: user.ToResponse(), Token: token}})
 	}
 }
 
@@ -159,27 +177,20 @@ func UnifiedLogin(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req models.UnifiedLoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, models.Response{
-				Code:    400,
-				Message: "Invalid request data: " + err.Error(),
-			})
+			c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: "Invalid request data: " + err.Error()})
 			return
 		}
 
 		// 识别账号类型
 		accountType := utils.IdentifyAccountType(req.Account)
 		if accountType == utils.AccountTypeUnknown {
-			c.JSON(http.StatusBadRequest, models.Response{
-				Code:    400,
-				Message: "Invalid account format. Please use email, phone number, or username",
-			})
+			c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: "Invalid account format. Please use email, phone number, or username"})
 			return
 		}
 
 		// 根据账号类型查找用户
 		var user models.User
 		var queryErr error
-
 		switch accountType {
 		case utils.AccountTypeEmail:
 			queryErr = db.Where("email = ?", req.Account).First(&user).Error
@@ -188,49 +199,48 @@ func UnifiedLogin(db *gorm.DB) gin.HandlerFunc {
 		case utils.AccountTypeUsername:
 			queryErr = db.Where("username = ?", req.Account).First(&user).Error
 		}
-
 		if queryErr != nil {
-			c.JSON(http.StatusUnauthorized, models.Response{
-				Code:    401,
-				Message: "Invalid account or password",
-			})
+			c.JSON(http.StatusUnauthorized, models.Response{Code: 401, Message: "Invalid account or password"})
 			return
 		}
 
 		// 检查用户状态
 		if user.Status != "active" {
-			c.JSON(http.StatusForbidden, models.Response{
-				Code:    403,
-				Message: "Account is disabled",
-			})
+			c.JSON(http.StatusForbidden, models.Response{Code: 403, Message: "Account is disabled"})
 			return
 		}
 
 		// 验证密码
 		if !user.CheckPassword(req.Password) {
-			c.JSON(http.StatusUnauthorized, models.Response{
-				Code:    401,
-				Message: "Invalid account or password",
-			})
+			c.JSON(http.StatusUnauthorized, models.Response{Code: 401, Message: "Invalid account or password"})
 			return
 		}
 
-		// 生成JWT Token
-		var identifier string
+		// 读取项目Key并查找映射以注入 pid/luid
+		projectKey := ""
+		if keyVal, ok := c.Get(middleware.CtxProjectKey); ok {
+			projectKey = keyVal.(string)
+		}
+		localID := ""
+		if projectKey != "" {
+			var pm models.ProjectMapping
+			if err := db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
+				localID = pm.LocalUserID
+			}
+		}
+
+		// 选择标识符（邮箱优先，其次手机号，最后用户ID）
+		identifier := user.ID
 		if user.Email != nil && *user.Email != "" {
 			identifier = *user.Email
 		} else if user.Phone != nil && *user.Phone != "" {
 			identifier = *user.Phone
-		} else {
-			identifier = user.ID
 		}
 
-		token, err := utils.GenerateToken(user.ID, identifier, user.Role)
+		// 生成统一紧凑JWT（写入 pid/luid 当可用）
+		token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey, localID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.Response{
-				Code:    500,
-				Message: "Failed to generate token",
-			})
+			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
 			return
 		}
 
@@ -238,14 +248,7 @@ func UnifiedLogin(db *gorm.DB) gin.HandlerFunc {
 		now := time.Now()
 		db.Model(&user).Update("last_login_at", &now)
 
-		c.JSON(http.StatusOK, models.Response{
-			Code:    200,
-			Message: "Login successful",
-			Data: models.LoginResponse{
-				User:  user.ToResponse(),
-				Token: token,
-			},
-		})
+		c.JSON(http.StatusOK, models.Response{Code: 200, Message: "Login successful", Data: models.LoginResponse{User: user.ToResponse(), Token: token}})
 	}
 }
 
@@ -681,14 +684,21 @@ func PhoneDirectLogin(db *gorm.DB) gin.HandlerFunc {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				// 使用统一注册服务创建新用户
 				isNewUser = true
+				projectKey := ""
+				if keyVal, ok := c.Get(middleware.CtxProjectKey); ok {
+					projectKey = keyVal.(string)
+				}
 				created, err := services.RegisterUser(tx, nil, services.RegistrationOptions{
-					Phone:         &req.Phone,
-					Username:      req.Phone,
-					Nickname:      "手机用户",
-					PhoneVerified: true,
-					Role:          "user",
-					Status:        "active",
-					SendWelcome:   false,
+					Phone:                &req.Phone,
+					Username:             req.Phone,
+					Nickname:             "手机用户",
+					PhoneVerified:        true,
+					Role:                 "user",
+					Status:               "active",
+					SendWelcome:          false,
+					ProjectKey:           projectKey,
+					GinContext:           c,
+					StrictProjectMapping: projectKey != "",
 				})
 				if err != nil {
 					tx.Rollback()
@@ -733,22 +743,43 @@ func PhoneDirectLogin(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// 生成JWT Token
+		// 生成JWT Token（含项目映射）
 		var identifier string
 		if user.Phone != nil {
 			identifier = *user.Phone
 		} else {
 			identifier = user.ID
 		}
+		projectKey := ""
+		localID := ""
+		if keyVal, ok := c.Get(middleware.CtxProjectKey); ok {
+			projectKey = keyVal.(string)
+			var p models.Project
+			if err := db.Where("`key` = ? AND enabled = ?", projectKey, true).First(&p).Error; err == nil {
+				var pm models.ProjectMapping
+				if err := db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
+					localID = pm.LocalUserID
+				}
+			}
+		}
 
-		token, err := utils.GenerateToken(user.ID, identifier, user.Role)
-		if err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, models.Response{
-				Code:    500,
-				Message: "Failed to generate token",
-			})
-			return
+		token := ""
+		if projectKey != "" && localID != "" {
+			var err2 error
+			token, err2 = utils.GenerateTokenWithProject(user.ID, identifier, user.Role, projectKey, localID)
+			if err2 != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
+				return
+			}
+		} else {
+			var err2 error
+			token, err2 = utils.GenerateToken(user.ID, identifier, user.Role)
+			if err2 != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
+				return
+			}
 		}
 
 		// 标记验证码为已使用
@@ -814,20 +845,26 @@ func EmailCodeLogin(db *gorm.DB, mailer *utils.Mailer) gin.HandlerFunc {
 			return
 		}
 
-		// 如果用户没有注册则自动注册并登录
+		// 如果用户没有注册则自动注册并登录（强一致，带项目映射）
 		var user models.User
 		if err := db.Where("email = ?", req.Email).First(&user).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				// 自动注册并登录
 				base := strings.Split(req.Email, "@")[0]
+				projectKey := ""
+				if keyVal, ok := c.Get(middleware.CtxProjectKey); ok {
+					projectKey = keyVal.(string)
+				}
 				created, err := services.RegisterUser(db, mailer, services.RegistrationOptions{
-					Email:         &req.Email,
-					Username:      base,
-					Nickname:      base,
-					EmailVerified: true,
-					Role:          "user",
-					Status:        "active",
-					SendWelcome:   true,
+					Email:                &req.Email,
+					Username:             base,
+					Nickname:             base,
+					EmailVerified:        true,
+					Role:                 "user",
+					Status:               "active",
+					SendWelcome:          true,
+					ProjectKey:           projectKey,
+					GinContext:           c,
+					StrictProjectMapping: projectKey != "",
 				})
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to create user"})
@@ -854,12 +891,28 @@ func EmailCodeLogin(db *gorm.DB, mailer *utils.Mailer) gin.HandlerFunc {
 			return
 		}
 
-		// 生成Token
+		// 生成Token（含项目Claims）
+		projectKey := ""
+		if keyVal, ok := c.Get(middleware.CtxProjectKey); ok {
+			projectKey = keyVal.(string)
+		}
+		localID := ""
+		if v, ok := c.Get("local_user_id"); ok {
+			if s, ok2 := v.(string); ok2 {
+				localID = s
+			}
+		}
 		identifier := user.ID
 		if user.Email != nil {
 			identifier = *user.Email
 		}
-		token, err := utils.GenerateToken(user.ID, identifier, user.Role)
+		var token string
+		var err error
+		if projectKey != "" && localID != "" {
+			token, err = utils.GenerateTokenWithProject(user.ID, identifier, user.Role, projectKey, localID)
+		} else {
+			token, err = utils.GenerateToken(user.ID, identifier, user.Role)
+		}
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
 			return

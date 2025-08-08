@@ -27,7 +27,7 @@ const AuthRegister: React.FC<AuthRegisterProps> = ({ onSwitchToLogin }) => {
             } else if (!/^\S+@\S+\.\S+$/.test(values.email)) {
                 errors.email = '请输入有效的邮箱地址'
             }
-            if (!values.nickname.trim()) { errors.nickname = '请输入昵称' }
+            // if (!values.nickname.trim()) { errors.nickname = '请输入昵称' }
             if (!values.password) { errors.password = '请输入密码' }
             else if (values.password.length < 6) { errors.password = '密码至少6位' }
             if (values.password !== values.confirmPassword) { errors.confirmPassword = '两次密码不一致' }
@@ -63,7 +63,7 @@ const AuthRegister: React.FC<AuthRegisterProps> = ({ onSwitchToLogin }) => {
         if (!registerForm.validate()) return
         try {
             await auth.register({
-                username: registerForm.values.nickname,
+                username: registerForm.values.email.slice(0, registerForm.values.email.indexOf('@')),
                 email: registerForm.values.email,
                 password: registerForm.values.password,
                 confirm_password: registerForm.values.confirmPassword,

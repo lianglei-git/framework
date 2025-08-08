@@ -105,10 +105,10 @@ func (j *JSON) UnmarshalJSON(data []byte) error {
 // ProjectMapping 项目映射表 - 用于中心化用户管理
 type ProjectMapping struct {
 	ID          uint      `json:"id" gorm:"primaryKey"`
-	UserID      string    `json:"user_id" gorm:"not null;size:36"`
-	ProjectName string    `json:"project_name" gorm:"not null;size:50"`
-	LocalUserID string    `json:"local_user_id" gorm:"not null;size:50"`        // 项目本地的用户ID
-	MappingType string    `json:"mapping_type" gorm:"default:'direct';size:20"` // direct, alias, federated
+	UserID      string    `json:"user_id" gorm:"not null;size:36;index:idx_project_user,unique"`
+	ProjectName string    `json:"project_name" gorm:"not null;size:64;index:idx_project_user,unique;index:idx_project_local,unique"`
+	LocalUserID string    `json:"local_user_id" gorm:"not null;size:128;index:idx_project_local,unique"` // 项目本地的用户ID
+	MappingType string    `json:"mapping_type" gorm:"default:'direct';size:20"`                          // direct, alias, federated
 	IsActive    bool      `json:"is_active" gorm:"default:true"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`

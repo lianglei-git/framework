@@ -4,20 +4,30 @@ package utils
 import (
 	"errors"
 	"fmt"
+	"log"
+	"os"
 	"strings"
 	"time"
 	"unit-auth/config"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 // EnhancedClaims 增强的JWT声明 - 支持双Token扩展
 type EnhancedClaims struct {
-	UserID    string `json:"user_id"`
-	Email     string `json:"email"`
-	Role      string `json:"role"`
-	TokenType string `json:"token_type"` // "access", "refresh", "remember_me"
+	UserID      string `json:"user_id"`
+	Email       string `json:"email"`
+	Role        string `json:"role"`
+	ProjectKey  string `json:"project_key,omitempty"`
+	LocalUserID string `json:"local_user_id,omitempty"`
+	TokenType   string `json:"token_type"` // "access", "refresh", "remember_me"
 	jwt.RegisteredClaims
+}
+
+// 暴露JWT Secret用于JWKS指纹（对称密钥仅用于示例）
+func GetJWTSecret() string {
+	return config.AppConfig.JWTSecret
 }
 
 // TokenResponse token响应结构 - 支持双Token
@@ -115,23 +125,94 @@ func GenerateRememberMeToken(userID string, email, role string) (string, error) 
 	return tokenString, nil
 }
 
-// ValidateEnhancedToken 验证增强的JWT Token
+// ValidateEnhancedToken 验证增强的JWT Token（兼容紧凑字段 uid/pid/luid 与完整字段）
 func ValidateEnhancedToken(tokenString string) (*EnhancedClaims, error) {
-	claims := &EnhancedClaims{}
-
+	claims := jwt.MapClaims{}
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
 		return []byte(config.AppConfig.JWTSecret), nil
 	})
-
 	if err != nil {
 		return nil, err
 	}
-
 	if !token.Valid {
 		return nil, errors.New("invalid token")
 	}
 
-	return claims, nil
+	// 提取注册字段
+	enh := &EnhancedClaims{}
+	// user id
+	if v, ok := claims["user_id"].(string); ok && v != "" {
+		enh.UserID = v
+	}
+	if enh.UserID == "" {
+		if v, ok := claims["uid"].(string); ok {
+			enh.UserID = v
+		}
+		if enh.UserID == "" {
+			if v, ok := claims["sub"].(string); ok {
+				enh.UserID = v
+			}
+		}
+	}
+	// email, role
+	if v, ok := claims["email"].(string); ok {
+		enh.Email = v
+	}
+	if v, ok := claims["role"].(string); ok {
+		enh.Role = v
+	}
+	// project/local ids
+	if v, ok := claims["project_key"].(string); ok {
+		enh.ProjectKey = v
+	}
+	if v, ok := claims["pid"].(string); ok && v != "" {
+		enh.ProjectKey = v
+	}
+	if v, ok := claims["local_user_id"].(string); ok {
+		enh.LocalUserID = v
+	}
+	if v, ok := claims["luid"].(string); ok && v != "" {
+		enh.LocalUserID = v
+	}
+	// token type（默认为 access）
+	if v, ok := claims["token_type"].(string); ok && v != "" {
+		enh.TokenType = v
+	} else {
+		enh.TokenType = "access"
+	}
+
+	// RegisteredClaims
+	if v, ok := claims["iss"].(string); ok {
+		enh.Issuer = v
+	}
+	if v, ok := claims["aud"].(string); ok && v != "" {
+		enh.Audience = jwt.ClaimStrings{v}
+	}
+	if arr, ok := claims["aud"].([]interface{}); ok && len(arr) > 0 {
+		var as []string
+		for _, it := range arr {
+			if s, ok := it.(string); ok {
+				as = append(as, s)
+			}
+		}
+		if len(as) > 0 {
+			enh.Audience = jwt.ClaimStrings(as)
+		}
+	}
+	if v, ok := claims["iat"].(float64); ok {
+		enh.IssuedAt = jwt.NewNumericDate(time.Unix(int64(v), 0))
+	}
+	if v, ok := claims["exp"].(float64); ok {
+		enh.ExpiresAt = jwt.NewNumericDate(time.Unix(int64(v), 0))
+	}
+	if v, ok := claims["nbf"].(float64); ok {
+		enh.NotBefore = jwt.NewNumericDate(time.Unix(int64(v), 0))
+	}
+	if v, ok := claims["jti"].(string); ok {
+		enh.ID = v
+	}
+
+	return enh, nil
 }
 
 // ValidateTokenType 验证指定类型的token
@@ -276,7 +357,7 @@ func SplitToken(authHeader string) []string {
 
 // 保持向后兼容的函数
 func GenerateToken(userID string, email, role string) (string, error) {
-	return GenerateAccessToken(userID, email, role)
+	return GenerateUnifiedToken(userID, email, role, "", "")
 }
 
 func ValidateToken(tokenString string) (*Claims, error) {
@@ -292,4 +373,77 @@ func ValidateToken(tokenString string) (*Claims, error) {
 		Role:             enhancedClaims.Role,
 		RegisteredClaims: enhancedClaims.RegisteredClaims,
 	}, nil
+}
+
+func GenerateAccessTokenWithProject(userID string, email, role, projectKey, localUserID string) (string, error) {
+	return GenerateUnifiedToken(userID, email, role, projectKey, localUserID)
+}
+
+func GenerateTokenWithProject(userID string, email, role, projectKey, localUserID string) (string, error) {
+	return GenerateUnifiedToken(userID, email, role, projectKey, localUserID)
+}
+
+// GenerateAccessTokenWithAudience 生成带aud、并保留项目字段的访问token
+func GenerateAccessTokenWithAudience(userID string, email, role, audience, projectKey, localUserID string) (string, error) {
+	// audience 兼容：设置 pid/aud
+	claims := jwt.MapClaims{
+		"uid": userID,
+		"iss": os.Getenv("JWT_ISS"),
+		"iat": time.Now().Unix(),
+		"exp": time.Now().Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour).Unix(),
+		"jti": uuid.New().String(),
+	}
+	if strings.TrimSpace(audience) != "" {
+		claims["aud"] = audience
+		claims["pid"] = audience
+	}
+	if strings.TrimSpace(localUserID) != "" {
+		claims["luid"] = localUserID
+	}
+	if strings.TrimSpace(role) != "" {
+		claims["role"] = role
+	}
+	if strings.TrimSpace(email) != "" {
+		claims["email"] = email
+	}
+	log.Printf("claims: %+v\n", claims)
+
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(config.AppConfig.JWTSecret))
+}
+
+// GenerateCompactAccessToken 生成带短字段的访问token（sub, uid, pid, luid, iss, aud, iat, exp, jti）
+func GenerateCompactAccessToken(userID string, emailOrIdentifier, role, projectKey, localUserID string) (string, error) {
+
+	// 兼容无项目映射的情况：pid/luid 为空则不放
+	claims := jwt.MapClaims{
+		"uid": userID,
+		"iss": os.Getenv("JWT_ISS"),
+		"iat": time.Now().Unix(),
+		"exp": time.Now().Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour).Unix(),
+		"jti": uuid.New().String(),
+	}
+	if strings.TrimSpace(projectKey) != "" {
+		claims["aud"] = projectKey
+		claims["pid"] = projectKey
+	}
+	if strings.TrimSpace(localUserID) != "" {
+		claims["luid"] = localUserID
+	}
+	// 附带角色（可选）
+	if strings.TrimSpace(role) != "" {
+		claims["role"] = role
+	}
+	// 附带邮箱/标识（可选）
+	if strings.TrimSpace(emailOrIdentifier) != "" {
+		claims["email"] = emailOrIdentifier
+	}
+	log.Printf("claims: %+v\n", claims)
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(config.AppConfig.JWTSecret))
+}
+
+// GenerateUnifiedToken 统一的token生成（紧凑字段），当 projectKey/localUserID 为空时不写入相关字段
+func GenerateUnifiedToken(userID, identifier, role, projectKey, localUserID string) (string, error) {
+	return GenerateCompactAccessToken(userID, identifier, role, projectKey, localUserID)
 }

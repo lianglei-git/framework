@@ -84,6 +84,7 @@ func main() {
 	r.Use(middleware.Logger())
 	r.Use(middleware.RequestID())
 	r.Use(middleware.RateLimit())
+	r.Use(middleware.ProjectKeyMiddleware())
 
 	// 健康检查
 	r.GET("/health", func(c *gin.Context) {
@@ -106,9 +107,21 @@ func main() {
 	// API路由组
 	api := r.Group("/api/v1")
 	{
+		// 项目相关路由（公开）
+		api.GET("/projects/public", handlers.GetPublicProjects(db))
+		api.GET("/projects/current", handlers.GetCurrentProject(db))
+
+		// 公开的第三方接入示例
+		api.GET("/projects/integration-docs", handlers.GetIntegrationDocs())
+
 		// 认证相关路由
 		auth := api.Group("/auth")
 		{
+			// 安全/互操作
+			auth.GET("/.well-known/jwks.json", handlers.GetJWKS())
+			auth.POST("/introspect", handlers.IntrospectToken())
+			auth.POST("/token/exchange", handlers.TokenExchange())
+
 			// 插件认证处理器
 			// 注册 GitHub Provider
 			pluginManager.RegisterProvider(plugins.NewGitHubProvider(db))

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"time"
+	"unit-auth/middleware"
 	"unit-auth/models"
 	"unit-auth/plugins"
 	"unit-auth/services"
@@ -123,7 +124,18 @@ func (h *WeChatAuthHandler) HandleCallback() gin.HandlerFunc {
 			identifier = user.ID
 		}
 
-		token, err := utils.GenerateToken(user.ID, identifier, user.Role)
+		projectKey := ""
+		if v, ok := c.Get(middleware.CtxProjectKey); ok {
+			projectKey = v.(string)
+		}
+		localID := ""
+		if projectKey != "" {
+			var pm models.ProjectMapping
+			if err := h.db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
+				localID = pm.LocalUserID
+			}
+		}
+		token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey, localID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.Response{
 				Code:    500,
@@ -153,71 +165,48 @@ func (h *WeChatAuthHandler) HandleCallback() gin.HandlerFunc {
 func (h *WeChatAuthHandler) CheckLoginStatus() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		state := c.Param("state")
-
 		if state == "" {
-			c.JSON(http.StatusBadRequest, models.Response{
-				Code:    400,
-				Message: "Missing state parameter",
-			})
+			c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: "Missing state parameter"})
 			return
 		}
 
-		// 查找QR会话
 		var qrSession models.WeChatQRSession
 		if err := h.db.Where("state = ?", state).First(&qrSession).Error; err != nil {
-			c.JSON(http.StatusNotFound, models.Response{
-				Code:    404,
-				Message: "QR session not found",
-			})
+			c.JSON(http.StatusNotFound, models.Response{Code: 404, Message: "QR session not found"})
 			return
 		}
-
-		// 检查是否已过期
 		if qrSession.ExpiresAt.Before(time.Now()) {
-			c.JSON(http.StatusGone, models.Response{
-				Code:    410,
-				Message: "QR code expired",
-			})
+			c.JSON(http.StatusGone, models.Response{Code: 410, Message: "QR code expired"})
 			return
 		}
 
-		// 检查是否已使用
 		if qrSession.Used {
-			// 查找对应的用户
 			var user models.User
 			if err := h.db.Where("wechat_id = ?", qrSession.WeChatID).First(&user).Error; err == nil {
-				// 生成JWT Token
-				var identifier string
+				identifier := user.ID
 				if user.WeChatID != nil {
 					identifier = *user.WeChatID
-				} else {
-					identifier = user.ID
 				}
-
-				token, err := utils.GenerateToken(user.ID, identifier, user.Role)
+				projectKey := ""
+				if v, ok := c.Get(middleware.CtxProjectKey); ok {
+					projectKey = v.(string)
+				}
+				localID := ""
+				if projectKey != "" {
+					var pm models.ProjectMapping
+					if err := h.db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
+						localID = pm.LocalUserID
+					}
+				}
+				token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey, localID)
 				if err == nil {
-					c.JSON(http.StatusOK, models.Response{
-						Code:    200,
-						Message: "Login successful",
-						Data: models.LoginResponse{
-							User:  user.ToResponse(),
-							Token: token,
-						},
-					})
+					c.JSON(http.StatusOK, models.Response{Code: 200, Message: "Login successful", Data: models.LoginResponse{User: user.ToResponse(), Token: token}})
 					return
 				}
 			}
 		}
 
-		c.JSON(http.StatusOK, models.Response{
-			Code:    200,
-			Message: "QR code scanned, waiting for confirmation",
-			Data: gin.H{
-				"status":  "pending",
-				"scanned": qrSession.Scanned,
-				"used":    qrSession.Used,
-			},
-		})
+		c.JSON(http.StatusOK, models.Response{Code: 200, Message: "QR code scanned, waiting for confirmation", Data: gin.H{"status": "pending", "scanned": qrSession.Scanned, "used": qrSession.Used}})
 	}
 }
 

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"unit-auth/middleware"
 	"unit-auth/models"
 	"unit-auth/plugins"
 	"unit-auth/services"
@@ -32,73 +33,49 @@ func (h *PluginAuthHandler) Login() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req models.LoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, models.Response{
-				Code:    400,
-				Message: "Invalid request data: " + err.Error(),
-			})
+			c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: "Invalid request data: " + err.Error()})
 			return
 		}
-
-		// 获取客户端IP和User-Agent
 		ip := c.ClientIP()
 		userAgent := c.GetHeader("User-Agent")
-
-		// 使用邮箱认证提供者
 		provider, exists := h.pluginManager.GetProvider("email")
 		if !exists {
-			c.JSON(http.StatusInternalServerError, models.Response{
-				Code:    500,
-				Message: "Email authentication provider not available",
-			})
+			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Email authentication provider not available"})
 			return
 		}
-
-		// 执行认证
-		credentials := map[string]interface{}{
-			"email":    req.Email,
-			"password": req.Password,
-		}
-
+		credentials := map[string]interface{}{"email": req.Email, "password": req.Password}
 		user, err := provider.Authenticate(c.Request.Context(), credentials)
 		if err != nil {
-			// 记录失败的登录日志
 			h.statsService.RecordLoginLog("", "email", ip, userAgent, "", false, err.Error())
-
-			c.JSON(http.StatusUnauthorized, models.Response{
-				Code:    401,
-				Message: err.Error(),
-			})
+			c.JSON(http.StatusUnauthorized, models.Response{Code: 401, Message: err.Error()})
 			return
 		}
 
-		// 生成JWT Token
-		var email string
+		// 统一生成token（含项目claims）
+		projectKey := ""
+		if v, ok := c.Get(middleware.CtxProjectKey); ok {
+			projectKey = v.(string)
+		}
+		localID := ""
+		if projectKey != "" {
+			var pm models.ProjectMapping
+			if err := h.db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
+				localID = pm.LocalUserID
+			}
+		}
+		identifier := ""
 		if user.Email != nil {
-			email = *user.Email
+			identifier = *user.Email
 		}
-		token, err := utils.GenerateToken(user.ID, email, user.Role)
+		token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey, localID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.Response{
-				Code:    500,
-				Message: "Failed to generate token",
-			})
+			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
 			return
 		}
 
-		// 更新用户登录信息
 		h.statsService.UpdateUserLoginInfo(user.ID, ip, userAgent)
-
-		// 记录成功的登录日志
 		h.statsService.RecordLoginLog(user.ID, "email", ip, userAgent, "", true, "")
-
-		c.JSON(http.StatusOK, models.Response{
-			Code:    200,
-			Message: "Login successful",
-			Data: models.LoginResponse{
-				User:  user.ToResponse(),
-				Token: token,
-			},
-		})
+		c.JSON(http.StatusOK, models.Response{Code: 200, Message: "Login successful", Data: models.LoginResponse{User: user.ToResponse(), Token: token}})
 	}
 }
 
@@ -107,70 +84,46 @@ func (h *PluginAuthHandler) PhoneLogin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req models.PhoneLoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, models.Response{
-				Code:    400,
-				Message: "Invalid request data: " + err.Error(),
-			})
+			c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: "Invalid request data: " + err.Error()})
 			return
 		}
-
 		ip := c.ClientIP()
 		userAgent := c.GetHeader("User-Agent")
-
-		// 使用手机号认证提供者
 		provider, exists := h.pluginManager.GetProvider("phone")
 		if !exists {
-			c.JSON(http.StatusInternalServerError, models.Response{
-				Code:    500,
-				Message: "Phone authentication provider not available",
-			})
+			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Phone authentication provider not available"})
 			return
 		}
-
-		credentials := map[string]interface{}{
-			"phone": req.Phone,
-			"code":  req.Code,
-		}
-
+		credentials := map[string]interface{}{"phone": req.Phone, "code": req.Code}
 		user, err := provider.Authenticate(c.Request.Context(), credentials)
 		if err != nil {
 			h.statsService.RecordLoginLog("", "phone", ip, userAgent, "", false, err.Error())
-
-			c.JSON(http.StatusUnauthorized, models.Response{
-				Code:    401,
-				Message: err.Error(),
-			})
+			c.JSON(http.StatusUnauthorized, models.Response{Code: 401, Message: err.Error()})
 			return
 		}
-
-		// 生成JWT Token
-		var identifier string
+		identifier := user.ID
 		if user.Phone != nil {
 			identifier = *user.Phone
-		} else {
-			identifier = user.ID
 		}
-
-		token, err := utils.GenerateToken(user.ID, identifier, user.Role)
+		projectKey := ""
+		if v, ok := c.Get(middleware.CtxProjectKey); ok {
+			projectKey = v.(string)
+		}
+		localID := ""
+		if projectKey != "" {
+			var pm models.ProjectMapping
+			if err := h.db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
+				localID = pm.LocalUserID
+			}
+		}
+		token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey, localID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.Response{
-				Code:    500,
-				Message: "Failed to generate token",
-			})
+			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
 			return
 		}
-
 		h.statsService.UpdateUserLoginInfo(user.ID, ip, userAgent)
 		h.statsService.RecordLoginLog(user.ID, "phone", ip, userAgent, "", true, "")
-
-		c.JSON(http.StatusOK, models.Response{
-			Code:    200,
-			Message: "Login successful",
-			Data: models.LoginResponse{
-				User:  user.ToResponse(),
-				Token: token,
-			},
-		})
+		c.JSON(http.StatusOK, models.Response{Code: 200, Message: "Login successful", Data: models.LoginResponse{User: user.ToResponse(), Token: token}})
 	}
 }
 
@@ -179,68 +132,47 @@ func (h *PluginAuthHandler) OAuthLogin() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req models.OAuthLoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, models.Response{
-				Code:    400,
-				Message: "Invalid request data: " + err.Error(),
-			})
+			c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: "Invalid request data: " + err.Error()})
 			return
 		}
-
 		ip := c.ClientIP()
 		userAgent := c.GetHeader("User-Agent")
-
-		// 获取OAuth提供者
 		provider, exists := h.pluginManager.GetProvider(req.Provider)
 		if !exists {
-			c.JSON(http.StatusBadRequest, models.Response{
-				Code:    400,
-				Message: "OAuth provider not available",
-			})
+			c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: "OAuth provider not available"})
 			return
 		}
-
-		// 处理OAuth回调
-		user, err := provider.HandleCallback(c.Request.Context(), req.Code, req.State)
+		user, err := provider.HandleCallback(c, req.Code, req.State)
 		if err != nil {
 			h.statsService.RecordLoginLog("", req.Provider, ip, userAgent, "", false, err.Error())
-
-			c.JSON(http.StatusUnauthorized, models.Response{
-				Code:    401,
-				Message: err.Error(),
-			})
+			c.JSON(http.StatusUnauthorized, models.Response{Code: 401, Message: err.Error()})
 			return
 		}
-
-		// 生成JWT Token
-		var identifier string
+		identifier := user.ID
 		if user.Email != nil && *user.Email != "" {
 			identifier = *user.Email
 		} else if user.Phone != nil && *user.Phone != "" {
 			identifier = *user.Phone
-		} else {
-			identifier = user.ID
 		}
-
-		token, err := utils.GenerateToken(user.ID, identifier, user.Role)
+		projectKey := ""
+		if v, ok := c.Get(middleware.CtxProjectKey); ok {
+			projectKey = v.(string)
+		}
+		localID := ""
+		if projectKey != "" {
+			var pm models.ProjectMapping
+			if err := h.db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
+				localID = pm.LocalUserID
+			}
+		}
+		token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey, localID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.Response{
-				Code:    500,
-				Message: "Failed to generate token",
-			})
+			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
 			return
 		}
-
 		h.statsService.UpdateUserLoginInfo(user.ID, ip, userAgent)
 		h.statsService.RecordLoginLog(user.ID, req.Provider, ip, userAgent, "", true, "")
-
-		c.JSON(http.StatusOK, models.Response{
-			Code:    200,
-			Message: "OAuth login successful",
-			Data: models.LoginResponse{
-				User:  user.ToResponse(),
-				Token: token,
-			},
-		})
+		c.JSON(http.StatusOK, models.Response{Code: 200, Message: "OAuth login successful", Data: models.LoginResponse{User: user.ToResponse(), Token: token}})
 	}
 }
 

@@ -3,7 +3,9 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"unit-auth/middleware"
 	"unit-auth/models"
+	"unit-auth/services"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -69,6 +71,19 @@ func UpdateProfile(db *gorm.DB) gin.HandlerFunc {
 				Message: "Failed to update profile",
 			})
 			return
+		}
+
+		// 若上下文存在项目映射，推送更新
+		if keyVal, ok := c.Get(middleware.CtxProjectKey); ok {
+			projectKey := keyVal.(string)
+			var p models.Project
+			if err := db.Where("`key` = ? AND enabled = ?", projectKey, true).First(&p).Error; err == nil {
+				var pm models.ProjectMapping
+				if err := db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
+					cli := services.NewProjectClient(p)
+					_ = cli.UpdateUser(c.Request.Context(), pm.LocalUserID, services.OutboundUser{UserID: user.ID, Email: user.ToResponse().Email, Username: user.Username, Nickname: user.Nickname, Avatar: user.GetAvatar()})
+				}
+			}
 		}
 
 		c.JSON(http.StatusOK, models.Response{

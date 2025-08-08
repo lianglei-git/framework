@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 	"unit-auth/models"
+	"unit-auth/services"
 	"unit-auth/utils"
 
 	"github.com/gin-gonic/gin"
@@ -318,6 +319,18 @@ func DeleteUser(db *gorm.DB) gin.HandlerFunc {
 				Message: "Failed to delete user",
 			})
 			return
+		}
+
+		// 删除后尝试对各项目做删除
+		var mappings []models.ProjectMapping
+		if err := db.Where("user_id = ?", user.ID).Find(&mappings).Error; err == nil {
+			for _, m := range mappings {
+				var p models.Project
+				if err := db.Where("`key` = ? AND enabled = ?", m.ProjectName, true).First(&p).Error; err == nil {
+					cli := services.NewProjectClient(p)
+					_ = cli.DeleteUser(c.Request.Context(), m.LocalUserID)
+				}
+			}
 		}
 
 		c.JSON(http.StatusOK, models.Response{

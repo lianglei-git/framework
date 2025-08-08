@@ -40,6 +40,7 @@ func InitDB() (*gorm.DB, error) {
 		&WeChatQRSession{},   // 微信二维码会话表
 
 		// 中心化用户管理
+		&Project{},         // 第三方项目表
 		&ProjectMapping{},  // 项目映射表
 		&GlobalUserStats{}, // 全局用户统计表
 		&AuthLog{},         // 认证日志表
@@ -77,10 +78,20 @@ func InitDB() (*gorm.DB, error) {
 		&Notification{},         // 通知表
 		&NotificationTemplate{}, // 通知模板表
 		&SystemHealth{},         // 系统健康状态表
-		&PerformanceLog{},       // 性能日志表
+		&PerformanceLog{},       // 性能日志表,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %v", err)
+	}
+
+	// 默认种子：nature_trans 项目（若不存在）
+	var cnt int64
+	db.Model(&Project{}).Where("`key` = ?", "nature_trans").Count(&cnt)
+	if cnt == 0 {
+		seed := Project{Key: "nature_trans", Name: "Nature Translate", BaseURL: "http://localhost:9001", AuthMode: "none", CredentialsEnc: "", Enabled: true}
+		if err := db.Create(&seed).Error; err != nil {
+			log.Printf("Warning: failed to seed default project: %v", err)
+		}
 	}
 
 	// 创建跨项目统计视图

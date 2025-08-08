@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
 	"unit-auth/models"
@@ -79,10 +80,6 @@ func (p *GitHubProvider) HandleCallback(ctx context.Context, code string, state 
 	}
 	idStr := strconv.FormatInt(ghUser.ID, 10)
 
-	fmt.Println("ghUser", ghUser)
-	fmt.Println("ghEmail", ghEmail)
-	fmt.Println("idStr", idStr)
-
 	// 3) 用 github_id 或 email 查找/创建用户
 	var user models.User
 	if err := p.DB.Where("github_id = ?", idStr).First(&user).Error; err == nil {
@@ -92,31 +89,45 @@ func (p *GitHubProvider) HandleCallback(ctx context.Context, code string, state 
 	// 若未绑定，尝试用邮箱匹配
 	if ghEmail != "" {
 		if err := p.DB.Where("email = ?", ghEmail).First(&user).Error; err == nil {
-			// 绑定 GitHubID
 			user.GitHubID = ptr(idStr)
 			p.DB.Save(&user)
 			return &user, nil
 		}
 	}
 
-	// 创建用户（统一注册）
+	// 创建用户（统一注册 + 可选项目映射）
 	emailPtr := (*string)(nil)
 	if ghEmail != "" {
 		emailPtr = &ghEmail
 	}
 	username := ghUser.Login
+
+	// 尝试从 gin context 读取项目Key（若存在）
+	ginCtx, _ := ctx.(*gin.Context)
+	projectKey := ""
+	if ginCtx != nil {
+		if v, ok := ginCtx.Get("project_key"); ok {
+			if s, ok2 := v.(string); ok2 {
+				projectKey = s
+			}
+		}
+	}
+
 	created, err := services.RegisterUser(p.DB, nil, services.RegistrationOptions{
-		Email:       emailPtr,
-		Username:    username,
-		Nickname:    ghUser.NameOrLogin(),
-		Role:        "user",
-		Status:      "active",
-		SendWelcome: false,
+		Email:                emailPtr,
+		Username:             username,
+		Nickname:             ghUser.NameOrLogin(),
+		Role:                 "user",
+		Status:               "active",
+		SendWelcome:          false,
+		ProjectKey:           projectKey,
+		GinContext:           ginCtx,
+		StrictProjectMapping: projectKey != "",
 	})
 	if err != nil {
 		return nil, err
 	}
-	// 绑定 GitHubID
+
 	created.GitHubID = ptr(idStr)
 	p.DB.Save(created)
 	return created, nil

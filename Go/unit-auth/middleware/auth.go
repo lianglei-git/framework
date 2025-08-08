@@ -199,7 +199,7 @@ func LoginWithRememberMe(db *gorm.DB) gin.HandlerFunc {
 		if req.RememberMe {
 			token, err = utils.GenerateRememberMeToken(user.ID, *user.Email, user.Role)
 		} else {
-			token, err = utils.GenerateAccessToken(user.ID, *user.Email, user.Role)
+			token, err = utils.GenerateUnifiedToken(user.ID, *user.Email, user.Role, "", "")
 		}
 
 		if err != nil {
@@ -219,4 +219,12 @@ func LoginWithRememberMe(db *gorm.DB) gin.HandlerFunc {
 			},
 		})
 	}
+}
+
+func somePlaceGeneratingToken(user *models.User) (string, error) {
+	identifier := ""
+	if user.Email != nil {
+		identifier = *user.Email
+	}
+	return utils.GenerateUnifiedToken(user.ID, identifier, user.Role, "", "")
 }
