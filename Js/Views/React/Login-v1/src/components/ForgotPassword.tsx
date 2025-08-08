@@ -69,7 +69,7 @@ export const ForgotPassword: React.FC<ForgotPasswordProps> = ({ onBack, onSucces
         if (!emailForm.validate()) return
 
         try {
-            await auth.forgotPassword(emailForm.values.email)
+            // await auth.forgotPassword(emailForm.values.email)
             setAccount(emailForm.values.email)
             setAccountType(identifyAccountType(emailForm.values.email))
             setStep('code')

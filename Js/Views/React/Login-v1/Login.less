@@ -1,51 +1,162 @@
 @font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
 
+
+
+
+@keyframes shimmer {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  100% {
+    background-position: 100% 50%;
+  }
+}
+
+.text-gradient(@angle: 90deg, @color1, @color2, @color3) {
+  background: linear-gradient(@angle, @color1, @color2, @color3);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.text-gold-color() {
+  display: inline-block;
+  background: linear-gradient(90deg, #a1a09e 0%, #13100b 43%, #e2dcc8 100%);
+  background-clip: text;
+  color: transparent !important;
+}
+
+.github-access {
+  .text-gradient(90deg, #0044ff, #a760f2, #0044ff);
+  background-size: 200% auto;
+  animation: shimmer 2s ease-in-out infinite;
+
+  h2 {
+    .text-gold-color();
+  }
+}
+
+
 .login-container {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
   background: #f8f9fa;
   font-family: @font-family;
-  // padding: 40px 20px;
 }
 
 .login-card {
   background: #ffffff;
   border-radius: 16px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-  padding: 48px 40px;
+  padding: 24px;
   width: 100%;
-  max-width: 520px;
-  height: 90vh;
-  max-height: 600px;
+  max-width: 560px; // 稍微放大卡片宽度
+  // 移除固定高度，改为自适应高度，避免内容挤压/覆盖标题
   text-align: center;
   position: relative;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  // gap: 24px; // 子元素统一间距
+  min-height: 560px;
+
+  main {
+    padding: 24px 0;
+    display: flex;
+    flex-direction: column;
+
+    .title {
+      font-size: 20px; // 提升标题字号
+      font-weight: 700;
+      font-family: @font-family;
+      color: #1f2937;
+      text-align: center;
+      line-height: 1.25;
+      padding: 12px 0 20px 0;
+    }
+
+
+    .core {
+      flex: 1;
+      margin: 0 auto;
+      width: 100%;
+      max-width: 400px;
+
+      &.login {
+        padding: 12px 0;
+      }
+
+      .login-content {
+        width: 100%;
+      }
+    }
+
+    .footer-links {
+      padding: 12px 0;
+      // border-top: 1px solid #e5e7eb;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      font-size: 14px;
+
+      .footer-link {
+        background: none;
+        border: none;
+        color: #6b7280;
+        cursor: pointer;
+        font-size: 14px;
+        padding: 0;
+        transition: color 0.2s ease;
+
+        &:hover {
+          color: #4f46e5;
+        }
+      }
+
+      .separator {
+        color: #d1d5db;
+        font-size: 16px;
+      }
+    }
+  }
 }
 
-.title {
-  font-size: 28px;
-  font-weight: 700;
-  color: #1f2937;
-  margin: 0 0 40px 0;
-  text-align: center;
-  line-height: 1.2;
-}
 
 .login-content,
 .register-content {
-  flex: 1;
+  // 让内容自然从上到下排布，不再强制占满并居中
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  min-height: 0;
+  justify-content: flex-start;
+  // gap: 16px;
 }
 
-.account-login-form {
-  margin-bottom: 32px;
+
+
+// 给表单内的输入与按钮统一留白
+.account-login-form,
+.password-form,
+.phone-form,
+.register-form {
+  .input-wrapper {
+    margin-bottom: 16px;
+  }
+
+  // 相邻按钮竖直堆叠时的间距
+  .btn+.btn,
+  .social-btn+.social-btn {
+    margin-top: 12px;
+  }
+}
+
+// 手机验证码登录表单的横向验证码区域在窄屏外也保持良好间距
+.phone-form {
+  .code-field {
+    margin-top: 8px;
+  }
 }
 
 .input-field {
@@ -105,7 +216,7 @@
 
 .register-link,
 .login-link {
-  margin: 24px 0;
+  margin: 12px 0;
   font-size: 15px;
   color: #6b7280;
   line-height: 1.5;
@@ -127,10 +238,14 @@
   }
 }
 
+.register-link {
+  margin-bottom: 0;
+}
+
 .divider {
   position: relative;
   text-align: center;
-  margin: 32px 0;
+  margin: 18px 0;
 
   &::before {
     content: '';
@@ -144,10 +259,15 @@
 
   span {
     background: #ffffff;
-    padding: 0 20px;
     color: #6b7280;
     font-size: 15px;
     font-weight: 500;
+    display: block;
+    width: 30px;
+    margin: 0 auto;
+    z-index: 11;
+    position: relative;
+    text-align: center;
   }
 }
 
@@ -155,6 +275,7 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  margin-bottom: 12px;
 }
 
 .social-btn {
@@ -162,15 +283,19 @@
   background: #ffffff;
   border: 1px solid #d1d5db;
   border-radius: 12px;
-  padding: 16px 20px;
+  padding: 0px 16px;
   font-size: 16px;
   font-weight: 500;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   gap: 12px;
-  transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.1s ease;
+  // transition: border-color 0.4s ease, background-color 0.4s ease, transform 0.1s ease;
+
+  .btn-text {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
 
   &:hover {
     border-color: #9ca3af;
@@ -195,6 +320,7 @@
   display: flex;
   gap: 16px;
   margin-bottom: 24px;
+  align-items: center;
 
   input {
     flex: 1;
@@ -216,6 +342,14 @@
       color: #9ca3af;
       font-size: 16px;
     }
+  }
+
+  button {
+    height: 100%;
+  }
+
+  .input-wrapper {
+    margin-bottom: 0;
   }
 
   .send-code-btn {
@@ -259,38 +393,10 @@
   line-height: 1.4;
 }
 
-.footer-links {
-  margin-top: auto;
-  padding-top: 32px;
-  border-top: 1px solid #e5e7eb;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 20px;
-  font-size: 14px;
 
-  .footer-link {
-    background: none;
-    border: none;
-    color: #6b7280;
-    cursor: pointer;
-    font-size: 14px;
-    padding: 0;
-    transition: color 0.2s ease;
-
-    &:hover {
-      color: #4f46e5;
-    }
-  }
-
-  .separator {
-    color: #d1d5db;
-    font-size: 16px;
-  }
-}
 
 // 微信登录弹窗
-.wechat-modal {
+.login-modal {
   position: fixed;
   top: 0;
   left: 0;
@@ -302,52 +408,86 @@
   justify-content: center;
   z-index: 1000;
   backdrop-filter: blur(4px);
-}
 
-.modal-content {
-  background: #ffffff;
-  border-radius: 16px;
-  padding: 32px;
-  max-width: 360px;
-  width: 90%;
-  text-align: center;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
-}
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 32px;
-
-  h3 {
-    margin: 0;
-    font-size: 20px;
-    font-weight: 600;
-    color: #1f2937;
-  }
-
-  .close-btn {
-    background: none;
-    border: none;
-    font-size: 28px;
-    color: #6b7280;
-    cursor: pointer;
-    padding: 0;
-    width: 32px;
-    height: 32px;
+  .modal-content {
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 32px;
+    max-width: 360px;
+    width: 90%;
+    text-align: center;
     display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 50%;
-    transition: background-color 0.2s ease, color 0.2s ease;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
 
-    &:hover {
-      background: #f3f4f6;
-      color: #1f2937;
+    .modal-header {
+      background: none;
+      margin: 0;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 0;
+
+      h3 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+        color: #1f2937;
+      }
+
+      .close-btn {
+        background: none;
+        border: none;
+        font-size: 28px;
+        color: #6b7280;
+        cursor: pointer;
+        padding: 0;
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        transition: background-color 0.2s ease, color 0.2s ease;
+
+        &:hover {
+          background: #f3f4f6;
+          color: #1f2937;
+        }
+      }
     }
   }
 }
+
+
+
+// 法律文本通用容器
+.legal-content {
+  text-align: left;
+  max-height: 60vh;
+  overflow: auto;
+
+  h4 {
+    margin: 16px 0 8px;
+    font-size: 16px;
+    color: #111827;
+  }
+
+  p,
+  li {
+    color: #4b5563;
+    line-height: 1.7;
+    font-size: 14px;
+  }
+
+  ul {
+    margin: 0 0 8px 18px;
+    padding: 0;
+  }
+}
+
+
 
 .qr-container {
   min-height: 240px;
@@ -391,33 +531,36 @@
   }
 }
 
-.wechat-btn,
-.refresh-btn {
-  background: #07c160;
-  color: #ffffff;
-  border: none;
-  border-radius: 12px;
-  padding: 16px 20px;
-  font-size: 15px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color 0.2s ease, transform 0.1s ease;
+// .wechat-btn,
+// .refresh-btn {
+//   border-radius: 12px;
+//   padding: 16px 20px;
+//   font-size: 15px;
+//   font-weight: 500;
+//   cursor: pointer;
+//   transition: 0.2s;
 
-  &:hover:not(:disabled) {
-    background: #06ad56;
-    transform: translateY(-1px);
-  }
+//   &:hover:not(:disabled) {
+//     background: #07c160;
+//     color: #ffffff;
+//     border-color: transparent;
 
-  &:active:not(:disabled) {
-    transform: translateY(0);
-  }
+//     .ri-wechat-fill {
+//       color: #ffffff !important;
+//     }
 
-  &:disabled {
-    background: #d1d5db;
-    cursor: not-allowed;
-    transform: none;
-  }
-}
+//   }
+
+//   &:active:not(:disabled) {
+//     transform: translateY(0);
+//   }
+
+//   &:disabled {
+//     background: #d1d5db;
+//     cursor: not-allowed;
+//     transform: none;
+//   }
+// }
 
 .success-state {
   text-align: center;
@@ -426,6 +569,8 @@
   flex-direction: column;
   justify-content: center;
   align-items: center;
+
+  flex: 1;
 
   .success-icon {
     width: 56px;
@@ -554,14 +699,13 @@
   }
 
   .login-card {
-    padding: 40px 24px;
-    height: 85vh;
-    max-height: 500px;
+    padding: 40px 24px; // 移动端保持舒适留白
+    // 移除固定高度
   }
 
   .title {
-    font-size: 24px;
-    margin-bottom: 32px;
+    font-size: 26px;
+    margin-bottom: 24px;
   }
 
   .input-field input,

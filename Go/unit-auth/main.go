@@ -110,6 +110,8 @@ func main() {
 		auth := api.Group("/auth")
 		{
 			// 插件认证处理器
+			// 注册 GitHub Provider
+			pluginManager.RegisterProvider(plugins.NewGitHubProvider(db))
 			pluginAuthHandler := handlers.NewPluginAuthHandler(db, pluginManager, statsService)
 
 			auth.POST("/oauth-login", pluginAuthHandler.OAuthLogin())
@@ -126,6 +128,7 @@ func main() {
 			auth.POST("/register", handlers.Register(db, mailer))
 			auth.POST("/send-email-code", handlers.SendEmailCode(db, mailer))
 			auth.POST("/send-sms-code", handlers.SendPhoneCode(db))
+			auth.POST("/email-login", handlers.EmailCodeLogin(db, mailer))
 			auth.POST("/verify-email", handlers.VerifyEmail(db))
 			auth.POST("/forgot-password", handlers.ForgotPassword(db, mailer))
 			auth.POST("/reset-password", handlers.ResetPassword(db))

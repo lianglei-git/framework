@@ -14,7 +14,8 @@ import {
     UserStats,
     LogListParams,
     LogListResponse,
-    BulkAction
+    BulkAction,
+    PhoneResetPasswordRequest
 } from '../types'
 import axios from 'axios'
 import queryString from '../../../../../utils/queryString'
@@ -38,7 +39,7 @@ const getCommonHeaders = (token?: string) => {
 
 // API服务基类
 export class ApiService {
-    private baseURL: string
+    protected baseURL: string
     private defaultHeaders: Record<string, string>
 
     constructor(baseURL: string = basicUrl) {
@@ -233,6 +234,51 @@ export class AuthApiService extends ApiService {
         }
     }
 
+    // 邮箱验证码登录
+    async emailCodeLogin(data: { email: string, code: string }): Promise<LoginResponse> {
+        const response = await axios.post(`${this.baseURL}/api/v1/auth/email-login`, data, {
+            headers: getCommonHeaders()
+        })
+        if (response.data.code === 200) {
+            return {
+                user: response.data.data.user,
+                token: response.data.data.token,
+                refresh_token: '',
+                expires_in: 3600
+            }
+        } else {
+            throw new Error(response.data.message || '登录失败')
+        }
+    }
+
+    // 获取OAuth授权URL（GitHub等）
+    async getOAuthURL(provider: string, state?: string): Promise<string> {
+        const response = await axios.get(`${this.baseURL}/api/v1/auth/oauth/${provider}/url`, {
+            params: { state },
+            headers: getCommonHeaders()
+        })
+        if (response.data.code === 200) {
+            return response.data.data.auth_url
+        }
+        throw new Error(response.data.message || '获取授权链接失败')
+    }
+
+    // OAuth登录（code + state）
+    async oauthLogin(provider: string, code: string, state?: string): Promise<LoginResponse> {
+        const response = await axios.post(`${this.baseURL}/api/v1/auth/oauth-login`, { provider, code, state }, {
+            headers: getCommonHeaders()
+        })
+        if (response.data.code === 200) {
+            return {
+                user: response.data.data.user,
+                token: response.data.data.token,
+                refresh_token: '',
+                expires_in: 3600
+            }
+        }
+        throw new Error(response.data.message || 'OAuth登录失败')
+    }
+
     // 用户注册 - 支持201状态码，注册成功后返回登录信息
     async register(data: RegisterRequest): Promise<LoginResponse> {
         const response = await axios.post(`${this.baseURL}/api/v1/auth/register`, {
@@ -248,28 +294,6 @@ export class AuthApiService extends ApiService {
         // 支持200和201状态码
         if (response.data.code === 200 || response.data.code === 201) {
             return response.data
-            // 如果后端返回了用户信息和token，直接返回
-            // if (response.data.data.user && response.data.data.token) {
-            //     return {
-            //         user: response.data.data.user,
-            //         token: response.data.data.token,
-            //         refresh_token: response.data.data.refresh_token || '',
-            //         expires_in: response.data.data.expires_in || 3600
-            //     }
-            // }
-
-            // 如果后端只返回了用户信息，需要自动登录获取token
-            // if (response.data.data.user) {
-            // 使用注册的账号密码自动登录
-            // const loginResponse = await this.unifiedLogin({
-            //     account: data.email,
-            //     password: data.password
-            // })
-            // return loginResponse
-            // }
-
-            // 如果后端没有返回用户信息，抛出错误
-            // throw new Error('注册成功但未返回用户信息')
         } else {
             throw new Error(response.data.message || '注册失败')
         }
@@ -319,7 +343,7 @@ export class AuthApiService extends ApiService {
     }
 
     // 手机重置密码
-    async phoneResetPassword(data: ResetPasswordRequest): Promise<void> {
+    async phoneResetPassword(data: PhoneResetPasswordRequest): Promise<void> {
         const response = await axios.post(`${this.baseURL}/api/v1/auth/phone-reset-password`, {
             phone: data.phone,
             code: data.code,
@@ -582,4 +606,7 @@ export const wechatLoginAPI = authApi.checkWechatLoginStatus.bind(authApi)
 export const getWechatQRCodeAPI = authApi.getWechatQRCode.bind(authApi)
 export const checkWechatLoginStatusAPI = authApi.checkWechatLoginStatus.bind(authApi)
 export const emailRegisterAPI = authApi.register.bind(authApi)
-export const sendEmailCodeAPI = authApi.sendEmailCode.bind(authApi) 
+export const sendEmailCodeAPI = authApi.sendEmailCode.bind(authApi)
+export const emailCodeLoginAPI = authApi.emailCodeLogin.bind(authApi)
+export const getOAuthURLAPI = authApi.getOAuthURL.bind(authApi)
+export const oauthLoginAPI = authApi.oauthLogin.bind(authApi) 

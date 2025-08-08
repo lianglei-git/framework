@@ -166,7 +166,7 @@ type EmailVerification struct {
 	ID        uint      `json:"id" gorm:"primaryKey"`
 	Email     string    `json:"email" gorm:"not null"`
 	Code      string    `json:"code" gorm:"not null"`
-	Type      string    `json:"type" gorm:"not null"` // register, reset_password
+	Type      string    `json:"type" gorm:"not null"` // register, reset_password, login
 	ExpiresAt time.Time `json:"expires_at" gorm:"not null"`
 	Used      bool      `json:"used" gorm:"default:false"`
 	CreatedAt time.Time `json:"created_at"`
@@ -284,7 +284,13 @@ type OAuthLoginRequest struct {
 // SendEmailCodeRequest 发送邮件验证码请求
 type SendEmailCodeRequest struct {
 	Email string `json:"email" binding:"required,email"`
-	Type  string `json:"type" binding:"required,oneof=register reset_password"`
+	Type  string `json:"type" binding:"required,oneof=register reset_password login"`
+}
+
+// EmailLoginRequest 邮箱验证码登录请求
+type EmailLoginRequest struct {
+	Email string `json:"email" binding:"required,email"`
+	Code  string `json:"code" binding:"required,len=6"`
 }
 
 // SendSMSCodeRequest 发送短信验证码请求

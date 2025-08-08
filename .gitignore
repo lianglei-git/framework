@@ -34,6 +34,6 @@ src-tauri/target/**
 *.mp4
 
 /Utils/Recorder
-docs
+# docs
 tempStorage
 .env

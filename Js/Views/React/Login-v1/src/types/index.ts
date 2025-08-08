@@ -55,6 +55,12 @@ export interface PhoneLoginRequest {
     remember_me?: boolean
 }
 
+// EmailLoginRequest 邮箱验证码登录
+export interface EmailLoginRequest {
+    email: string
+    code: string
+}
+
 export interface RegisterRequest {
     username: string
     email: string
@@ -229,6 +235,10 @@ export interface UseAuthReturn {
     refreshUser: () => Promise<void>
     hasRole: (role: string) => boolean
     clearError: () => void
+    // 新增：邮箱验证码登录
+    emailCodeLogin?: (data: EmailLoginRequest) => Promise<void>
+    // 新增：OAuth登录（GitHub等）
+    oauthLogin?: (provider: string, code: string, state?: string) => Promise<void>
 }
 
 // 存储类型

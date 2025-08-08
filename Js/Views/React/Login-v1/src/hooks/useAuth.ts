@@ -12,6 +12,7 @@ import {
 } from '../types'
 import { authApi, userApi } from '../services/api'
 import { storage } from '../utils/storage'
+import { oauthLoginAPI } from '../services/api'
 
 export const useAuth = (): UseAuthReturn => {
     // 状态管理
@@ -87,6 +88,31 @@ export const useAuth = (): UseAuthReturn => {
             setUser(response.user)
             setToken(response.token)
 
+            window.dispatchEvent(new CustomEvent('auth:login', { detail: response }))
+        } catch (err: any) {
+            setError(err.message || '登录失败')
+            throw err
+        } finally {
+            setIsLoading(false)
+        }
+    }, [])
+
+    // 邮箱验证码登录
+    const emailCodeLogin = useCallback(async (data: { email: string; code: string }) => {
+        setIsLoading(true)
+        setError(null)
+        try {
+            const response = await authApi.emailCodeLogin(data)
+            const authData = {
+                user: response.user,
+                token: response.token,
+                refresh_token: response.refresh_token,
+                remember_me: true,
+                expires_at: Date.now() + response.expires_in * 1000
+            }
+            storage.saveAuth(authData)
+            setUser(response.user)
+            setToken(response.token)
             window.dispatchEvent(new CustomEvent('auth:login', { detail: response }))
         } catch (err: any) {
             setError(err.message || '登录失败')
@@ -228,6 +254,31 @@ export const useAuth = (): UseAuthReturn => {
         }
     }, [])
 
+    // OAuth 登录（GitHub等）
+    const oauthLogin = useCallback(async (provider: string, code: string, state?: string) => {
+        setIsLoading(true)
+        setError(null)
+        try {
+            const response = await authApi.oauthLogin(provider, code, state)
+            const authData = {
+                user: response.user,
+                token: response.token,
+                refresh_token: response.refresh_token,
+                remember_me: true,
+                expires_at: Date.now() + response.expires_in * 1000
+            }
+            storage.saveAuth(authData)
+            setUser(response.user)
+            setToken(response.token)
+            window.dispatchEvent(new CustomEvent('auth:login', { detail: response }))
+        } catch (err: any) {
+            setError(err.message || 'OAuth登录失败')
+            throw err
+        } finally {
+            setIsLoading(false)
+        }
+    }, [])
+
     // 用户信息方法
     const updateProfile = useCallback(async (data: Partial<User>) => {
         setIsLoading(true)
@@ -337,7 +388,10 @@ export const useAuth = (): UseAuthReturn => {
         // 计算属性
         isAdmin,
         hasRole,
-        hasPermission
+        hasPermission,
+        // 新增
+        emailCodeLogin,
+        oauthLogin
     }
 }
 

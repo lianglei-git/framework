@@ -274,6 +274,40 @@ func (m *Mailer) getVerificationTemplate(code, codeType string) EmailTemplate {
 			</body>
 			</html>
 		`, code)
+	case "login":
+		subject = "登录验证码 - Verita"
+		body = fmt.Sprintf(`
+			<!DOCTYPE html>
+			<html>
+			<head>
+				<meta charset="UTF-8">
+				<style>
+					body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+					.container { max-width: 600px; margin: 0 auto; padding: 20px; }
+					.header { background: #7c3aed; color: white; padding: 20px; text-align: center; }
+					.content { padding: 20px; background: #f9fafb; }
+					.code { font-size: 32px; font-weight: bold; color: #7c3aed; text-align: center; padding: 20px; background: white; border-radius: 8px; margin: 20px 0; }
+					.footer { text-align: center; color: #666; font-size: 12px; margin-top: 20px; }
+				</style>
+			</head>
+			<body>
+				<div class="container">
+					<div class="header">
+						<h1>登录验证码</h1>
+					</div>
+					<div class="content">
+						<p>您正在尝试登录账户，请使用以下验证码完成登录：</p>
+						<div class="code">%s</div>
+						<p><strong>验证码有效期为10分钟，请尽快使用。</strong></p>
+						<p>如果这不是您的操作，请忽略此邮件。</p>
+					</div>
+					<div class="footer">
+						<p>此邮件由系统自动发送，请勿回复</p>
+					</div>
+				</div>
+			</body>
+			</html>
+		`, code)
 	default:
 		subject = "验证码 - Verita"
 		body = fmt.Sprintf(`
