@@ -1,15 +1,11 @@
 package utils
 
-import (
-	"github.com/golang-jwt/jwt/v5"
-)
-
-type Claims struct {
-	UserID string `json:"user_id"`
-	Email  string `json:"email"`
-	Role   string `json:"role"`
-	jwt.RegisteredClaims
-}
+// type Claims struct {
+// 	UserID string `json:"user_id"`
+// 	Email  string `json:"email"`
+// 	Role   string `json:"role"`
+// 	jwt.RegisteredClaims
+// }
 
 // // 生成JWT Token
 // func GenerateToken(userID string, email, role string) (string, error) {

@@ -58,6 +58,21 @@ func NewProjectClient(p models.Project) *ProjectClient {
 	return &ProjectClient{Project: p, HTTP: &http.Client{Timeout: 5 * time.Second}}
 }
 
+/**
+* 说明：
+	创建用户，用于第三方项目对接
+* 接口示例
+	curl -X POST http://localhost:9001/api/v1/users -H "Content-Type: application/json" -d '{"user_id": "1234567890", "email": "test@example.com", "username": "test", "nickname": "test", "avatar": "https://example.com/avatar.png"}'
+* 请求参数：
+	user_id: 用户ID
+	email: 邮箱
+	username: 用户名
+	nickname: 昵称
+	avatar: 头像
+* 响应参数：
+	user_id: 用户ID
+*/
+
 func (c *ProjectClient) CreateUser(ctx context.Context, u OutboundUser) (string, error) {
 	url := fmt.Sprintf("%s/api/v1/users", c.Project.BaseURL)
 	body, _ := json.Marshal(u)

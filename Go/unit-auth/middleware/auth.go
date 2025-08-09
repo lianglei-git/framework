@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -48,11 +47,13 @@ func AuthMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		fmt.Println("token :::::: ", token)
-		fmt.Println("claims :::::: ", claims)
+
+		// log.Println("token :::::: ", token)
+		// log.Println("claims :::::: ", claims.UserID, claims.LocalUserID, claims.Email, claims.Role)
 
 		// 将用户信息存储到上下文中
 		c.Set("user_id", claims.UserID)
+		c.Set("local_user_id", claims.LocalUserID)
 		c.Set("email", claims.Email)
 		c.Set("role", claims.Role)
 
@@ -177,6 +178,7 @@ func AdminMiddleware() gin.HandlerFunc {
 
 // 在 handlers/auth.go 中添加
 // LoginWithRememberMe 支持记住我的登录
+// 大概率被废弃
 func LoginWithRememberMe(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req models.LoginWithRememberMeRequest

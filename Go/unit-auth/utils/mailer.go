@@ -182,10 +182,16 @@ func (m *Mailer) sendEmail(to, subject, body string) error {
 		to,
 	}
 
+	if config.AppConfig.SMTPUser != m.from {
+		fmt.Println("⚠️ 发件人与SMTP用户不一致，可能被退信 (建议两者一致)")
+	}
 	msg := mail.NewMessage()
 	msg.SetHeader("From", m.from)
 	msg.SetHeader("To", myvar...)
 	msg.SetHeader("Subject", subject)
+	// 同时提供纯文本与HTML，降低被判为垃圾邮件的概率
+	// msg.SetBody("text/plain", "请使用支持HTML的客户端查看此邮件内容。")
+	// msg.AddAlternative("text/html", body)
 	msg.SetBody("text/html", body)
 
 	// 添加邮件头
@@ -206,7 +212,6 @@ func (m *Mailer) sendEmail(to, subject, body string) error {
 // getVerificationTemplate 获取验证码邮件模板
 func (m *Mailer) getVerificationTemplate(code, codeType string) EmailTemplate {
 	var subject, body string
-
 	switch codeType {
 	case "register":
 		subject = "注册验证码 - Verita"
@@ -275,7 +280,7 @@ func (m *Mailer) getVerificationTemplate(code, codeType string) EmailTemplate {
 			</html>
 		`, code)
 	case "login":
-		subject = "登录验证码 - Verita"
+		subject = "注册及登录验证码 - Verita"
 		body = fmt.Sprintf(`
 			<!DOCTYPE html>
 			<html>
@@ -284,19 +289,16 @@ func (m *Mailer) getVerificationTemplate(code, codeType string) EmailTemplate {
 				<style>
 					body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
 					.container { max-width: 600px; margin: 0 auto; padding: 20px; }
-					.header { background: #7c3aed; color: white; padding: 20px; text-align: center; }
+					.header { background: #2563eb; color: white; padding: 20px; text-align: center; }
 					.content { padding: 20px; background: #f9fafb; }
-					.code { font-size: 32px; font-weight: bold; color: #7c3aed; text-align: center; padding: 20px; background: white; border-radius: 8px; margin: 20px 0; }
+					.code { font-size: 32px; font-weight: bold; color: #2563eb; text-align: center; padding: 20px; background: white; border-radius: 8px; margin: 20px 0; }
 					.footer { text-align: center; color: #666; font-size: 12px; margin-top: 20px; }
 				</style>
 			</head>
 			<body>
 				<div class="container">
-					<div class="header">
-						<h1>登录验证码</h1>
-					</div>
 					<div class="content">
-						<p>您正在尝试登录账户，请使用以下验证码完成登录：</p>
+						<p>感谢您注册及登录我们的服务！请使用以下验证码完成注册及登录：</p>
 						<div class="code">%s</div>
 						<p><strong>验证码有效期为10分钟，请尽快使用。</strong></p>
 						<p>如果这不是您的操作，请忽略此邮件。</p>

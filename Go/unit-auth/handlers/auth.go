@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -752,17 +753,27 @@ func PhoneDirectLogin(db *gorm.DB) gin.HandlerFunc {
 		}
 		projectKey := ""
 		localID := ""
+
+		// localID := ""
+		// if projectKey != "" {
+		// 	var pm models.ProjectMapping
+		// 	if err := db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
+		// 		localID = pm.LocalUserID
+		// 	}
+		// }
+
 		if keyVal, ok := c.Get(middleware.CtxProjectKey); ok {
 			projectKey = keyVal.(string)
-			var p models.Project
-			if err := db.Where("`key` = ? AND enabled = ?", projectKey, true).First(&p).Error; err == nil {
-				var pm models.ProjectMapping
-				if err := db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
-					localID = pm.LocalUserID
-				}
+			// var p models.Project
+			// if err := db.Where("`key` = ? AND enabled = ?", projectKey, true).First(&p).Error; err == nil {
+			var pm models.ProjectMapping
+			if err := db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
+				localID = pm.LocalUserID
 			}
+			// }
 		}
 
+		log.Println("projectKey :::::: ", projectKey, localID)
 		token := ""
 		if projectKey != "" && localID != "" {
 			var err2 error

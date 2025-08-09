@@ -360,19 +360,14 @@ func GenerateToken(userID string, email, role string) (string, error) {
 	return GenerateUnifiedToken(userID, email, role, "", "")
 }
 
-func ValidateToken(tokenString string) (*Claims, error) {
+func ValidateToken(tokenString string) (*EnhancedClaims, error) {
 	enhancedClaims, err := ValidateEnhancedToken(tokenString)
 	if err != nil {
 		return nil, err
 	}
 
 	// 转换为旧的Claims格式
-	return &Claims{
-		UserID:           enhancedClaims.UserID,
-		Email:            enhancedClaims.Email,
-		Role:             enhancedClaims.Role,
-		RegisteredClaims: enhancedClaims.RegisteredClaims,
-	}, nil
+	return enhancedClaims, nil
 }
 
 func GenerateAccessTokenWithProject(userID string, email, role, projectKey, localUserID string) (string, error) {
