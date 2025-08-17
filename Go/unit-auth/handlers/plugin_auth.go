@@ -165,6 +165,7 @@ func (h *PluginAuthHandler) OAuthLogin() gin.HandlerFunc {
 				localID = pm.LocalUserID
 			}
 		}
+		// 一定要有 project_name
 		token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey, localID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
