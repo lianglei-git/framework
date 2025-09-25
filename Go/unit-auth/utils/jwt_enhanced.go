@@ -21,8 +21,101 @@ type EnhancedClaims struct {
 	Role        string `json:"role"`
 	ProjectKey  string `json:"project_key,omitempty"`
 	LocalUserID string `json:"local_user_id,omitempty"`
-	TokenType   string `json:"token_type"` // "access", "refresh", "remember_me"
+	TokenType   string `json:"token_type"`           // "access", "refresh", "remember_me"
+	SessionID   string `json:"session_id,omitempty"` // 会话ID（中心化SSO）
+	ProjectID   string `json:"project_id,omitempty"` // 项目ID
 	jwt.RegisteredClaims
+}
+
+// 实现jwt.Claims接口方法
+func (e *EnhancedClaims) GetAudience() (jwt.ClaimStrings, error) {
+	if len(e.RegisteredClaims.Audience) > 0 {
+		return e.RegisteredClaims.Audience, nil
+	}
+	return jwt.ClaimStrings{}, nil
+}
+
+func (e *EnhancedClaims) GetExpiresAt() (*jwt.NumericDate, error) {
+	return e.RegisteredClaims.ExpiresAt, nil
+}
+
+func (e *EnhancedClaims) GetIssuedAt() (*jwt.NumericDate, error) {
+	return e.RegisteredClaims.IssuedAt, nil
+}
+
+func (e *EnhancedClaims) GetNotBefore() (*jwt.NumericDate, error) {
+	return e.RegisteredClaims.NotBefore, nil
+}
+
+func (e *EnhancedClaims) GetIssuer() (string, error) {
+	return e.RegisteredClaims.Issuer, nil
+}
+
+func (e *EnhancedClaims) GetSubject() (string, error) {
+	return e.RegisteredClaims.Subject, nil
+}
+
+// 自定义JWT声明结构，避免类型冲突
+type CustomClaims struct {
+	UserID      string `json:"user_id"`
+	Email       string `json:"email"`
+	Role        string `json:"role"`
+	ProjectKey  string `json:"project_key,omitempty"`
+	LocalUserID string `json:"local_user_id,omitempty"`
+	TokenType   string `json:"token_type"`           // "access", "refresh", "remember_me"
+	SessionID   string `json:"session_id,omitempty"` // 会话ID（中心化SSO）
+	ProjectID   string `json:"project_id,omitempty"` // 项目ID
+	jwt.RegisteredClaims
+}
+
+// TokenClaims 用于创建Token的声明结构
+type TokenClaims struct {
+	UserID      string `json:"user_id"`
+	Email       string `json:"email"`
+	Role        string `json:"role"`
+	ProjectKey  string `json:"project_key,omitempty"`
+	LocalUserID string `json:"local_user_id,omitempty"`
+	TokenType   string `json:"token_type"`           // "access", "refresh", "remember_me"
+	SessionID   string `json:"session_id,omitempty"` // 会话ID（中心化SSO）
+	ProjectID   string `json:"project_id,omitempty"` // 项目ID
+	jwt.RegisteredClaims
+}
+
+// 实现jwt.Claims接口
+func (t *TokenClaims) GetAudience() (jwt.ClaimStrings, error) {
+	return t.RegisteredClaims.GetAudience()
+}
+
+func (t *TokenClaims) GetExpiresAt() (*jwt.NumericDate, error) {
+	return t.RegisteredClaims.ExpiresAt, nil
+}
+
+func (t *TokenClaims) GetIssuedAt() (*jwt.NumericDate, error) {
+	return t.RegisteredClaims.IssuedAt, nil
+}
+
+func (t *TokenClaims) GetNotBefore() (*jwt.NumericDate, error) {
+	return t.RegisteredClaims.NotBefore, nil
+}
+
+func (t *TokenClaims) GetIssuer() (string, error) {
+	return t.RegisteredClaims.Issuer, nil
+}
+
+func (t *TokenClaims) GetSubject() (string, error) {
+	return t.RegisteredClaims.Subject, nil
+}
+
+func (t *TokenClaims) GetExpirationTime() (*jwt.NumericDate, error) {
+	return t.GetExpiresAt()
+}
+
+func (t *TokenClaims) GetIssuedAtTime() (*jwt.NumericDate, error) {
+	return t.GetIssuedAt()
+}
+
+func (t *TokenClaims) GetNotBeforeTime() (*jwt.NumericDate, error) {
+	return t.GetNotBefore()
 }
 
 // 暴露JWT Secret用于JWKS指纹（对称密钥仅用于示例）
@@ -125,6 +218,92 @@ func GenerateRememberMeToken(userID string, email, role string) (string, error) 
 	return tokenString, nil
 }
 
+// ValidateEnhancedTokenIgnoreExpiry 验证增强的JWT Token（忽略过期验证）
+func ValidateEnhancedTokenIgnoreExpiry(tokenString string) (*EnhancedClaims, error) {
+	claims := jwt.MapClaims{}
+	_, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		return []byte(config.AppConfig.JWTSecret), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// 不验证token的有效性（包括过期时间）
+	// 直接提取claims数据
+
+	// 提取注册字段
+	enh := &EnhancedClaims{}
+	// user id
+	if v, ok := claims["user_id"].(string); ok && v != "" {
+		enh.UserID = v
+	}
+	if enh.UserID == "" {
+		if v, ok := claims["uid"].(string); ok {
+			enh.UserID = v
+		}
+		if enh.UserID == "" {
+			if v, ok := claims["sub"].(string); ok {
+				enh.UserID = v
+			}
+		}
+	}
+	// email, role
+	if v, ok := claims["email"].(string); ok {
+		enh.Email = v
+	}
+	if v, ok := claims["role"].(string); ok {
+		enh.Role = v
+	}
+	// local user id
+	if v, ok := claims["local_user_id"].(string); ok {
+		enh.LocalUserID = v
+	}
+	if enh.LocalUserID == "" {
+		if v, ok := claims["luid"].(string); ok {
+			enh.LocalUserID = v
+		}
+	}
+	// token type
+	if v, ok := claims["token_type"].(string); ok {
+		enh.TokenType = v
+	}
+	// session_id
+	if v, ok := claims["session_id"].(string); ok {
+		enh.SessionID = v
+	}
+	// project id
+	if v, ok := claims["project_id"].(string); ok {
+		enh.ProjectID = v
+	}
+	if enh.ProjectID == "" {
+		if v, ok := claims["pid"].(string); ok {
+			enh.ProjectID = v
+		}
+	}
+	// issuer
+	if v, ok := claims["iss"].(string); ok {
+		enh.Issuer = v
+	}
+	// audience
+	if v, ok := claims["aud"].(string); ok {
+		enh.RegisteredClaims.Audience = jwt.ClaimStrings{v}
+	}
+	// issued at
+	if v, ok := claims["iat"].(float64); ok {
+		enh.RegisteredClaims.IssuedAt = jwt.NewNumericDate(time.Unix(int64(v), 0))
+	}
+	// expires at
+	if v, ok := claims["exp"].(float64); ok {
+		enh.RegisteredClaims.ExpiresAt = jwt.NewNumericDate(time.Unix(int64(v), 0))
+	}
+	// not before
+	if v, ok := claims["nbf"].(float64); ok {
+		enh.RegisteredClaims.NotBefore = jwt.NewNumericDate(time.Unix(int64(v), 0))
+	}
+
+	return enh, nil
+}
+
 // ValidateEnhancedToken 验证增强的JWT Token（兼容紧凑字段 uid/pid/luid 与完整字段）
 func ValidateEnhancedToken(tokenString string) (*EnhancedClaims, error) {
 	claims := jwt.MapClaims{}
@@ -180,33 +359,35 @@ func ValidateEnhancedToken(tokenString string) (*EnhancedClaims, error) {
 	} else {
 		enh.TokenType = "access"
 	}
+	// session_id
+	if v, ok := claims["session_id"].(string); ok {
+		enh.SessionID = v
+	}
+	// project id
+	if v, ok := claims["project_id"].(string); ok {
+		enh.ProjectID = v
+	}
+	if enh.ProjectID == "" {
+		if v, ok := claims["pid"].(string); ok {
+			enh.ProjectID = v
+		}
+	}
 
 	// RegisteredClaims
 	if v, ok := claims["iss"].(string); ok {
-		enh.Issuer = v
+		enh.RegisteredClaims.Issuer = v
 	}
 	if v, ok := claims["aud"].(string); ok && v != "" {
-		enh.Audience = jwt.ClaimStrings{v}
-	}
-	if arr, ok := claims["aud"].([]interface{}); ok && len(arr) > 0 {
-		var as []string
-		for _, it := range arr {
-			if s, ok := it.(string); ok {
-				as = append(as, s)
-			}
-		}
-		if len(as) > 0 {
-			enh.Audience = jwt.ClaimStrings(as)
-		}
+		enh.RegisteredClaims.Audience = jwt.ClaimStrings{v}
 	}
 	if v, ok := claims["iat"].(float64); ok {
-		enh.IssuedAt = jwt.NewNumericDate(time.Unix(int64(v), 0))
+		enh.RegisteredClaims.IssuedAt = jwt.NewNumericDate(time.Unix(int64(v), 0))
 	}
 	if v, ok := claims["exp"].(float64); ok {
-		enh.ExpiresAt = jwt.NewNumericDate(time.Unix(int64(v), 0))
+		enh.RegisteredClaims.ExpiresAt = jwt.NewNumericDate(time.Unix(int64(v), 0))
 	}
 	if v, ok := claims["nbf"].(float64); ok {
-		enh.NotBefore = jwt.NewNumericDate(time.Unix(int64(v), 0))
+		enh.RegisteredClaims.NotBefore = jwt.NewNumericDate(time.Unix(int64(v), 0))
 	}
 	if v, ok := claims["jti"].(string); ok {
 		enh.ID = v
@@ -380,58 +561,59 @@ func GenerateTokenWithProject(userID string, email, role, projectKey, localUserI
 
 // GenerateAccessTokenWithAudience 生成带aud、并保留项目字段的访问token
 func GenerateAccessTokenWithAudience(userID string, email, role, audience, projectKey, localUserID string) (string, error) {
-	// audience 兼容：设置 pid/aud
-	claims := jwt.MapClaims{
-		"uid": userID,
-		"iss": os.Getenv("JWT_ISS"),
-		"iat": time.Now().Unix(),
-		"exp": time.Now().Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour).Unix(),
-		"jti": uuid.New().String(),
+	now := time.Now()
+	claims := &TokenClaims{
+		UserID:      userID,
+		Email:       email,
+		Role:        role,
+		ProjectKey:  projectKey,
+		LocalUserID: localUserID,
+		TokenType:   "access",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			Issuer:    os.Getenv("JWT_ISS"),
+			ID:        uuid.New().String(),
+		},
 	}
+
+	// 设置audience如果有
 	if strings.TrimSpace(audience) != "" {
-		claims["aud"] = audience
-		claims["pid"] = audience
+		claims.RegisteredClaims.Audience = jwt.ClaimStrings{audience}
 	}
-	if strings.TrimSpace(localUserID) != "" {
-		claims["luid"] = localUserID
-	}
-	if strings.TrimSpace(role) != "" {
-		claims["role"] = role
-	}
-	if strings.TrimSpace(email) != "" {
-		claims["email"] = email
-	}
+
 	log.Printf("claims: %+v\n", claims)
 
-	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(config.AppConfig.JWTSecret))
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString([]byte(config.AppConfig.JWTSecret))
 }
 
 // GenerateCompactAccessToken 生成带短字段的访问token（sub, uid, pid, luid, iss, aud, iat, exp, jti）
 func GenerateCompactAccessToken(userID string, emailOrIdentifier, role, projectKey, localUserID string) (string, error) {
+	// 创建TokenClaims结构
+	now := time.Now()
+	claims := &TokenClaims{
+		UserID:      userID,
+		Email:       emailOrIdentifier,
+		Role:        role,
+		ProjectKey:  projectKey,
+		LocalUserID: localUserID,
+		TokenType:   "access",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			Issuer:    os.Getenv("JWT_ISS"),
+			ID:        uuid.New().String(),
+		},
+	}
 
-	// 兼容无项目映射的情况：pid/luid 为空则不放
-	claims := jwt.MapClaims{
-		"uid": userID,
-		"iss": os.Getenv("JWT_ISS"),
-		"iat": time.Now().Unix(),
-		"exp": time.Now().Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour).Unix(),
-		"jti": uuid.New().String(),
-	}
+	// 设置audience如果有projectKey
 	if strings.TrimSpace(projectKey) != "" {
-		claims["aud"] = projectKey
-		claims["pid"] = projectKey
+		claims.RegisteredClaims.Audience = jwt.ClaimStrings{projectKey}
 	}
-	if strings.TrimSpace(localUserID) != "" {
-		claims["luid"] = localUserID
-	}
-	// 附带角色（可选）
-	if strings.TrimSpace(role) != "" {
-		claims["role"] = role
-	}
-	// 附带邮箱/标识（可选）
-	if strings.TrimSpace(emailOrIdentifier) != "" {
-		claims["email"] = emailOrIdentifier
-	}
+
 	log.Printf("claims: %+v\n", claims)
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

@@ -11,13 +11,25 @@ import {
 } from '../../'
 import { getOAuthURLAPI } from '../../services/api'
 
+import { RiGithubFill, RiGoogleFill, RiUserFill, RiWechatFill } from 'react-icons/ri'
+
 interface AuthLoginProps {
     onSwitchToRegister: () => void
     onForgotPassword: () => void
     onOpenThirdparty: () => void
+    ssoService?: any
+    ssoProviders?: any[]
+    onSSOLogin?: (provider: string) => void
 }
 
-const AuthLogin: React.FC<AuthLoginProps> = ({ onSwitchToRegister, onForgotPassword, onOpenThirdparty }) => {
+const AuthLogin: React.FC<AuthLoginProps> = ({
+    onSwitchToRegister,
+    onForgotPassword,
+    onOpenThirdparty,
+    ssoService,
+    ssoProviders = [],
+    onSSOLogin
+}) => {
     const auth = useAuth()
     const [loginStep, setLoginStep] = useState<'account' | 'password'>('account')
     const [loginType, setLoginType] = useState<'email' | 'phone'>('account');
@@ -203,7 +215,9 @@ const AuthLogin: React.FC<AuthLoginProps> = ({ onSwitchToRegister, onForgotPassw
         // 临时存储sessionStorage
         window.sessionStorage.setItem('github_access', 'true')
         //   = 'https://github.com/login/oauth/authorize?client_id=Ov23li5H25mAnW2AWrr1&scope=read:user';
-        window.location.href = await getOAuthURLAPI('github', location.search.split('?')?.[1])
+        const uri = await getOAuthURLAPI('github', location.search.split('?')?.[1])
+        console.log('github login: uri----->>> ', uri);
+        // window.location.href 
     }
 
     const verifyForComponent = () => {
@@ -285,13 +299,32 @@ const AuthLogin: React.FC<AuthLoginProps> = ({ onSwitchToRegister, onForgotPassw
                     <div className="divider"><span>or</span></div>
 
                     <div className="social-login">
+                        {ssoProviders.map((provider: any) => (
+                            <Button
+                                key={provider.id}
+                                variant="secondary"
+                                fullWidth
+                                className={`social-btn ${provider.name}-btn`}
+                                onClick={() => onSSOLogin?.(provider.id)}
+                            >
+                                <span className="social-icon">
+                                    {provider.id === 'github' && <RiGithubFill />}
+                                    {provider.id === 'google' && <RiGoogleFill />}
+                                    {provider.id === 'wechat' && <RiWechatFill style={{ color: "#07c160" }} />}
+                                    {provider.id === 'local' && <RiUserFill />}
+                                </span>
+                                <span>使用 {provider.displayName} 登录</span>
+                                <span></span>
+                            </Button>
+                        ))}
+
                         <Button variant="secondary" fullWidth className="social-btn github-btn" onClick={handleGithubLogin}>
-                            <span className="social-icon"><i class="ri-github-fill"></i></span>
+                            <span className="social-icon"> <RiGithubFill /></span>
                             <span>使用 GitHub 登录</span>
                             <span></span>
                         </Button>
                         <Button variant="secondary" fullWidth className="social-btn wechat-btn" onClick={onOpenThirdparty}>
-                            <span className="social-icon"><i style={{ color: "#07c160" }} class="ri-wechat-fill"></i></span>
+                            <span className="social-icon"><RiWechatFill style={{ color: "#07c160" }} /></span>
                             <span>使用微信登录</span>
                             <span></span>
                         </Button>

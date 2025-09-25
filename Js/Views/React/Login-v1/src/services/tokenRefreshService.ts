@@ -39,6 +39,36 @@ export class TokenRefreshService {
         }
     }
 
+    // 存储Refresh Token到本地存储
+    private storeRefreshToken(refreshToken: string): void {
+        try {
+            localStorage.setItem('refresh_token', refreshToken)
+            console.log('Refresh Token已存储')
+        } catch (error) {
+            console.error('存储Refresh Token失败:', error)
+        }
+    }
+
+    // 从本地存储获取Refresh Token
+    private getStoredRefreshToken(): string | null {
+        try {
+            return localStorage.getItem('refresh_token')
+        } catch (error) {
+            console.error('获取Refresh Token失败:', error)
+            return null
+        }
+    }
+
+    // 清除本地存储的Refresh Token
+    private clearRefreshToken(): void {
+        try {
+            localStorage.removeItem('refresh_token')
+            console.log('Refresh Token已清除')
+        } catch (error) {
+            console.error('清除Refresh Token失败:', error)
+        }
+    }
+
     // 检查token状态
     async checkTokenStatus(): Promise<{
         is_valid: boolean
@@ -65,7 +95,7 @@ export class TokenRefreshService {
         }
     }
 
-    // 手动续签token
+    // 手动续签token（简单续签）
     async refreshToken(): Promise<{
         access_token: string
         token_type: string
@@ -93,6 +123,98 @@ export class TokenRefreshService {
             }
         } catch (error) {
             console.error('Token续签错误:', error)
+            return null
+        }
+    }
+
+    // 双Token登录
+    async loginWithTokenPair(account: string, password: string): Promise<{
+        user: any
+        access_token: string
+        refresh_token: string
+        expires_in: number
+        refresh_expires_in: number
+    } | null> {
+        try {
+            const response = await axios.post(`${this.basicUrl}/api/v1/auth/login-with-token-pair`, {
+                account,
+                password
+            }, {
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+
+            if (response.data.code === 200) {
+                const tokenData = response.data.data
+
+                // 更新全局用户存储
+                globalUserStore.updateToken(tokenData.access_token)
+                globalUserStore.updateUser(tokenData.user)
+
+                // 存储Refresh Token
+                this.storeRefreshToken(tokenData.refresh_token)
+
+                console.log('双Token登录成功')
+                return tokenData
+            } else {
+                console.error('双Token登录失败:', response.data.message)
+                return null
+            }
+        } catch (error) {
+            console.error('双Token登录错误:', error)
+            return null
+        }
+    }
+
+    // 双Token续签（推荐使用）
+    async refreshTokenWithRefreshToken(refreshToken?: string): Promise<{
+        access_token: string
+        refresh_token: string
+        token_type: string
+        expires_in: number
+        refresh_expires_in: number
+        user_id: string
+        email: string
+        role: string
+    } | null> {
+        try {
+            const tokenToUse = refreshToken || this.getStoredRefreshToken()
+
+            if (!tokenToUse) {
+                console.error('没有可用的Refresh Token')
+                return null
+            }
+
+            const response = await axios.post(`${this.basicUrl}/api/v1/auth/refresh-with-refresh-token`, {
+                refresh_token: tokenToUse
+            }, {
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+
+            if (response.data.code === 200) {
+                const tokenData = response.data.data
+
+                // 更新全局用户存储中的token
+                globalUserStore.updateToken(tokenData.access_token)
+
+                // 存储新的Refresh Token
+                this.storeRefreshToken(tokenData.refresh_token)
+
+                console.log('双Token续签成功')
+                return tokenData
+            } else {
+                console.error('双Token续签失败:', response.data.message)
+                // 如果Refresh Token无效，清除本地存储
+                this.clearRefreshToken()
+                return null
+            }
+        } catch (error) {
+            console.error('双Token续签错误:', error)
+            // 如果Refresh Token无效，清除本地存储
+            this.clearRefreshToken()
             return null
         }
     }
@@ -158,7 +280,18 @@ export class TokenRefreshService {
             if (await this.shouldRefreshToken(tokenStatus)) {
                 console.log(`Token将在${tokenStatus.remaining_hours}小时后过期，开始自动续签`)
 
-                const refreshResult = await this.refreshToken()
+                // 优先使用双Token续签，如果没有Refresh Token则使用简单续签
+                const refreshToken = this.getStoredRefreshToken()
+                let refreshResult
+
+                if (refreshToken) {
+                    console.log('使用双Token续签')
+                    refreshResult = await this.refreshTokenWithRefreshToken()
+                } else {
+                    console.log('使用简单Token续签')
+                    refreshResult = await this.refreshToken()
+                }
+
                 if (refreshResult) {
                     console.log('Token自动续签成功')
 
@@ -168,6 +301,19 @@ export class TokenRefreshService {
                     }))
                 } else {
                     console.error('Token自动续签失败')
+                    // 如果双Token续签失败，尝试简单续签作为fallback
+                    if (refreshToken) {
+                        console.log('尝试简单续签作为fallback')
+                        const fallbackResult = await this.refreshToken()
+                        if (fallbackResult) {
+                            console.log('Fallback续签成功')
+                            window.dispatchEvent(new CustomEvent('token:refreshed', {
+                                detail: { newToken: fallbackResult.access_token }
+                            }))
+                        } else {
+                            console.error('Fallback续签也失败了')
+                        }
+                    }
                 }
             } else {
                 console.log(`Token状态正常，剩余${tokenStatus.remaining_hours}小时，无需续签`)

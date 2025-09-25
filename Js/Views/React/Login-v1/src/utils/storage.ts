@@ -1,4 +1,4 @@
-import { LocalStorageData, StorageType, Theme, User } from '../types'
+import { LocalStorageData, StorageType, Theme, User, SSOToken, SSOSession, SSOConfig } from '../types'
 
 // 存储管理器
 export class StorageManager {
@@ -30,6 +30,55 @@ export class StorageManager {
     isRememberMe(): boolean {
         const authData = this.getAuthData()
         return authData?.remember_me || false
+    }
+
+    // SSO相关存储
+    saveSSOData(data: { token: SSOToken; expires_at: number }): void {
+        this.set('sso_data', data, this.getSSOStorageType())
+    }
+
+    getSSOData(): { token: SSOToken; expires_at: number } | null {
+        return this.get('sso_data', this.getSSOStorageType())
+    }
+
+    clearSSOData(): void {
+        this.remove('sso_data', this.getSSOStorageType())
+    }
+
+    saveSSOSession(session: SSOSession): void {
+        this.set('sso_session', session, this.getSSOStorageType())
+    }
+
+    getSSOSession(): SSOSession | null {
+        return this.get('sso_session', this.getSSOStorageType())
+    }
+
+    clearSSOSession(): void {
+        this.remove('sso_session', this.getSSOStorageType())
+    }
+
+    getSSOAccessToken(): string | null {
+        const data = this.getSSOData()
+        return data?.token?.access_token || null
+    }
+
+    getSSORefreshToken(): string | null {
+        const data = this.getSSOData()
+        return data?.token?.refresh_token || null
+    }
+
+    isSSOTokenExpired(): boolean {
+        const data = this.getSSOData()
+        return data ? Date.now() >= data.expires_at : true
+    }
+
+    getSSOStorageType(): StorageType {
+        // 从配置或环境变量获取存储类型，默认为localStorage
+        return (this.get('sso_storage_type') as StorageType) || StorageType.LOCAL
+    }
+
+    setSSOStorageType(type: StorageType): void {
+        this.set('sso_storage_type', type, StorageType.LOCAL)
     }
 
     // 主题和语言
@@ -151,6 +200,19 @@ export const storage = {
     // 用户设置
     saveUserSettings: (settings: Record<string, any>) => storageManager.saveUserSettings(settings),
     getUserSettings: () => storageManager.getUserSettings(),
+
+    // SSO相关
+    saveSSOData: (data: { token: SSOToken; expires_at: number }) => storageManager.saveSSOData(data),
+    getSSOData: () => storageManager.getSSOData(),
+    clearSSOData: () => storageManager.clearSSOData(),
+    saveSSOSession: (session: SSOSession) => storageManager.saveSSOSession(session),
+    getSSOSession: () => storageManager.getSSOSession(),
+    clearSSOSession: () => storageManager.clearSSOSession(),
+    getSSOAccessToken: () => storageManager.getSSOAccessToken(),
+    getSSORefreshToken: () => storageManager.getSSORefreshToken(),
+    isSSOTokenExpired: () => storageManager.isSSOTokenExpired(),
+    getSSOStorageType: () => storageManager.getSSOStorageType(),
+    setSSOStorageType: (type: StorageType) => storageManager.setSSOStorageType(type),
 
     // 通用方法
     set: <T>(key: string, value: T, type?: StorageType) => storageManager.set(key, value, type),

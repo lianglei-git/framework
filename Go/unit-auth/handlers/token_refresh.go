@@ -2,8 +2,11 @@
 package handlers
 
 import (
+	"errors"
+	"log"
 	"net/http"
 	"time"
+	"unit-auth/config"
 	"unit-auth/models"
 	"unit-auth/utils"
 
@@ -81,7 +84,7 @@ func RefreshToken() gin.HandlerFunc {
 	}
 }
 
-// RefreshTokenWithRefreshToken 使用刷新token续签访问token
+// RefreshTokenWithRefreshToken 使用刷新token续签访问token（数据库版本）
 // POST /api/v1/auth/refresh-with-refresh-token
 func RefreshTokenWithRefreshToken() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -97,8 +100,8 @@ func RefreshTokenWithRefreshToken() gin.HandlerFunc {
 			return
 		}
 
-		// 使用刷新token续签
-		tokenResponse, err := utils.RefreshAccessToken(req.RefreshToken)
+		// 验证刷新token并生成新的访问token
+		tokenResponse, err := refreshAccessTokenWithDB(req.RefreshToken, c.ClientIP(), c.GetHeader("User-Agent"))
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, models.Response{
 				Code:    401,
@@ -379,6 +382,23 @@ func LoginWithTokenPair(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		// 撤销用户现有的所有Refresh Token（单点登录）
+		if err := RevokeUserRefreshTokens(user.ID); err != nil {
+			// 记录错误并阻止登录
+			log.Printf("Failed to revoke old refresh tokens: %v", err)
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to revoke old refresh tokens",
+			})
+			return
+		}
+
+		// 创建新的Refresh Token记录
+		if err := CreateRefreshTokenRecord(user.ID, tokenPair.RefreshToken, c.ClientIP(), c.GetHeader("User-Agent")); err != nil {
+			// 记录错误但不阻止登录（Refresh Token记录失败不影响登录）
+			log.Printf("Failed to create refresh token record: %v", err)
+		}
+
 		// 更新最后登录时间
 		now := time.Now()
 		db.Model(&user).Update("last_login_at", &now)
@@ -395,4 +415,105 @@ func LoginWithTokenPair(db *gorm.DB) gin.HandlerFunc {
 			},
 		})
 	}
+}
+
+// refreshAccessTokenWithDB 使用数据库验证Refresh Token并生成新的访问token
+func refreshAccessTokenWithDB(refreshToken string, ipAddress, userAgent string) (*utils.TokenResponse, error) {
+	// 解析Refresh Token获取用户信息
+	refreshClaims, err := utils.ValidateTokenType(refreshToken, "refresh")
+	if err != nil {
+		return nil, err
+	}
+
+	// 查找Refresh Token记录 - 查询所有有效的Refresh Token（未过期且未撤销）
+	var refreshTokens []models.RefreshToken
+	if err := models.DB.Where("user_id = ? AND is_revoked = ? AND expires_at > ?",
+		refreshClaims.UserID, false, time.Now()).Find(&refreshTokens).Error; err != nil {
+		return nil, errors.New("no valid refresh token found")
+	}
+
+	if len(refreshTokens) == 0 {
+		return nil, errors.New("no valid refresh token found")
+	}
+
+	// 找到匹配的Refresh Token
+	var matchedToken *models.RefreshToken
+	for _, rt := range refreshTokens {
+		if rt.VerifyTokenHash(refreshToken) {
+			matchedToken = &rt
+			break
+		}
+	}
+
+	if matchedToken == nil {
+		return nil, errors.New("invalid refresh token")
+	}
+
+	rt := *matchedToken
+
+	// 生成新的访问token
+	accessToken, err := utils.GenerateAccessToken(refreshClaims.UserID, refreshClaims.Email, refreshClaims.Role)
+	if err != nil {
+		return nil, err
+	}
+
+	// 生成新的Refresh Token
+	newRefreshToken, err := utils.GenerateRefreshToken(refreshClaims.UserID, refreshClaims.Email, refreshClaims.Role)
+	if err != nil {
+		return nil, err
+	}
+
+	// 撤销旧的Refresh Token
+	rt.Revoke()
+	if err := models.DB.Save(&rt).Error; err != nil {
+		return nil, err
+	}
+
+	// 创建新的Refresh Token记录
+	newRT := models.RefreshToken{
+		UserID:    refreshClaims.UserID,
+		ExpiresAt: time.Now().Add(time.Duration(config.AppConfig.JWTRefreshExpiration) * time.Hour),
+		IPAddress: ipAddress,
+		UserAgent: userAgent,
+	}
+	newRT.GenerateTokenHash(newRefreshToken)
+
+	if err := models.DB.Create(&newRT).Error; err != nil {
+		return nil, err
+	}
+
+	return &utils.TokenResponse{
+		AccessToken:      accessToken,
+		RefreshToken:     newRefreshToken,
+		TokenType:        "Bearer",
+		ExpiresIn:        int64(config.AppConfig.JWTExpiration * 3600),
+		RefreshExpiresIn: int64(config.AppConfig.JWTRefreshExpiration * 3600),
+		UserID:           refreshClaims.UserID,
+		Email:            refreshClaims.Email,
+		Role:             refreshClaims.Role,
+	}, nil
+}
+
+// CreateRefreshTokenRecord 在双Token登录时创建Refresh Token记录
+func CreateRefreshTokenRecord(userID, refreshToken, ipAddress, userAgent string) error {
+	var rt models.RefreshToken
+	rt.UserID = userID
+	rt.ExpiresAt = time.Now().Add(time.Duration(config.AppConfig.JWTRefreshExpiration) * time.Hour)
+	rt.IPAddress = ipAddress
+	rt.UserAgent = userAgent
+	rt.GenerateTokenHash(refreshToken)
+
+	return models.DB.Create(&rt).Error
+}
+
+// RevokeUserRefreshTokens 撤销用户的所有Refresh Token
+func RevokeUserRefreshTokens(userID string) error {
+	return models.DB.Model(&models.RefreshToken{}).
+		Where("user_id = ? AND is_revoked = ?", userID, false).
+		Update("is_revoked", true).Error
+}
+
+// CleanupExpiredRefreshTokens 清理过期的Refresh Token
+func CleanupExpiredRefreshTokens() error {
+	return models.DB.Where("expires_at < ?", time.Now()).Delete(&models.RefreshToken{}).Error
 }

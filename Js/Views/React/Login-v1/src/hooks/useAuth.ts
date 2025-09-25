@@ -8,30 +8,60 @@ import {
     VerificationType,
     UseAuthReturn,
     AuthEventListener,
-    PhoneResetPasswordRequest
+    PhoneResetPasswordRequest,
+    SSOLoginRequest,
+    SSOLoginResponse,
+    SSOUser,
+    SSOSession
 } from '../types'
 import { authApi, userApi } from '../services/api'
 import { storage } from '../utils/storage'
 import { oauthLoginAPI } from '../services/api'
+import { SSOService, createDefaultSSOConfig } from '../services/sso'
 
 export const useAuth = (): UseAuthReturn => {
     // 状态管理
     const [user, setUser] = useState<User | null>(null)
     const [token, setToken] = useState<string | null>(null)
+    const [ssoUser, setSSOUser] = useState<SSOUser | null>(null)
+    const [ssoSession, setSSOSession] = useState<SSOSession | null>(null)
+    const [ssoService, setSSOService] = useState<SSOService | null>(null)
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
     // 计算属性
     const isAuthenticated = useMemo(() => !!token && !!user, [token, user])
+    const isSSOAuthenticated = useMemo(() => !!ssoUser && !!ssoSession && !!ssoService, [ssoUser, ssoSession, ssoService])
     const isAdmin = useMemo(() => user?.role === 'admin', [user?.role])
 
-    // 初始化认证状态
+    // 初始化认证状态和SSO服务
     useEffect(() => {
-        const initAuth = () => {
+        const initAuth = async () => {
+            // 初始化传统认证状态
             const authData = storage.getAuth()
             if (authData) {
                 setUser(authData.user)
                 setToken(authData.token)
+            }
+
+            // 初始化SSO服务
+            try {
+                const ssoConfig = createDefaultSSOConfig()
+                const service = new SSOService(ssoConfig)
+                await service.initialize()
+                setSSOService(service)
+
+                // 检查SSO会话
+                const ssoData = storage.getSSOData()
+                if (ssoData && !storage.isSSOTokenExpired()) {
+                    const session = storage.getSSOSession()
+                    if (session) {
+                        setSSOUser(await service.getCurrentUser())
+                        setSSOSession(session)
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to initialize SSO service:', error)
             }
         }
 
@@ -279,6 +309,130 @@ export const useAuth = (): UseAuthReturn => {
         }
     }, [])
 
+    // SSO登录
+    const ssoLogin = useCallback(async (request: SSOLoginRequest) => {
+        if (!ssoService) {
+            throw new Error('SSO service not initialized')
+        }
+
+        setIsLoading(true)
+        setError(null)
+
+        try {
+            const response = await ssoService.login(request)
+
+            // 保存SSO数据
+            await storage.saveSSOData({
+                token: response.token,
+                expires_at: response.session.expires_at
+            })
+            await storage.saveSSOSession(response.session)
+
+            // 设置状态
+            setSSOUser(response.user)
+            setSSOSession(response.session)
+
+            // 如果是本地登录，也更新传统用户状态以保持兼容性
+            if (request.login_type === 'local' && response.user.custom_claims?.original_user) {
+                const originalUser = response.user.custom_claims.original_user
+                setUser(originalUser)
+                setToken(response.token.access_token)
+            }
+
+            window.dispatchEvent(new CustomEvent('auth:sso:login', { detail: response }))
+        } catch (err: any) {
+            setError(err.message || 'SSO登录失败')
+            throw err
+        } finally {
+            setIsLoading(false)
+        }
+    }, [ssoService])
+
+    // SSO登出
+    const ssoLogout = useCallback(async () => {
+        if (!ssoService) {
+            throw new Error('SSO service not initialized')
+        }
+
+        setIsLoading(true)
+        setError(null)
+
+        try {
+            await ssoService.logout()
+            setSSOUser(null)
+            setSSOSession(null)
+            window.dispatchEvent(new CustomEvent('auth:sso:logout'))
+        } catch (err: any) {
+            setError(err.message || 'SSO登出失败')
+            throw err
+        } finally {
+            setIsLoading(false)
+        }
+    }, [ssoService])
+
+    // 检查SSO会话
+    const checkSSOSession = useCallback(async () => {
+        if (!ssoService) return false
+
+        try {
+            const result = await ssoService.checkSession()
+            if (result.is_authenticated && result.user) {
+                setSSOUser(result.user)
+                if (result.session) {
+                    setSSOSession(result.session)
+                    await storage.saveSSOSession(result.session)
+                }
+            } else {
+                setSSOUser(null)
+                setSSOSession(null)
+            }
+            return result.is_authenticated
+        } catch (error) {
+            console.error('SSO session check failed:', error)
+            return false
+        }
+    }, [ssoService])
+
+    // 获取SSO授权URL
+    const getSSOAuthorizationUrl = useCallback((provider: string, options?: any) => {
+        if (!ssoService) {
+            throw new Error('SSO service not initialized')
+        }
+
+        return ssoService.buildAuthorizationUrl(provider, options)
+    }, [ssoService])
+
+    // 刷新SSO令牌
+    const refreshSSOToken = useCallback(async () => {
+        if (!ssoService) {
+            throw new Error('SSO service not initialized')
+        }
+
+        try {
+            const newToken = await ssoService.refreshToken()
+            const ssoData = storage.getSSOData()
+            if (ssoData) {
+                await storage.saveSSOData({
+                    ...ssoData,
+                    token: newToken
+                })
+            }
+            return newToken
+        } catch (error) {
+            console.error('SSO token refresh failed:', error)
+            throw error
+        }
+    }, [ssoService])
+
+    // 验证SSO令牌
+    const validateSSOToken = useCallback(async (token: string) => {
+        if (!ssoService) {
+            throw new Error('SSO service not initialized')
+        }
+
+        return ssoService.validateAccessToken(token)
+    }, [ssoService])
+
     // 用户信息方法
     const updateProfile = useCallback(async (data: Partial<User>) => {
         setIsLoading(true)
@@ -365,13 +519,21 @@ export const useAuth = (): UseAuthReturn => {
     }, [user, isAdmin])
 
     return {
-        // 状态
+        // 传统认证状态
         user,
         token,
+        refresh_token: null, // 保持兼容性
         isAuthenticated,
         isLoading,
         error,
-        // 方法
+
+        // SSO认证状态
+        ssoUser,
+        ssoSession,
+        ssoService,
+        isSSOAuthenticated,
+
+        // 传统认证方法
         login,
         phoneLogin,
         register,
@@ -385,13 +547,23 @@ export const useAuth = (): UseAuthReturn => {
         changePassword,
         refreshUser,
         clearError,
+
         // 计算属性
         isAdmin,
         hasRole,
         hasPermission,
-        // 新增
+
+        // 新增传统方法
         emailCodeLogin,
-        oauthLogin
+        oauthLogin,
+
+        // SSO认证方法
+        ssoLogin,
+        ssoLogout,
+        checkSSOSession,
+        getSSOAuthorizationUrl,
+        refreshSSOToken,
+        validateSSOToken
     }
 }
 

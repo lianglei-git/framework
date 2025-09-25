@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 	"unit-auth/models"
 
@@ -190,4 +191,106 @@ func (gp *GoogleProvider) getUserInfo(accessToken string) (*GoogleUserInfo, erro
 	}
 
 	return &userInfo, nil
+}
+
+// HandleCallbackWithCodeVerifier 支持双重验证的回调处理
+func (gp *GoogleProvider) HandleCallbackWithCodeVerifier(ctx context.Context, code string, state string, codeVerifier string) (*models.User, error) {
+	// 交换授权码获取访问令牌
+	tokenURL := "https://oauth2.googleapis.com/token"
+
+	formData := map[string][]string{
+		"client_id":     {gp.clientID},
+		"client_secret": {gp.clientSecret},
+		"code":          {code},
+		"grant_type":    {"authorization_code"},
+		"redirect_uri":  {gp.redirectURI},
+	}
+
+	// 如果有 code_verifier，添加双重验证参数
+	if codeVerifier != "" {
+		formData["code_verifier"] = []string{codeVerifier}
+	}
+
+	resp, err := http.PostForm(tokenURL, formData)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("google oauth error: %s", string(body))
+	}
+
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return nil, err
+	}
+
+	// 获取用户信息
+	userURL := "https://www.googleapis.com/oauth2/v2/userinfo"
+	req, _ := http.NewRequest("GET", userURL, nil)
+	req.Header.Set("Authorization", "Bearer "+tokenResp.AccessToken)
+
+	client := &http.Client{}
+	userResp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer userResp.Body.Close()
+
+	if userResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to get google user info")
+	}
+
+	body, err = io.ReadAll(userResp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var userInfo struct {
+		ID    string `json:"id"`
+		Email string `json:"email"`
+		Name  string `json:"name"`
+	}
+	if err := json.Unmarshal(body, &userInfo); err != nil {
+		return nil, err
+	}
+
+	// 查找或创建用户
+	var user models.User
+	if err := gp.db.Where("google_id = ?", userInfo.ID).First(&user).Error; err == nil {
+		return &user, nil
+	}
+
+	// 尝试用邮箱匹配
+	if userInfo.Email != "" {
+		if err := gp.db.Where("email = ?", userInfo.Email).First(&user).Error; err == nil {
+			user.GoogleID = &userInfo.ID
+			gp.db.Save(&user)
+			return &user, nil
+		}
+	}
+
+	// 创建新用户
+	user = models.User{
+		Email:    &userInfo.Email,
+		Username: strings.Split(userInfo.Email, "@")[0], // 使用邮箱前缀作为用户名
+		Nickname: userInfo.Name,
+		Role:     "user",
+		Status:   "active",
+		GoogleID: &userInfo.ID,
+	}
+
+	if err := gp.db.Create(&user).Error; err != nil {
+		return nil, err
+	}
+
+	return &user, nil
 }

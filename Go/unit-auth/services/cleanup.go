@@ -132,6 +132,52 @@ func (cs *CleanupService) CleanupExpiredVerifications() {
 	log.Println("🧹 验证码清理完成")
 }
 
+// CleanupExpiredSSOSessions 清理过期的SSO会话
+func (cs *CleanupService) CleanupExpiredSSOSessions() (int64, error) {
+	log.Println("🧹 开始清理过期SSO会话...")
+
+	// 清理过期的SSO会话
+	var sessionCount int64
+	if err := cs.db.Model(&models.SSOSession{}).
+		Where("expires_at < ?", time.Now()).
+		Count(&sessionCount).Error; err != nil {
+		log.Printf("❌ 统计过期SSO会话失败: %v", err)
+		return 0, err
+	}
+
+	if sessionCount > 0 {
+		if err := cs.db.Where("expires_at < ?", time.Now()).
+			Delete(&models.SSOSession{}).Error; err != nil {
+			log.Printf("❌ 清理过期SSO会话失败: %v", err)
+			return 0, err
+		} else {
+			log.Printf("✅ 清理了 %d 条过期SSO会话", sessionCount)
+		}
+	}
+
+	// 清理过期的令牌黑名单
+	var tokenCount int64
+	if err := cs.db.Model(&models.TokenBlacklist{}).
+		Where("expires_at < ?", time.Now()).
+		Count(&tokenCount).Error; err != nil {
+		log.Printf("❌ 统计过期令牌黑名单失败: %v", err)
+		return sessionCount, err
+	}
+
+	if tokenCount > 0 {
+		if err := cs.db.Where("expires_at < ?", time.Now()).
+			Delete(&models.TokenBlacklist{}).Error; err != nil {
+			log.Printf("❌ 清理过期令牌黑名单失败: %v", err)
+			return sessionCount, err
+		} else {
+			log.Printf("✅ 清理了 %d 条过期令牌黑名单", tokenCount)
+		}
+	}
+
+	log.Printf("🧹 SSO会话清理完成，清理了 %d 条会话和 %d 条黑名单记录", sessionCount, tokenCount)
+	return sessionCount, nil
+}
+
 // GetVerificationStats 获取验证码统计信息
 func (cs *CleanupService) GetVerificationStats() map[string]interface{} {
 	stats := make(map[string]interface{})

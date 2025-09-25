@@ -24,6 +24,9 @@ type AuthProvider interface {
 
 	// HandleCallback 处理回调（用于OAuth等）
 	HandleCallback(ctx context.Context, code string, state string) (*models.User, error)
+
+	// HandleCallbackWithCodeVerifier 处理回调（用于OAuth双重验证）
+	HandleCallbackWithCodeVerifier(ctx context.Context, code string, state string, codeVerifier string) (*models.User, error)
 }
 
 // PluginManager 插件管理器

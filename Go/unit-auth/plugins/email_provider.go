@@ -79,3 +79,8 @@ func (ep *EmailProvider) GetAuthURL(ctx context.Context, state string) (string, 
 func (ep *EmailProvider) HandleCallback(ctx context.Context, code string, state string) (*models.User, error) {
 	return nil, errors.New("email provider does not support OAuth flow")
 }
+
+// HandleCallbackWithCodeVerifier 支持双重验证的回调处理
+func (ep *EmailProvider) HandleCallbackWithCodeVerifier(ctx context.Context, code string, state string, codeVerifier string) (*models.User, error) {
+	return nil, errors.New("email provider does not support OAuth flow")
+}

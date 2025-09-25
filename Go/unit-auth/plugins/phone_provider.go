@@ -97,3 +97,8 @@ func (pp *PhoneProvider) GetAuthURL(ctx context.Context, state string) (string, 
 func (pp *PhoneProvider) HandleCallback(ctx context.Context, code string, state string) (*models.User, error) {
 	return nil, errors.New("phone provider does not support OAuth flow")
 }
+
+// HandleCallbackWithCodeVerifier 支持双重验证的回调处理
+func (pp *PhoneProvider) HandleCallbackWithCodeVerifier(ctx context.Context, code string, state string, codeVerifier string) (*models.User, error) {
+	return nil, errors.New("phone provider does not support OAuth flow")
+}

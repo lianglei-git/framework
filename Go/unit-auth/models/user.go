@@ -1,6 +1,8 @@
 package models
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"time"
 
@@ -31,8 +33,8 @@ type UserMeta struct {
 // User 用户表 - 重构后的核心用户信息
 type User struct {
 	ID            string  `json:"id" gorm:"primaryKey;type:varchar(36)"`
-	Email         *string `json:"email" gorm:"uniqueIndex;size:255"` // 使用指针类型，允许NULL
-	Phone         *string `json:"phone" gorm:"uniqueIndex;size:20"`  // 使用指针类型，允许NULL
+	Email         *string `json:"email" gorm:"uniqueIndex:idx_email;size:255"` // 使用指针类型，允许NULL
+	Phone         *string `json:"phone" gorm:"uniqueIndex:idx_phone;size:20"`  // 使用指针类型，允许NULL
 	Username      string  `json:"username" gorm:"uniqueIndex;size:50"`
 	Nickname      string  `json:"nickname" gorm:"size:100"`
 	Password      string  `json:"-" gorm:"not null;size:255"` // 不返回密码
@@ -216,6 +218,22 @@ type LoginLog struct {
 	Success   bool      `json:"success"`
 	ErrorMsg  string    `json:"error_msg"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// RefreshToken 刷新Token表 - 用于持久化存储Refresh Token
+type RefreshToken struct {
+	ID        uint      `json:"id" gorm:"primaryKey"`
+	UserID    string    `json:"user_id" gorm:"not null;index"`
+	TokenHash string    `json:"token_hash" gorm:"size:64;not null;uniqueIndex"` // 存储Refresh Token的哈希值
+	ExpiresAt time.Time `json:"expires_at" gorm:"not null;index"`
+	IsRevoked bool      `json:"is_revoked" gorm:"default:false"`
+	UserAgent string    `json:"user_agent" gorm:"size:500"`
+	IPAddress string    `json:"ip_address" gorm:"size:45"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// 关联用户
+	User User `json:"user" gorm:"foreignKey:UserID"`
 }
 
 // WeChatQRSession 微信二维码会话表
@@ -602,4 +620,36 @@ type TokenPairResponse struct {
 	RefreshToken     string       `json:"refresh_token"`
 	ExpiresIn        int64        `json:"expires_in"`
 	RefreshExpiresIn int64        `json:"refresh_expires_in"`
+}
+
+// RefreshToken辅助方法
+
+// GenerateTokenHash 生成Refresh Token的哈希值
+func (rt *RefreshToken) GenerateTokenHash(token string) {
+	hash := sha256.Sum256([]byte(token))
+	rt.TokenHash = hex.EncodeToString(hash[:])
+}
+
+// VerifyTokenHash 验证Refresh Token是否匹配
+func (rt *RefreshToken) VerifyTokenHash(token string) bool {
+	hash := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(hash[:]) == rt.TokenHash
+}
+
+// IsExpired 检查Refresh Token是否已过期
+func (rt *RefreshToken) IsExpired() bool {
+	return time.Now().After(rt.ExpiresAt)
+}
+
+// Revoke 撤销Refresh Token
+func (rt *RefreshToken) Revoke() {
+	rt.IsRevoked = true
+}
+
+// BeforeCreate RefreshToken创建前的钩子
+func (rt *RefreshToken) BeforeCreate(tx *gorm.DB) error {
+	if rt.ID == 0 {
+		rt.ID = uint(time.Now().UnixNano() % 2147483647) // 使用时间戳作为ID
+	}
+	return nil
 }

@@ -297,3 +297,45 @@ func (wp *WeChatProvider) CheckAccessToken(accessToken, openID string) (bool, er
 
 	return false, errors.New("invalid response from wechat API")
 }
+
+// HandleCallbackWithCodeVerifier 支持双重验证的回调处理
+func (wp *WeChatProvider) HandleCallbackWithCodeVerifier(ctx context.Context, code string, state string, codeVerifier string) (*models.User, error) {
+	// 微信暂时不支持PKCE，所以忽略codeVerifier参数
+	tokenResp, err := wp.getAccessToken(code)
+	if err != nil {
+		return nil, err
+	}
+
+	userInfo, err := wp.getUserInfo(tokenResp.AccessToken, tokenResp.OpenID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 查找或创建用户
+	var user models.User
+	if err := wp.db.Where("wechat_id = ?", userInfo.OpenID).First(&user).Error; err == nil {
+		return &user, nil
+	}
+
+	// 尝试用unionid匹配（如果存在的话）
+	// 注意：User模型中没有WeChatUnionID字段，所以暂时只处理WeChatID
+	if userInfo.UnionID != "" {
+		// 可以考虑在User模型中添加WeChatUnionID字段来支持unionid匹配
+		// 暂时跳过unionid匹配，直接创建用户
+	}
+
+	// 创建新用户
+	user = models.User{
+		Username: userInfo.OpenID, // 微信没有用户名，使用openid作为用户名
+		Nickname: userInfo.Nickname,
+		Role:     "user",
+		Status:   "active",
+		WeChatID: &userInfo.OpenID,
+	}
+
+	if err := wp.db.Create(&user).Error; err != nil {
+		return nil, err
+	}
+
+	return &user, nil
+}

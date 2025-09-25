@@ -38,6 +38,13 @@ func InitDB() (*gorm.DB, error) {
 		&UserStats{},         // 用户统计表
 		&LoginLog{},          // 登录日志表
 		&WeChatQRSession{},   // 微信二维码会话表
+		&RefreshToken{},      // Refresh Token表
+
+		// SSO支持
+		&SSOClient{},        // SSO客户端表
+		&SSOSession{},       // SSO会话表
+		&TokenBlacklist{},   // 令牌黑名单表
+		&TokenRefreshLogs{}, // Token刷新审计日志表（中心化架构）
 
 		// 中心化用户管理
 		&Project{},         // 第三方项目表

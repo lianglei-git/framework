@@ -374,7 +374,7 @@ func GetUserBehaviorAnalytics(db *gorm.DB) gin.HandlerFunc {
 
 		// OAuth用户（有第三方ID的用户）
 		db.Model(&models.User{}).
-			Where("google_id IS NOT NULL OR git_hub_id IS NOT NULL OR we_chat_id IS NOT NULL").
+			Where("google_id IS NOT NULL OR github_id IS NOT NULL OR wechat_id IS NOT NULL").
 			Count(&oauthUsers)
 
 		if totalUsers > 0 {
