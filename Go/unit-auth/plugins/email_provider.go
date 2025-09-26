@@ -7,6 +7,7 @@ import (
 	"unit-auth/models"
 	"unit-auth/utils"
 
+	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
@@ -72,7 +73,7 @@ func (ep *EmailProvider) Authenticate(ctx context.Context, credentials map[strin
 	return &user, nil
 }
 
-func (ep *EmailProvider) GetAuthURL(ctx context.Context, state string) (string, error) {
+func (ep *EmailProvider) GetAuthURL(ctx *gin.Context, state string) (string, error) {
 	return "", errors.New("email provider does not support OAuth flow")
 }
 

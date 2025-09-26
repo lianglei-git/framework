@@ -6,6 +6,7 @@ import (
 	"time"
 	"unit-auth/models"
 
+	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
@@ -90,7 +91,7 @@ func (pp *PhoneProvider) Authenticate(ctx context.Context, credentials map[strin
 	return &user, nil
 }
 
-func (pp *PhoneProvider) GetAuthURL(ctx context.Context, state string) (string, error) {
+func (pp *PhoneProvider) GetAuthURL(ctx *gin.Context, state string) (string, error) {
 	return "", errors.New("phone provider does not support OAuth flow")
 }
 

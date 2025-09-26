@@ -2,12 +2,70 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
+
+// UnifiedOAuthLoginRequest 统一的OAuth登录请求结构（用于OIDC流程）
+type UnifiedOAuthLoginRequest struct {
+	Provider           string `json:"provider" binding:"required"`
+	Code               string `json:"code,omitempty"`
+	CodeVerifier       string `json:"code_verifier,omitempty"`
+	State              string `json:"state,omitempty"`
+	AppID              string `json:"app_id,omitempty"`
+	InternalAuth       string `json:"internal_auth,omitempty"`
+	DoubleVerification string `json:"double_verification,omitempty"`
+	ClientID           string `json:"client_id,omitempty"`
+
+	// 本地登录参数
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
+
+	// 邮箱登录参数
+	Email string `json:"email,omitempty"`
+
+	// 手机号登录参数
+	Phone string `json:"phone,omitempty"`
+}
+
+// Validate 根据provider验证必需参数
+func (r *UnifiedOAuthLoginRequest) Validate() error {
+	switch r.Provider {
+	case "local":
+		if r.Username == "" || r.Password == "" {
+			return fmt.Errorf("missing required parameters: username and password")
+		}
+	case "github", "google", "wechat":
+		if r.Code == "" {
+			return fmt.Errorf("missing required parameter: code")
+		}
+		if r.InternalAuth == "true" && r.DoubleVerification == "true" {
+			if r.CodeVerifier == "" {
+				return fmt.Errorf("PKCE code_verifier required for double verification")
+			}
+			if r.State == "" {
+				return fmt.Errorf("state parameter required for CSRF protection")
+			}
+		}
+	case "email":
+		if r.Email == "" || r.Code == "" {
+			return fmt.Errorf("missing required parameters: email and code")
+		}
+	case "phone":
+		if r.Phone == "" || r.Code == "" {
+			return fmt.Errorf("missing required parameters: phone and code")
+		}
+	default:
+		if r.Code == "" {
+			return fmt.Errorf("missing required parameter: code")
+		}
+	}
+	return nil
+}
 
 // SSOClient SSO客户端模型
 type SSOClient struct {
@@ -444,7 +502,7 @@ func DeleteSSOClient(db *gorm.DB, id string) error {
 
 // CreateSSOSession 创建SSO会话
 func CreateSSOSession(db *gorm.DB, session *SSOSession) error {
-	return db.Create(session).Error
+	return db.Create(session).Debug().Error
 }
 
 // GetSSOSessionByCode 根据授权码获取会话

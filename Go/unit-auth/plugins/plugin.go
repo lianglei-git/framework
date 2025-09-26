@@ -3,6 +3,8 @@ package plugins
 import (
 	"context"
 	"unit-auth/models"
+
+	"github.com/gin-gonic/gin"
 )
 
 // AuthProvider 认证提供者接口
@@ -20,7 +22,7 @@ type AuthProvider interface {
 	Authenticate(ctx context.Context, credentials map[string]interface{}) (*models.User, error)
 
 	// GetAuthURL 获取认证URL（用于OAuth等）
-	GetAuthURL(ctx context.Context, state string) (string, error)
+	GetAuthURL(ctx *gin.Context, state string) (string, error)
 
 	// HandleCallback 处理回调（用于OAuth等）
 	HandleCallback(ctx context.Context, code string, state string) (*models.User, error)

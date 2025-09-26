@@ -34,13 +34,6 @@ CREATE TABLE token_refresh_logs (
 -- 2. 优化sso_sessions表结构
 -- ===============================================
 
--- 2.1 首先添加缺失的session_id字段
-ALTER TABLE sso_sessions ADD COLUMN session_id VARCHAR(128) UNIQUE NOT NULL;
-
--- 2.2 为现有记录生成session_id（基于现有ID）
-UPDATE sso_sessions
-SET session_id = CONCAT('sso_', UNIX_TIMESTAMP(created_at), '_', SUBSTRING(id, 1, 8))
-WHERE session_id = '' OR session_id IS NULL;
 
 -- 2.3 修改ID字段长度以支持新架构
 ALTER TABLE sso_sessions MODIFY COLUMN id VARCHAR(128);
@@ -74,9 +67,6 @@ ALTER TABLE sso_sessions COMMENT = '中心化SSO会话管理表';
 -- ===============================================
 
 -- 3.1 主要查询优化索引
-CREATE INDEX idx_sessions_validation ON sso_sessions
-(session_id, status, expires_at, user_id)
-INCLUDE (current_access_token_hash, refresh_token_hash);
 
 -- 3.2 活跃会话查询优化
 CREATE INDEX idx_sessions_active ON sso_sessions
@@ -137,7 +127,7 @@ CREATE PROCEDURE UpdateSessionActivity(IN sessionId VARCHAR(128))
 BEGIN
     UPDATE sso_sessions
     SET last_activity = NOW()
-    WHERE session_id = sessionId;
+    WHERE id = sessionId;
 END //
 
 -- 获取会话刷新统计

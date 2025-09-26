@@ -9,6 +9,7 @@ export interface SSOConfig {
     clientId: string
     clientSecret: string
     redirectUri: string
+    app_id: string
 
     // OAuth2配置
     scope?: string[]
@@ -47,7 +48,7 @@ export interface SSOConfig {
 export const defaultSSOConfig: SSOConfig = {
     // 从环境变量获取配置，如果没有则使用默认值
     // 指向Login-v1项目作为SSO登录中心
-    ssoServerUrl: 'http://localhost:3033',
+    ssoServerUrl: 'http://localhost:8080/api/v1/auth',
     clientId: import.meta.env.VITE_SSO_CLIENT_ID || 'ssoa-client',
     clientSecret: import.meta.env.VITE_SSO_CLIENT_SECRET || 'ssoa-secret',
     redirectUri: import.meta.env.VITE_SSO_REDIRECT_URI || 'http://localhost:5173/auth/callback',
@@ -119,14 +120,14 @@ export function validateSSOConfig(config: SSOConfig): string[] {
 export function createSSOConfig(overrides: Partial<SSOConfig> = {}): SSOConfig {
     const config = { ...defaultSSOConfig, ...overrides }
 
-    if (import.meta.env.DEV) {
-        const errors = validateSSOConfig(config)
-        if (errors.length > 0) {
-            console.warn('SSO配置验证失败:', errors)
-        } else {
-            console.log('SSO配置验证通过')
-        }
-    }
+    // if (import.meta.env.DEV) {
+    //     const errors = validateSSOConfig(config)
+    //     if (errors.length > 0) {
+    //         console.warn('SSO配置验证失败:', errors)
+    //     } else {
+    //         console.log('SSO配置验证通过')
+    //     }
+    // }
 
     return config
 }

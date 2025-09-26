@@ -11,6 +11,7 @@ import (
 	"time"
 	"unit-auth/models"
 
+	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
@@ -81,7 +82,7 @@ func (wp *WeChatProvider) Authenticate(ctx context.Context, credentials map[stri
 	return nil, errors.New("wechat provider requires OAuth flow")
 }
 
-func (wp *WeChatProvider) GetAuthURL(ctx context.Context, state string) (string, error) {
+func (wp *WeChatProvider) GetAuthURL(ctx *gin.Context, state string) (string, error) {
 	// 微信OAuth2.0授权URL
 	authURL := "https://open.weixin.qq.com/connect/qrconnect"
 	params := url.Values{}

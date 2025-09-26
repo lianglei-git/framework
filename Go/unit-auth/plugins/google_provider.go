@@ -11,6 +11,7 @@ import (
 	"time"
 	"unit-auth/models"
 
+	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
@@ -61,7 +62,7 @@ func (gp *GoogleProvider) Authenticate(ctx context.Context, credentials map[stri
 	return nil, errors.New("google provider requires OAuth flow")
 }
 
-func (gp *GoogleProvider) GetAuthURL(ctx context.Context, state string) (string, error) {
+func (gp *GoogleProvider) GetAuthURL(ctx *gin.Context, state string) (string, error) {
 	url := fmt.Sprintf(
 		"https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=openid%%20email%%20profile&state=%s",
 		gp.clientID,

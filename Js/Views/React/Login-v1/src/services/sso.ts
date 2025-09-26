@@ -24,6 +24,7 @@ import {
 } from '../types'
 import { ApiService } from './api'
 import { storageManager } from '../utils/storage'
+import { globalUserStore } from '../stores/UserStore'
 
 /**
  * SSO 认证服务类
@@ -161,8 +162,11 @@ export class SSOService extends ApiService {
             // 加载支持的提供商
             await this.loadProviders()
 
-            // 检查现有会话
+            // 检查现有会话和session cookies
             await this.checkSession()
+
+            // 检查session cookies并尝试自动登录
+            // await this.checkSessionCookies()
 
             console.log('SSO service initialized successfully')
         } catch (error) {
@@ -233,51 +237,81 @@ export class SSOService extends ApiService {
     }
 
     /**
-     * 加载支持的SSO提供商
-     * 根据应用ID动态加载对应的providers
+     * 加载基础的SSO提供商列表（不包含配置信息）
+     * 从服务器端动态加载providers
      */
-    async loadProviders(): Promise<void> {
+    async loadProviders(): Promise<SSOProviderBasic[]> {
         try {
-            // 获取当前应用ID
-            const appId = this.config.appId || 'default'
+            const response = await this.get<SSOProviderBasic[]>('/api/v1/sso/providers')
+            console.log('✅ 从服务器加载providers成功:', response.data)
 
-            // 尝试从环境变量加载应用特定的providers
-            const appProviders = this.loadAppSpecificProviders(appId)
+            // 将基础providers存储到Map中，便于后续使用
+            response.data.forEach(provider => {
+                this.providers.set(provider.id, {
+                    ...provider,
+                    displayName: provider.name,
+                    authorizationUrl: ''
+                })
+            })
 
-            if (appProviders.length > 0) {
-                // 使用应用特定的providers
-                appProviders.forEach(provider => {
-                    this.providers.set(provider.id, provider)
+            return response.data
+        } catch (error) {
+            console.warn('⚠️ 从服务器加载providers失败，使用本地配置:', error)
+
+            // 降级到本地配置
+            const providers: SSOProviderBasic[] = []
+
+            if (import.meta.env.VITE_SSO_PROVIDER_LOCAL_ENABLED !== 'false') {
+                providers.push({
+                    id: 'local',
+                    name: 'local',
+                    enabled: true
                 })
-                console.log(`✅ 加载了 ${appProviders.length} 个应用特定providers`)
-            } else {
-                // 回退到从服务器加载
-                const response = await this.get<SSOProvider[]>('/api/v1/sso/providers')
-                response.data.forEach(provider => {
-                    const enhancedProvider: SSOProvider = {
-                        ...provider,
-                        config: provider.config || {
-                            client_id: this.config.clientId,
-                            authorization_url: provider.authorizationUrl,
-                            redirect_uri: this.config.redirectUri,
-                            scope: this.config.scope,
-                            response_type: this.config.responseType || 'code'
-                        }
-                    }
-                    this.providers.set(provider.id, enhancedProvider)
-                })
-                console.log(`✅ 从服务器加载了 ${response.data.length} 个providers`)
             }
 
-            // 总是添加本地认证provider
-            this.addLocalProvider()
+            if (import.meta.env.VITE_SSO_PROVIDER_GITHUB_ENABLED !== 'false') {
+                providers.push({
+                    id: 'github',
+                    name: 'github',
+                    enabled: true
+                })
+            }
 
-        } catch (error) {
-            console.warn('Failed to load SSO providers:', error)
-            // 设置默认providers
-            this.setupDefaultProviders()
+            if (import.meta.env.VITE_SSO_PROVIDER_GOOGLE_ENABLED !== 'false') {
+                providers.push({
+                    id: 'google',
+                    name: 'google',
+                    enabled: true
+                })
+            }
+
+            if (import.meta.env.VITE_SSO_PROVIDER_WECHAT_ENABLED !== 'false') {
+                providers.push({
+                    id: 'wechat',
+                    name: 'wechat',
+                    enabled: true
+                })
+            }
+
+            return providers
         }
     }
+
+    /**
+     * 获取OAuth URL和相关参数
+     * @param providerId Provider ID
+     * @param options 额外的选项
+     */
+    async getOAuthURL(providerId: string, options: Partial<SSOAuthRequest> = {}): Promise<SSOOAuthUrlParams> {
+        const response = await this.get<SSOOAuthUrlParams>(`/api/v1/auth/oauth/${providerId}/url`, {
+            ...options,
+            app_id: this.config.appId || 'default'
+        })
+
+        console.log('✅ 获取OAuth URL成功:', response.data)
+        return response.data
+    }
+
 
     /**
      * 从环境变量加载应用特定的providers
@@ -504,53 +538,33 @@ export class SSOService extends ApiService {
      * 支持PKCE双重验证和动态URL参数
      */
     async buildAuthorizationUrl(providerId: string, options: Partial<SSOAuthRequest> = {}): Promise<string> {
-        const provider = this.providers.get(providerId)
-        if (!provider) {
-            throw new Error(`Provider ${providerId} not found`)
-        }
-
         // 设置当前使用的provider
         this.setCurrentProvider(providerId)
 
-        // 获取provider的配置信息
-        const providerConfig = provider.config as SSOProviderConfig | undefined
+
 
         // 如果处于回调模式且没有明确指定选项，使用URL参数
         const finalOptions = this.isInCallbackMode() && Object.keys(options).length === 0
             ? this.getAuthRequestContext()
             : options
-        // 使用provider配置优先，如果没有则使用全局配置
-        const clientId = providerConfig?.client_id || this.config.clientId
-        const redirectUri = 'http://localhost:3033';//providerConfig?.redirect_uri || this.config.redirectUri
-        const scope = finalOptions.scope || providerConfig?.scope || this.config.scope || ['openid', 'profile']
-        const responseType = finalOptions.response_type || providerConfig?.response_type || this.config.responseType || 'code'
-        const uniquestate = finalOptions.state || this.generateState()
-        const params = new URLSearchParams({
-            client_id: clientId,
-            redirect_uri: redirectUri,
-            response_type: responseType,
-            scope: scope.join(' '),
-            state: uniquestate
-        })
+
+        // 构建URL参数
+        const params = {
+            redirect_uri: "http://localhost:3033",
+            state: this.generateState()
+        }
 
         // 添加可选参数
-        if (finalOptions.prompt) params.append('prompt', finalOptions.prompt)
-        if (finalOptions.max_age) params.append('max_age', finalOptions.max_age.toString())
-        if (finalOptions.login_hint) params.append('login_hint', finalOptions.login_hint)
-        if (finalOptions.ui_locales) params.append('ui_locales', finalOptions.ui_locales.join(' '))
-        if (finalOptions.acr_values) params.append('acr_values', finalOptions.acr_values.join(' '))
+        if (finalOptions.prompt) Reflect.set(params, 'prompt', finalOptions.prompt)
+        if (finalOptions.max_age) Reflect.set(params, 'max_age', finalOptions.max_age.toString())
+        if (finalOptions.login_hint) Reflect.set(params, 'login_hint', finalOptions.login_hint)
+        if (finalOptions.ui_locales) Reflect.set(params, 'ui_locales', finalOptions.ui_locales.join(' '))
+        if (finalOptions.acr_values) Reflect.set(params, 'acr_values', finalOptions.acr_values.join(' '))
 
         // PKCE双重验证支持 - 强制使用
-        // 对于系统内用户认证，必须使用PKCE进行双重验证
-        const shouldUsePKCE = true // 强制开启PKCE
+        const shouldUsePKCE = true
 
         if (shouldUsePKCE) {
-            // if (finalOptions.code_challenge && finalOptions.code_challenge_method) {
-            //     // 使用提供的PKCE参数
-            //     params.append('code_challenge', finalOptions.code_challenge)
-            //     params.append('code_challenge_method', finalOptions.code_challenge_method)
-            //     console.log('🔐 使用提供的PKCE参数')
-            // } else {
             // 自动生成PKCE参数（使用S256方法，这是GitHub等服务支持的标准方法）
             const pkceParams = await this.generatePKCE()
             console.log('🔐 自动生成PKCE参数:', {
@@ -559,27 +573,22 @@ export class SSOService extends ApiService {
                 code_verifier_length: pkceParams.code_verifier.length
             })
 
-            params.append('code_challenge', pkceParams.code_challenge)
-            params.append('code_challenge_method', 'S256')
+            Reflect.set(params, 'code_challenge', pkceParams.code_challenge)
+            Reflect.set(params, 'code_challenge_method', 'S256')
 
             // 存储code_verifier用于后续双重验证token交换
             sessionStorage.setItem('pkce_code_verifier', pkceParams.code_verifier)
-            sessionStorage.setItem('pkce_state', uniquestate)
+            sessionStorage.setItem('pkce_state', params.state)
             sessionStorage.setItem('login_provider', this.currentProviderId)
             console.log('✅ PKCE参数已存储到sessionStorage')
-            // }
         }
 
-        // 添加自定义参数
-        if (finalOptions.additional_params) {
-            Object.entries(finalOptions.additional_params).forEach(([key, value]) => {
-                params.append(key, value)
-            })
-        }
+        // 获取OAuth URL和相关参数
+        const oauthParams = await this.getOAuthURL(providerId, params)
 
-        // 使用provider配置的授权URL，如果没有则使用provider.authorizationUrl或默认值
-        const baseUrl = providerConfig?.authorization_url || provider.authorizationUrl || `${this.config.ssoServerUrl}/api/v1/auth/oauth/authorize`
-        return `${baseUrl}?${params.toString()}`
+        console.log(oauthParams.auth_url, "oauthParamsoauthParams")
+
+        return oauthParams.auth_url
     }
 
     /**
@@ -683,6 +692,7 @@ export class SSOService extends ApiService {
      * 支持从URL参数自动提取回调信息
      */
     async handleCallback(context?: Partial<SSOCallbackContext>): Promise<SSOLoginResponse> {
+
         // 如果没有提供上下文，从URL参数中提取
         if (!context) {
             context = this.extractCallbackFromURL()
@@ -702,8 +712,32 @@ export class SSOService extends ApiService {
 
         // 验证state参数 - 增强的双重验证
         const storedState = sessionStorage.getItem('pkce_state') || sessionStorage.getItem('sso_state')
-        if (storedState && context.state && context.state !== storedState) {
-            throw new Error('Invalid state parameter - CSRF protection failed')
+
+        // 解析state参数（可能是JSON字符串）
+        let contextState = context.state
+        try {
+            if (contextState && typeof contextState === 'string') {
+                // 尝试解析为JSON对象
+                const parsedState = JSON.parse(contextState)
+                contextState = parsedState
+            }
+        } catch (error) {
+            // 如果不是有效的JSON，保持原样
+            console.log('State参数不是JSON格式:', contextState)
+        }
+
+        // 验证state参数
+        if (storedState) {
+            let storedStateObj
+            try {
+                storedStateObj = JSON.parse(storedState)
+            } catch (error) {
+                storedStateObj = storedState
+            }
+
+            if (contextState !== storedStateObj) {
+                throw new Error('Invalid state parameter - CSRF protection failed')
+            }
         }
 
         // 验证必须的参数
@@ -740,6 +774,141 @@ export class SSOService extends ApiService {
     }
 
     /**
+     * 将session_id设置到cookie中
+     * @param sessionId 会话ID
+     * @param appId 应用ID
+     */
+    private setSessionCookie(sessionId: string, appId: string): void {
+        try {
+            // 设置session_id cookie，有效期为会话期间
+            document.cookie = `sso_session_id=${sessionId}; path=/; SameSite=Lax; Secure=${window.location.protocol === 'https:'}`
+
+            // 设置应用ID cookie，有效期为会话期间
+            document.cookie = `sso_app_id=${appId}; path=/; SameSite=Lax; Secure=${window.location.protocol === 'https:'}`
+
+            // 如果需要长期保持登录，可以设置更长的过期时间
+            const expirationDate = new Date()
+            expirationDate.setTime(expirationDate.getTime() + (7 * 24 * 60 * 60 * 1000)) // 7天
+            const expires = `expires=${expirationDate.toUTCString()}`
+
+            // 设置长期有效的session cookie（用于自动登录）
+            document.cookie = `sso_session_id=${sessionId}; ${expires}; path=/; SameSite=Lax; Secure=${window.location.protocol === 'https:'}`
+            document.cookie = `sso_app_id=${appId}; ${expires}; path=/; SameSite=Lax; Secure=${window.location.protocol === 'https:'}`
+
+            console.log('✅ Session cookies 设置成功:', {
+                session_id: sessionId,
+                app_id: appId,
+                domain: window.location.hostname,
+                secure: window.location.protocol === 'https:'
+            })
+        } catch (error) {
+            console.error('❌ 设置session cookies失败:', error)
+        }
+    }
+
+    /**
+     * 从cookie中获取session信息
+     */
+    private getSessionFromCookies(): { sessionId: string | null; appId: string | null } {
+        try {
+            const cookies = document.cookie.split(';').map(cookie => cookie.trim())
+            let sessionId: string | null = null
+            let appId: string | null = null
+
+            cookies.forEach(cookie => {
+                if (cookie.startsWith('sso_session_id=')) {
+                    sessionId = cookie.substring('sso_session_id='.length)
+                }
+                if (cookie.startsWith('sso_app_id=')) {
+                    appId = cookie.substring('sso_app_id='.length)
+                }
+            })
+
+            return { sessionId, appId }
+        } catch (error) {
+            console.error('❌ 获取session cookies失败:', error)
+            return { sessionId: null, appId: null }
+        }
+    }
+
+    /**
+     * 检查是否存在有效的session cookie
+     */
+    hasValidSessionCookie(): boolean {
+        const { sessionId, appId } = this.getSessionFromCookies()
+        return !!(sessionId && appId)
+    }
+
+    /**
+     * 清除session cookies
+     */
+    private clearSessionCookies(): void {
+        try {
+            // 清除session cookies
+            document.cookie = 'sso_session_id=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax'
+            document.cookie = 'sso_app_id=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax'
+
+            console.log('✅ Session cookies 已清除')
+        } catch (error) {
+            console.error('❌ 清除session cookies失败:', error)
+        }
+    }
+
+    /**
+     * 检查session cookies并尝试自动登录
+     */
+    private async checkSessionCookies(): Promise<void> {
+        //
+
+        try {
+            // 检查是否存在有效的session cookies
+            if (!this.hasValidSessionCookie()) {
+                console.log('ℹ️ 没有找到有效的session cookies，跳过自动登录')
+                return
+            }
+
+            const { sessionId, appId } = this.getSessionFromCookies()
+
+            if (!sessionId || !appId) {
+                console.log('ℹ️ Session cookies不完整，跳过自动登录')
+                return
+            }
+
+            console.log('🔍 发现有效的session cookies，尝试自动登录:', { sessionId, appId })
+
+            // 调用后端API验证session并获取用户信息
+            const sessionCheckResponse = await this.post<SSOSessionCheckResponse>('/api/v1/auth/oauth/session-check', {
+                session_id: sessionId,
+                app_id: appId
+            })
+
+            if (sessionCheckResponse.is_authenticated && sessionCheckResponse.session) {
+                console.log('✅ Session验证成功，自动登录中...')
+
+                // 创建本地会话
+                const session = await this.sessionManager.createSession(sessionCheckResponse.session)
+
+                // 如果有token信息，也保存token
+                if (sessionCheckResponse.token) {
+                    storageManager.saveAuthData({
+                        user: sessionCheckResponse.user!,
+                        token: sessionCheckResponse.token,
+                        session: session
+                    })
+                }
+
+                console.log('✅ 自动登录成功，用户信息:', sessionCheckResponse.user?.name)
+            } else {
+                console.log('⚠️ Session验证失败，清除无效的session cookies')
+                this.clearSessionCookies()
+            }
+        } catch (error) {
+            console.warn('❌ Session cookies检查失败:', error)
+            // 不要清除cookies，可能是网络问题，稍后重试
+        }
+    }
+
+    /**
      * 使用授权码交换访问令牌
      * 支持PKCE (Proof Key for Code Exchange) 双重验证模式
      * 使用统一的API服务进行请求
@@ -757,6 +926,17 @@ export class SSOService extends ApiService {
         // 构建token交换请求参数 - 双重验证模式
         const finalState = state || sessionStorage.getItem('pkce_state')
 
+        // 解析state参数（可能是JSON格式）
+        let parsedState = finalState
+        try {
+            if (typeof finalState === 'string') {
+                parsedState = JSON.parse(finalState)
+            }
+        } catch (error) {
+            // 如果不是有效的JSON，保持原样
+            parsedState = finalState
+        }
+
 
 
 
@@ -767,7 +947,7 @@ export class SSOService extends ApiService {
             redirect_uri: providerConfig?.redirect_uri || this.config.redirectUri,
             client_id: providerConfig?.client_id || this.config.clientId,
             // 必须包含state用于验证 - 使用回调中的state或存储的state
-            state: finalState,
+            state: finalState, // 保持原始格式发送给服务器
             // PKCE双重验证 - 必须包含code_verifier
             code_verifier: codeVerifier,
             // 内部第三方登录标识
@@ -805,7 +985,6 @@ export class SSOService extends ApiService {
                 token_endpoint: tokenEndpoint
             })
 
-            debugger
 
             // 使用统一的API服务进行token交换
             const response = await this.post<SSOToken>(tokenEndpoint, tokenRequestData)
@@ -820,10 +999,15 @@ export class SSOService extends ApiService {
             const userInfo = await this.getUserInfo(response.access_token)
 
             // 创建会话
-            const session = await this.sessionManager.createSession({
-                user_id: userInfo.sub,
-                client_id: this.config.clientId,
-                remember_me: false
+            const session = await this.sessionManager.createSession(response.session_info)
+
+            // 将session_id设置到cookie中，用于后续会话保持和自动登录
+            this.setSessionCookie(response.session_info.session_id, this.config.appId || 'default')
+
+            storageManager.saveAuthData({
+                user: userInfo,
+                token: response,
+                session: session
             })
 
             console.log("清理敏感数据 pkce_code_verifier")
@@ -858,7 +1042,8 @@ export class SSOService extends ApiService {
     async getUserInfo(accessToken: string): Promise<SSOUser> {
         // 获取当前provider的配置
         const providerConfig = this.getCurrentProviderConfig()
-        const userInfoEndpoint = providerConfig?.user_info_url || this.config.userInfoEndpoint || `${this.config.ssoServerUrl}/api/v1/auth/oauth/userinfo`
+        // const userInfoEndpoint = providerConfig?.user_info_url || this.config.userInfoEndpoint || 
+        const userInfoEndpoint = `${this.config.ssoServerUrl}/api/v1/auth/oauth/userinfo`
 
         try {
             // 使用统一的API服务获取用户信息
@@ -950,6 +1135,9 @@ export class SSOService extends ApiService {
 
             // 清除本地存储
             storageManager.clearAuthData()
+
+            // 清除session cookies
+            this.clearSessionCookies()
 
             // 如果有登出端点，调用服务端登出
             if (this.config.logoutEndpoint && request.id_token_hint) {
@@ -1119,6 +1307,20 @@ export class SSOService extends ApiService {
      * 根据URL参数自动判断并执行相应的SSO操作
      */
     async handleAutomaticSSO(): Promise<SSOLoginResponse | void> {
+        // 优先检查session cookies进行自动登录
+        // if (this.hasValidSessionCookie()) {
+        //     console.log('检测到有效的session cookies，尝试自动登录...')
+        //     try {
+        //         await this.checkSessionCookies()
+        //         // 如果自动登录成功，不需要继续处理
+        //         return
+        //     } catch (error) {
+        //         console.warn('自动登录失败，继续正常流程:', error)
+        //         // 清除无效的session cookies
+        //         this.clearSessionCookies()
+        //     }
+        // }
+
         // 如果是回调模式，自动处理回调
         if (this.isInCallbackMode()) {
             console.log('检测到OAuth回调，自动处理...')
@@ -1363,16 +1565,17 @@ export class SSOSessionManager {
      */
     async createSession(sessionData: Partial<SSOSession>): Promise<SSOSession> {
         const session: SSOSession = {
-            session_id: this.generateSessionId(),
+            session_id: sessionData.session_id!,
             user_id: sessionData.user_id!,
-            client_id: sessionData.client_id || this.config.clientId,
+            client_id: sessionData.client_id!,
             authenticated_at: Date.now(),
-            expires_at: Date.now() + (this.config.sessionTimeout || 3600) * 1000,
-            last_activity: Date.now(),
+            expires_at: sessionData.expires_at!,
+            last_activity: sessionData.last_activity!,
             ip_address: await this.getClientIP(),
             user_agent: navigator.userAgent,
             is_active: true,
-            remember_me: sessionData.remember_me || false
+            remember_me: sessionData.remember_me || false,
+            ...sessionData
         }
 
         storageManager.saveSSOSession(session)
@@ -1491,22 +1694,23 @@ export class SSOError extends Error {
     }
 }
 
-/**
- * 创建默认SSO配置
- */
-export function createDefaultSSOConfig(): SSOConfig {
-    return {
-        // ssoServerUrl: 'http://localhost:8080',
-        clientId: 'your-client-id',
-        clientSecret: 'your-client-secret',
-        // redirectUri: window.location.origin + '/auth/callback',
-        redirectUri: 'www.baidu.com',
-        scope: ['openid', 'profile', 'email'],
-        responseType: 'code',
-        grantType: 'authorization_code',
-        sessionTimeout: 3600,
-        autoRefresh: true,
-        storageType: StorageType.LOCAL,
-        cookieSameSite: 'lax'
+
+    /**
+     * 创建默认SSO配置
+     */
+    export function createDefaultSSOConfig(): SSOConfig {
+        return {
+            // ssoServerUrl: 'http://localhost:8080',
+            clientId: 'your-client-id',
+            clientSecret: 'your-client-secret',
+            // redirectUri: window.location.origin + '/auth/callback',
+            redirectUri: 'www.baidu.com',
+            scope: ['openid', 'profile', 'email'],
+            responseType: 'code',
+            grantType: 'authorization_code',
+            sessionTimeout: 3600,
+            autoRefresh: true,
+            storageType: StorageType.LOCAL,
+            cookieSameSite: 'lax'
+        }
     }
-}

@@ -35,7 +35,11 @@ export const LoginButton: React.FC<LoginButtonProps> = ({
         clearError
     } = useSSO({
         onSuccess,
-        onError
+        onError,
+        config: {
+            redirectUri: "http://localhost:5173",
+            app_id: 'temp1'
+        }
     })
 
     const handleLogin = async () => {

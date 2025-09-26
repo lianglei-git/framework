@@ -1,8 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"time"
 	"unit-auth/config"
 	"unit-auth/handlers"
 	"unit-auth/middleware"
@@ -154,6 +157,99 @@ func main() {
 			},
 		})
 	})
+	r.POST("/api/v1/auth/oauth/session-check", func(c *gin.Context) {
+		var req struct {
+			SessionID string `json:"session_id" binding:"required"`
+			AppID     string `json:"app_id" binding:"required"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"code":    400,
+				"message": "Invalid request parameters",
+				"error":   err.Error(),
+			})
+			return
+		}
+
+		// 查找SSO会话
+		var ssoSession models.SSOSession
+		if err := db.Where("id = ? AND status = ? AND expires_at > ?", req.SessionID, "active", time.Now()).First(&ssoSession).Error; err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"code":             200,
+				"message":          "Session not found or expired",
+				"is_authenticated": false,
+			})
+			return
+		}
+
+		// 获取用户信息
+		var user models.User
+		if err := db.Where("id = ?", ssoSession.UserID).First(&user).Error; err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"code":             200,
+				"message":          "User not found",
+				"is_authenticated": false,
+			})
+			return
+		}
+
+		// 验证应用ID（如果提供）
+		if req.AppID != "" && ssoSession.CurrentAppID != req.AppID {
+			c.JSON(http.StatusOK, gin.H{
+				"code":             200,
+				"message":          "Session not valid for this application",
+				"is_authenticated": false,
+			})
+			return
+		}
+
+		// 更新最后活动时间
+		now := time.Now()
+		ssoSession.LastActivity = now
+		if err := db.Save(&ssoSession).Error; err != nil {
+			fmt.Printf("Failed to update session activity: %v\n", err)
+		}
+
+		// 生成新的访问令牌
+		// 注意：这里应该调用统一的token生成逻辑
+		// 为了简化，这里返回一个简化的响应
+
+		c.JSON(http.StatusOK, gin.H{
+			"code":             200,
+			"message":          "Session is valid",
+			"is_authenticated": true,
+			"user": gin.H{
+				"sub":                user.ID,
+				"name":               user.Username,
+				"preferred_username": user.Username,
+				"email":              *user.Email,
+				"email_verified":     user.EmailVerified,
+				"phone":              user.Phone,
+				"phone_verified":     user.PhoneVerified,
+				"picture":            user.GetAvatar(),
+				"role":               user.Role,
+				"last_login":         user.LastLoginAt,
+				"ip_address":         user.LastLoginIP,
+			},
+			"session": gin.H{
+				"session_id":       ssoSession.ID,
+				"user_id":          ssoSession.UserID,
+				"client_id":        ssoSession.ClientID,
+				"authenticated_at": ssoSession.CreatedAt,
+				"expires_at":       ssoSession.ExpiresAt,
+				"last_activity":    ssoSession.LastActivity,
+				"is_active":        ssoSession.Status == "active",
+				"current_app_id":   ssoSession.CurrentAppID,
+			},
+			"token": gin.H{
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+				"access_token": "auto_login_token_" + ssoSession.ID, // 这里应该生成真正的token
+			},
+		})
+	})
+
 	r.GET("/api/v1/sso/session/check", func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"code":    200,
@@ -340,6 +436,24 @@ func main() {
 			admin.GET("/backup/info", backupHandler.GetBackupInfo())
 			admin.POST("/backup/validate", backupHandler.ValidateBackup())
 		}
+	}
+
+	// 测试端点（开发环境启用）
+	test := r.Group("/test")
+	{
+		test.GET("/token", func(c *gin.Context) {
+			fmt.Printf("🔍 测试令牌端点被调用\n")
+			if err := handlers.TestTokenGeneration(); err != nil {
+				fmt.Printf("❌ 令牌测试失败: %v\n", err)
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error": err.Error(),
+				})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"message": "Token generation and validation test successful",
+			})
+		})
 	}
 
 	// 启动服务器

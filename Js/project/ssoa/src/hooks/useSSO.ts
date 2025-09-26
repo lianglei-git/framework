@@ -66,6 +66,7 @@ export const useSSO = (options: UseSSOOptions = {}): UseSSOResult => {
             setIsLoading(true)
             setError(null)
 
+
             // 创建配置
             const finalConfig = createSSOConfig(customConfig)
 
@@ -94,7 +95,7 @@ export const useSSO = (options: UseSSOOptions = {}): UseSSOResult => {
         } finally {
             setIsLoading(false)
         }
-    }, [customConfig, onSuccess, onError])
+    }, [options])
 
     // 登录
     const login = useCallback(async (options: { redirect?: boolean; provider?: string } = {}) => {
@@ -244,28 +245,28 @@ export const useSSO = (options: UseSSOOptions = {}): UseSSOResult => {
         if (isInitialized && ssoService && isInCallback()) {
             handleCallback()
         }
-    }, [isInitialized, ssoService, isInCallback, handleCallback])
+    }, [])
 
     // 自动刷新令牌
     useEffect(() => {
-        if (isAuthenticated && token && ssoService) {
-            const refreshTimer = setInterval(() => {
-                // 检查令牌是否即将过期
-                const expiresAt = token.expires_at || 0
-                const now = Math.floor(Date.now() / 1000)
-                const timeUntilExpiry = expiresAt - now
+        // if (isAuthenticated && token && ssoService) {
+        //     const refreshTimer = setInterval(() => {
+        //         // 检查令牌是否即将过期
+        //         const expiresAt = token.expires_at || 0
+        //         const now = Math.floor(Date.now() / 1000)
+        //         const timeUntilExpiry = expiresAt - now
 
-                // 如果令牌将在5分钟内过期，自动刷新
-                if (timeUntilExpiry < 300 && token.refresh_token) {
-                    console.log('令牌即将过期，自动刷新...')
-                    refreshToken().catch(err => {
-                        console.warn('自动刷新令牌失败:', err)
-                    })
-                }
-            }, 60000) // 每分钟检查一次
+        //         // 如果令牌将在5分钟内过期，自动刷新
+        //         if (timeUntilExpiry < 300 && token.refresh_token) {
+        //             console.log('令牌即将过期，自动刷新...')
+        //             refreshToken().catch(err => {
+        //                 console.warn('自动刷新令牌失败:', err)
+        //             })
+        //         }
+        //     }, 60000) // 每分钟检查一次
 
-            return () => clearInterval(refreshTimer)
-        }
+        //     return () => clearInterval(refreshTimer)
+        // }
     }, [isAuthenticated, token, ssoService, refreshToken])
 
     return {

@@ -88,8 +88,9 @@ export class SSOService {
      */
     buildAuthorizationUrl(provider: string = 'local'): string {
         const params = new URLSearchParams({
-            client_id: this.config.clientId,
-            redirect_uri: this.config.redirectUri,
+            client_id: "8c1dd65d-7d2a-4ba4-aff1-610960a295e7",
+            app_id: "temp1",
+            redirect_uri: "http://localhost:5173",
             response_type: this.config.responseType || 'code',
             scope: (this.config.scope || []).join(' '),
             state: this.generateState(),
@@ -106,6 +107,7 @@ export class SSOService {
             // 存储code_verifier用于后续使用
             sessionStorage.setItem('sso_code_verifier', codeVerifier)
         }
+        debugger
 
         return `${this.baseURL}/oauth/authorize?${params.toString()}`
     }

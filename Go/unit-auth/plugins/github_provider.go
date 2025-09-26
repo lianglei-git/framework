@@ -51,15 +51,22 @@ func (p *GitHubProvider) Authenticate(ctx context.Context, credentials map[strin
 	return nil, errors.New("github provider does not support direct Authenticate; use OAuth flow")
 }
 
-func (p *GitHubProvider) GetAuthURL(ctx context.Context, state string) (string, error) {
+func (p *GitHubProvider) GetAuthURL(ctx *gin.Context, state string) (string, error) {
 	if !p.IsEnabled() {
 		return "", errors.New("github oauth not configured")
 	}
+
 	params := url.Values{}
 	params.Set("client_id", p.ClientID)
-	params.Set("redirect_uri", p.Redirect)
 	params.Set("scope", "read:user user:email")
-	params.Set("state", state)
+
+	params.Set("redirect_uri", ctx.Query("redirect_uri"))
+	params.Set("state", ctx.Query("state"))
+	params.Set("response_type", "code")
+	params.Set("code_challenge", ctx.Query("code_challenge"))
+	params.Set("code_challenge_method", ctx.Query("code_challenge_method"))
+
+	//
 
 	return fmt.Sprintf("https://github.com/login/oauth/authorize?%s", params.Encode()), nil
 }

@@ -38,7 +38,7 @@ func (h *WeChatAuthHandler) GetQRCode() gin.HandlerFunc {
 		state := generateRandomState()
 
 		// 获取微信授权URL
-		authURL, err := h.wechatProvider.GetAuthURL(c.Request.Context(), state)
+		authURL, err := h.wechatProvider.GetAuthURL(c, state)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.Response{
 				Code:    500,

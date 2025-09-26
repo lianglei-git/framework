@@ -59,6 +59,9 @@ class UserStore {
     }
 
     get token() {
+        if(this.info.token?.access_token) {
+            return this.info.token.access_token
+        }
         return this.info.token
     }
 

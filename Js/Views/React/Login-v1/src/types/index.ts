@@ -415,6 +415,13 @@ export interface SSOToken {
     expires_in: number
     scope?: string[]
     state?: string
+    session_info: SSOSession
+}
+
+export interface SSOProviderBasic {
+    id: string
+    name: string
+    enabled: boolean
 }
 
 export interface SSOProvider {
@@ -425,6 +432,20 @@ export interface SSOProvider {
     authorizationUrl: string
     enabled: boolean
     config?: Record<string, any>
+}
+
+export interface SSOOAuthUrlParams {
+    authorizationUrl: string
+    clientId: string
+    redirectUri: string
+    scope: string[]
+    responseType: string
+    state: SSOState
+    additionalParams?: Record<string, any>
+}
+
+export interface SSOState {
+    [key: string]: any
 }
 
 export interface SSOAuthRequest {

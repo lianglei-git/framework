@@ -192,7 +192,7 @@ func (h *PluginAuthHandler) GetOAuthURL() gin.HandlerFunc {
 			return
 		}
 
-		authURL, err := provider.GetAuthURL(c.Request.Context(), state)
+		authURL, err := provider.GetAuthURL(c, state)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.Response{
 				Code:    500,
