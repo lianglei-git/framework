@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { SSOService } from '../services/sso'
 import { getSubProjectConfig, SubProjectConfig } from '../config/subproject-integration'
 import type { SSOToken, SSOUser, SSOSession } from '../types'
@@ -39,6 +39,8 @@ export interface UseSubProjectSSOResult {
     updateConfig: (config: Partial<SubProjectConfig>) => void
 }
 
+const _storage = {}
+
 /**
  * 子项目SSO Hook
  * 提供完整的子项目SSO集成能力
@@ -58,9 +60,16 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
     const [isLoading, setIsLoading] = useState(false)
     const [isAuthenticated, setIsAuthenticated] = useState(false)
     const [error, setError] = useState<Error | null>(null)
+    // const error = useRef(null);
+    // const setError = (info: any) => {
+    //     error.current = info;
+    // }
+
+
+
 
     // 数据
-    const [ssoService, setSsoService] = useState<SSOService | null>(null)
+    const [ssoService, setSsoService]: [SSOService, () => void] = useState<SSOService | null>(null)
     const [user, setUser] = useState<SSOUser | null>(null)
     const [token, setToken] = useState<SSOToken | null>(null)
     const [session, setSession] = useState<SSOSession | null>(null)
@@ -68,6 +77,12 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
 
     // 初始化SSO服务
     const initialize = useCallback(async () => {
+        try {
+            const user = JSON.parse(localStorage.getItem(`${subProjectId}_user`))
+            setUser(user);
+            setToken(JSON.parse(localStorage.getItem(`${subProjectId}_token`)))
+            user && setIsAuthenticated(true)
+        } catch (err) { }
         try {
             setIsLoading(true)
             setError(null)
@@ -91,6 +106,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
             // 创建SSO服务实例
             const service = new SSOService(finalConfig)
             await service.initialize()
+            // ssoService.setCurrentProvider('local')
 
             setSsoService(service)
             setConfig(finalConfig)
@@ -106,7 +122,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         } finally {
             setIsLoading(false)
         }
-    }, [subProjectId, customConfig, onError])
+    }, [])
 
     // 登录
     const login = useCallback(async (options: { redirect?: boolean; provider?: string } = {}) => {
@@ -120,7 +136,16 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
 
             if (options.redirect) {
                 // 重定向到SSO登录页面
-                const loginUrl = ssoService.getLoginUrl(options.provider)
+                const loginUrl = await ssoService.buildAuthorizationUrlForLocal({
+                    // config
+                    client_id: config.clientId,
+                    app_id: config.id,
+                    redirect_uri: config.redirectUri,
+                    response_type: "code",
+                    grant_type: config.grantType,
+                    scope: (config.allowedScopes || []).join(' '),
+                    provider: 'local',
+                })
                 window.location.href = loginUrl
             } else {
                 // 直接调用登录API
@@ -209,6 +234,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         return ssoService.getLoginUrl(provider)
     }, [ssoService])
 
+
     // 处理回调
     const handleCallback = useCallback(async () => {
         if (!ssoService) {
@@ -220,8 +246,13 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
             setError(null)
 
             const result = await ssoService.handleCallback()
+            console.log("子项目回调结果: ", result)
+            if (result) {
 
-            if (result.success && result.user && result.token && result.session) {
+                // 存储到storage中
+                localStorage.setItem(`${subProjectId}_user`, JSON.stringify(result.user))
+                localStorage.setItem(`${subProjectId}_token`, JSON.stringify(result.token))
+
                 setUser(result.user)
                 setToken(result.token)
                 setSession(result.session)
@@ -266,8 +297,9 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
 
     // 自动处理回调
     useEffect(() => {
-        if (isInitialized && ssoService && isInCallback()) {
+        if (isInitialized && ssoService && isInCallback() && error == null && !user) {
             handleCallback()
+            console.log('死循环！！')
         }
     }, [isInitialized, ssoService, isInCallback, handleCallback])
 

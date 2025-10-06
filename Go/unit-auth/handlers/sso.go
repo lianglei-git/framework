@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
@@ -119,6 +120,38 @@ type JWK struct {
 	X5tS256 string   `json:"x5t#S256,omitempty"`
 	N       string   `json:"n,omitempty"` // RSA modulus
 	E       string   `json:"e,omitempty"` // RSA public exponent
+}
+
+// OAuthTokenRequest OAuth 2.0令牌请求结构体
+type OAuthTokenRequest struct {
+	GrantType          string `json:"grant_type" binding:"required"`
+	Code               string `json:"code,omitempty"`
+	RedirectURI        string `json:"redirect_uri,omitempty"`
+	ClientID           string `json:"client_id,omitempty"`
+	ClientSecret       string `json:"client_secret,omitempty"`
+	RefreshToken       string `json:"refresh_token,omitempty"`
+	Username           string `json:"username,omitempty"`
+	Password           string `json:"password,omitempty"`
+	CodeVerifier       string `json:"code_verifier,omitempty"`
+	State              string `json:"state,omitempty"`
+	AppID              string `json:"app_id,omitempty"`
+	InternalAuth       string `json:"internal_auth,omitempty"`
+	DoubleVerification string `json:"double_verification,omitempty"`
+}
+
+// OAuthLogoutRequest OAuth 2.0登出请求结构体
+type OAuthLogoutRequest struct {
+	IdTokenHint           string `json:"id_token_hint,omitempty"`
+	PostLogoutRedirectURI string `json:"post_logout_redirect_uri,omitempty"`
+	State                 string `json:"state,omitempty"`
+}
+
+// OAuthRevokeRequest OAuth 2.0令牌撤销请求结构体
+type OAuthRevokeRequest struct {
+	Token         string `json:"token" binding:"required"`
+	TokenTypeHint string `json:"token_type_hint,omitempty"`
+	ClientID      string `json:"client_id,omitempty"`
+	ClientSecret  string `json:"client_secret,omitempty"`
 }
 
 // 全局RSA密钥对
@@ -419,7 +452,7 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 			}
 			// 这里应该重定向到登录页面，携带这些参数
 			log.Println("Redirecting to login page with parameters:", sessionData, getFullURL(c, true))
-			c.Redirect(http.StatusFound, "http://localhost:3033?app_id="+appId+"&redirect_uri="+getFullURL(c, true))
+			c.Redirect(http.StatusFound, "http://localhost:3033?app_origin=true&redirect_uri="+getFullURL(c, true))
 			return
 		}
 
@@ -464,6 +497,7 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 		ssoSession.RedirectURI = redirectURI
 		ssoSession.Scope = scope
 		ssoSession.State = state
+		ssoSession.ClientID = clientID
 		ssoSession.Used = false
 		ssoSession.Status = "active"
 		ssoSession.ExpiresAt = expiresAt
@@ -530,27 +564,27 @@ func generateAuthorizationCode(clientID, userID, redirectURI, scope, codeChallen
 // GetOAuthToken OAuth 2.0令牌端点
 func GetOAuthToken(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		grantType := c.PostForm("grant_type")
-		code := c.PostForm("code")
-		redirectURI := c.PostForm("redirect_uri")
-		clientID := c.PostForm("client_id")
-		clientSecret := c.PostForm("client_secret")
-		refreshToken := c.PostForm("refresh_token")
-		username := c.PostForm("username")
-		password := c.PostForm("password")
+		var req OAuthTokenRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":             "invalid_request",
+				"error_description": "Request body must be valid JSON",
+			})
+			return
+		}
 
-		switch grantType {
+		switch req.GrantType {
 		case "authorization_code":
-			handleAuthorizationCodeGrant(c, db, code, redirectURI, clientID, clientSecret)
+			handleAuthorizationCodeGrant(c, db, req.Code, req.RedirectURI, req.ClientID, req.ClientSecret, req)
 		case "refresh_token":
-			handleRefreshTokenGrant(c, db, refreshToken, clientID, clientSecret)
+			handleRefreshTokenGrant(c, db, req.RefreshToken, req.ClientID, req.ClientSecret)
 		case "password":
-			handlePasswordGrant(c, db, username, password, clientID, clientSecret)
+			handlePasswordGrant(c, db, req.Username, req.Password, req.ClientID, req.ClientSecret)
 		case "code_verifier":
 			// 双重验证模式：使用code_verifier进行内部认证
-			handleCodeVerifierGrant(c, db, code, clientID, clientSecret)
+			handleCodeVerifierGrant(c, db, req.Code, req.ClientID, req.ClientSecret, req)
 		case "client_credentials":
-			handleClientCredentialsGrant(c, db, clientID, clientSecret)
+			handleClientCredentialsGrant(c, db, req.ClientID, req.ClientSecret)
 		default:
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error":             "unsupported_grant_type",
@@ -561,13 +595,13 @@ func GetOAuthToken(db *gorm.DB) gin.HandlerFunc {
 }
 
 // 处理授权码换令牌 - 统一双重验证模式
-func handleAuthorizationCodeGrant(c *gin.Context, db *gorm.DB, code, redirectURI, clientID, clientSecret string) {
+func handleAuthorizationCodeGrant(c *gin.Context, db *gorm.DB, code, redirectURI, clientID, clientSecret string, req OAuthTokenRequest) {
 	// 获取额外参数用于双重验证
-	codeVerifier := c.PostForm("code_verifier")
-	state := c.PostForm("state")
-	appID := c.PostForm("app_id")
-	internalAuth := c.PostForm("internal_auth")
-	doubleVerification := c.PostForm("double_verification")
+	codeVerifier := req.CodeVerifier
+	state := req.State
+	appID := req.AppID
+	internalAuth := req.InternalAuth
+	doubleVerification := req.DoubleVerification
 
 	// 验证客户端
 	var client SSOClient
@@ -579,7 +613,8 @@ func handleAuthorizationCodeGrant(c *gin.Context, db *gorm.DB, code, redirectURI
 	// 检测是否是双重验证模式
 	if internalAuth == "true" && doubleVerification == "true" {
 		// 双重验证模式：验证授权码 + PKCE code_verifier
-		claims, err := validateAuthorizationCodeWithPKCE(code, clientID, redirectURI, codeVerifier, state, appID, internalAuth, doubleVerification)
+		// 这里签发的code又问题。不是jwt格式的code。
+		claims, err := validateAuthorizationCodeWithPKCE(db, code, clientID, redirectURI, codeVerifier, state, appID, internalAuth, doubleVerification)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant", "error_description": err.Error()})
 			return
@@ -950,13 +985,18 @@ func GetOAuthLogout(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 支持POST和GET方法
 		if c.Request.Method == "POST" {
-			idTokenHint := c.PostForm("id_token_hint")
-			postLogoutRedirectURI := c.PostForm("post_logout_redirect_uri")
-			state := c.PostForm("state")
+			var req OAuthLogoutRequest
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error":             "invalid_request",
+					"error_description": "Request body must be valid JSON",
+				})
+				return
+			}
 
 			// 验证id_token_hint
-			if idTokenHint != "" {
-				_, err := validateAccessToken(idTokenHint)
+			if req.IdTokenHint != "" {
+				_, err := validateAccessToken(req.IdTokenHint)
 				if err != nil {
 					c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_token", "error_description": "Invalid id_token_hint"})
 					return
@@ -964,16 +1004,16 @@ func GetOAuthLogout(db *gorm.DB) gin.HandlerFunc {
 			}
 
 			// 如果指定了重定向URI，进行重定向
-			if postLogoutRedirectURI != "" {
-				redirectURL, err := url.Parse(postLogoutRedirectURI)
+			if req.PostLogoutRedirectURI != "" {
+				redirectURL, err := url.Parse(req.PostLogoutRedirectURI)
 				if err != nil {
 					c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "Invalid post_logout_redirect_uri"})
 					return
 				}
 
-				if state != "" {
+				if req.State != "" {
 					params := redirectURL.Query()
-					params.Set("state", state)
+					params.Set("state", req.State)
 					redirectURL.RawQuery = params.Encode()
 				}
 
@@ -990,25 +1030,29 @@ func GetOAuthLogout(db *gorm.DB) gin.HandlerFunc {
 // GetOAuthRevoke 令牌撤销端点
 func GetOAuthRevoke(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		token := c.PostForm("token")
-		_ = c.PostForm("token_type_hint") // access_token 或 refresh_token
-		clientID := c.PostForm("client_id")
-		clientSecret := c.PostForm("client_secret")
+		var req OAuthRevokeRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":             "invalid_request",
+				"error_description": "Request body must be valid JSON",
+			})
+			return
+		}
 
-		if token == "" {
+		if req.Token == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "token is required"})
 			return
 		}
 
 		// 验证客户端
 		var client SSOClient
-		if err := db.Where("id = ? AND secret = ? AND is_active = ?", clientID, clientSecret, true).First(&client).Error; err != nil {
+		if err := db.Where("id = ? AND secret = ? AND is_active = ?", req.ClientID, req.ClientSecret, true).First(&client).Error; err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_client", "error_description": "Invalid client credentials"})
 			return
 		}
 
 		// 验证并撤销令牌
-		_, err := validateAccessToken(token)
+		_, err := validateAccessToken(req.Token)
 		if err != nil {
 			// 令牌可能已过期或无效，但仍然返回成功（幂等操作）
 			c.JSON(http.StatusOK, gin.H{"message": "Token revoked or already invalid"})
@@ -1327,7 +1371,7 @@ func DestroySSOSession(db *gorm.DB) gin.HandlerFunc {
 }
 
 // 验证授权码（支持PKCE双重验证）
-func validateAuthorizationCodeWithPKCE(code, clientID, redirectURI, codeVerifier, state, appID, internalAuth, doubleVerification string) (jwt.MapClaims, error) {
+func validateAuthorizationCodeWithPKCE(db *gorm.DB, code, clientID, redirectURI, codeVerifier, state, appID, internalAuth, doubleVerification string) (jwt.MapClaims, error) {
 	// 验证双重验证必需参数
 	if internalAuth != "true" {
 		return nil, errors.New("internal authentication flag required")
@@ -1354,60 +1398,103 @@ func validateAuthorizationCodeWithPKCE(code, clientID, redirectURI, codeVerifier
 		return nil, errors.New("invalid code_verifier length (must be 43-128 characters)")
 	}
 
-	// 解析JWT token
-	token, err := jwt.Parse(code, func(token *jwt.Token) (interface{}, error) {
-		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
-			return nil, jwt.ErrSignatureInvalid
+	// 根据code查询sso_sessions表获取会话信息
+	var ssoSession models.SSOSession
+	if err := db.Where("authorization_code = ? AND client_id = ? AND used = ? AND expires_at > ? AND status = ?",
+		code, clientID, false, time.Now(), "active").First(&ssoSession).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, errors.New("authorization code not found, expired, or already used")
 		}
-		initRSAKeys()
-		return &rsaPublicKey, nil
-	})
-
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("database error: %v", err)
 	}
 
-	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		// 验证客户端ID
-		if claims["aud"] != clientID {
-			return nil, jwt.ErrSignatureInvalid
-		}
-
-		// 验证重定向URI
-		if claims["redirect_uri"] != redirectURI {
-			return nil, jwt.ErrSignatureInvalid
-		}
-
-		// 验证状态参数
-		if claims["state"] != state {
-			return nil, errors.New("state parameter mismatch")
-		}
-
-		// 验证应用ID
-		if claims["app_id"] != appID {
-			return nil, errors.New("app_id mismatch")
-		}
-
-		// 验证code_verifier（这里应该调用实际的PKCE验证逻辑）
-		// 简化实现：检查code_verifier是否存在且格式正确
-		if len(codeVerifier) >= 43 {
-			fmt.Printf("✅ PKCE双重验证通过: code_verifier长度=%d\n", len(codeVerifier))
-		}
-
-		return claims, nil
+	// 验证重定向URI
+	if ssoSession.RedirectURI != redirectURI {
+		return nil, errors.New("redirect URI mismatch")
 	}
 
-	return nil, jwt.ErrSignatureInvalid
+	// 验证状态参数
+	if ssoSession.State != state {
+		return nil, errors.New("state parameter mismatch")
+	}
+
+	// 验证应用ID（如果需要）
+	// 可以根据实际情况添加应用ID验证逻辑
+
+	// 验证code_verifier与存储的code_challenge（PKCE验证）
+	if ssoSession.CodeChallenge != "" && ssoSession.CodeChallengeMethod != "" {
+		// 实现PKCE验证逻辑
+		if !validatePKCECodeVerifier(codeVerifier, ssoSession.CodeChallenge, ssoSession.CodeChallengeMethod) {
+			return nil, errors.New("PKCE code_verifier validation failed")
+		}
+		fmt.Printf("✅ PKCE双重验证通过: code_verifier验证成功\n")
+	}
+
+	// 获取用户信息
+	var user models.User
+	if err := db.Where("id = ?", ssoSession.UserID).First(&user).Error; err != nil {
+		return nil, fmt.Errorf("user not found: %v", err)
+	}
+
+	// 构建JWT声明（基于数据库中的会话信息）
+	claims := jwt.MapClaims{
+		"sub":          ssoSession.UserID,
+		"aud":          clientID,
+		"iss":          config.AppConfig.ServerHost,
+		"exp":          ssoSession.ExpiresAt.Unix(),
+		"iat":          ssoSession.LastActivity.Unix(),
+		"jti":          ssoSession.ID,
+		"redirect_uri": ssoSession.RedirectURI,
+		"scope":        ssoSession.Scope,
+		"state":        ssoSession.State,
+		"app_id":       appID, // 添加应用ID到声明中
+		"user_id":      ssoSession.UserID,
+		"email":        user.Email,
+		"role":         user.Role,
+		"username":     user.Username,
+	}
+
+	// 添加用户信息
+	if user.Email != nil {
+		claims["email"] = *user.Email
+	}
+	if user.Username != "" {
+		claims["preferred_username"] = user.Username
+		claims["name"] = user.Username
+	}
+
+	return claims, nil
+}
+
+// validatePKCECodeVerifier 验证PKCE code_verifier
+func validatePKCECodeVerifier(codeVerifier, codeChallenge, codeChallengeMethod string) bool {
+	switch codeChallengeMethod {
+	case "S256":
+		// code_challenge = BASE64URL(SHA256(code_verifier))
+		hash := sha256.Sum256([]byte(codeVerifier))
+		expectedChallenge := base64.RawURLEncoding.EncodeToString(hash[:])
+		// 使用subtle.ConstantTimeCompare防止时序攻击
+		return subtle.ConstantTimeCompare([]byte(codeChallenge), []byte(expectedChallenge)) == 1
+
+	case "plain":
+		// code_challenge = code_verifier
+		return subtle.ConstantTimeCompare([]byte(codeChallenge), []byte(codeVerifier)) == 1
+
+	default:
+		// 不支持的code_challenge_method
+		return false
+	}
 }
 
 // 处理Code Verifier认证类型（双重验证模式）
-func handleCodeVerifierGrant(c *gin.Context, db *gorm.DB, code, clientID, clientSecret string) {
+func handleCodeVerifierGrant(c *gin.Context, db *gorm.DB, code, clientID, clientSecret string, req OAuthTokenRequest) {
 	// 获取额外参数
-	codeVerifier := c.PostForm("code_verifier")
-	state := c.PostForm("state")
-	appID := c.PostForm("app_id")
-	internalAuth := c.PostForm("internal_auth")
-	doubleVerification := c.PostForm("double_verification")
+	redirectURI := req.RedirectURI
+	codeVerifier := req.CodeVerifier
+	state := req.State
+	appID := req.AppID
+	internalAuth := req.InternalAuth
+	doubleVerification := req.DoubleVerification
 
 	// 验证客户端
 	var client SSOClient
@@ -1417,7 +1504,7 @@ func handleCodeVerifierGrant(c *gin.Context, db *gorm.DB, code, clientID, client
 	}
 
 	// 使用PKCE双重验证
-	claims, err := validateAuthorizationCodeWithPKCE(code, clientID, client.RedirectURIs, codeVerifier, state, appID, internalAuth, doubleVerification)
+	claims, err := validateAuthorizationCodeWithPKCE(db, code, clientID, redirectURI, codeVerifier, state, appID, internalAuth, doubleVerification)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant", "error_description": err.Error()})
 		return

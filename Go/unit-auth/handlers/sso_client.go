@@ -34,7 +34,7 @@ func CreateSSOClient(db *gorm.DB) gin.HandlerFunc {
 		c.JSON(http.StatusCreated, models.Response{
 			Code:    201,
 			Message: "SSO client created successfully",
-			Data:    client.ToResponse(),
+			Data:    client.ToResponseForCreate(),
 		})
 	}
 }

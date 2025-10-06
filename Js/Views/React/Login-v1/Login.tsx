@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { observer } from 'mobx-react-lite'
 import { globalUserStore } from './src/stores/UserStore'
-import { AuthLogin, AuthRegister, TermsOfService, PrivacyPolicy } from './src'
+import { AuthLogin, AuthRegister, TermsOfService, PrivacyPolicy, storageManager } from './src'
 import './Login.less'
 import { ForgotPassword } from './src/components/ForgotPassword'
 import { ThirdPartyLogin } from './src'
@@ -11,29 +11,29 @@ import { SSOService, createDefaultSSOConfig } from './src/services/sso'
 const urlParams = new URLSearchParams(window.location.search);
 const githubAccessCode = urlParams.get('code');
 const githubState = urlParams.get('state');
-let githubAccess = window.sessionStorage.getItem('github_access')
+let githubAccess = window.localStorage.getItem('github_access')
 
 let isGithubAccess = !!(githubAccessCode && githubAccess)
 
 const getSessionFromCookies = (): { sessionId: string | null; appId: string | null } => {
   try {
-      const cookies = document.cookie.split(';').map(cookie => cookie.trim())
-      let sessionId: string | null = null
-      let appId: string | null = null
+    const cookies = document.cookie.split(';').map(cookie => cookie.trim())
+    let sessionId: string | null = null
+    let appId: string | null = null
 
-      cookies.forEach(cookie => {
-          if (cookie.startsWith('sso_session_id=')) {
-              sessionId = cookie.substring('sso_session_id='.length)
-          }
-          if (cookie.startsWith('sso_app_id=')) {
-              appId = cookie.substring('sso_app_id='.length)
-          }
-      })
+    cookies.forEach(cookie => {
+      if (cookie.startsWith('sso_session_id=')) {
+        sessionId = cookie.substring('sso_session_id='.length)
+      }
+      if (cookie.startsWith('sso_app_id=')) {
+        appId = cookie.substring('sso_app_id='.length)
+      }
+    })
 
-      return { sessionId, appId }
+    return { sessionId, appId }
   } catch (error) {
-      console.error('❌ 获取session cookies失败:', error)
-      return { sessionId: null, appId: null }
+    console.error('❌ 获取session cookies失败:', error)
+    return { sessionId: null, appId: null }
   }
 }
 
@@ -42,23 +42,34 @@ const setSubAppInfoForSessionStorage = () => {
   const subUrlParams = new URLSearchParams(window.location.search)
   const appid = subUrlParams.get('app_id');
   const app_redirect_uri = subUrlParams.get('redirect_uri');
+  const app_origin = subUrlParams.get('app_origin');
   const { sessionId, appId } = getSessionFromCookies();
-  if(!sessionId) {
-    sessionStorage.setItem("origin_url", window.location.search)
+  if (!sessionId && app_origin) {
+    const fixedLen = ("redirect_uri=").length;
+    const index = window.location.search.indexOf("redirect_uri=")
+    if (index == -1) {
+      console.log("无法识别内容")
+      return;
+    }
+    debugger
+    localStorage.setItem("origin_app_uri", window.location.search.slice(index + fixedLen))
     return
   }
   if (appid && app_redirect_uri) {
-    sessionStorage.setItem('appid', appid)
-    sessionStorage.setItem('redirect_uri', app_redirect_uri)
+    localStorage.setItem('appid', appid)
+    localStorage.setItem('redirect_uri', app_redirect_uri)
   } else {
     console.warn('⚠️ appid or app_redirect_uri is not set')
   }
 }
+
+const isLogin = localStorage.getItem('is_login') == "true"
+
 const getSubAppInfoForSessionStorage = () => {
-  const appid = sessionStorage.getItem('app_id') || 'centeral_auth';
-  const origin_url = sessionStorage.getItem('origin_url');
-  const app_redirect_uri = sessionStorage.getItem('redirect_uri');
-  return { appid, app_redirect_uri, origin_url }
+  const appid = localStorage.getItem('app_id') || 'centeral_auth';
+  const origin_app_uri = localStorage.getItem('origin_app_uri');
+  const app_redirect_uri = localStorage.getItem('redirect_uri');
+  return { appid, app_redirect_uri, origin_app_uri }
 }
 
 const Login: React.FC = observer(() => {
@@ -94,7 +105,7 @@ const Login: React.FC = observer(() => {
           console.log('检测到SSO回调，自动处理...')
           try {
             const result = await service.handleAutomaticSSO()
-        
+
 
             if (result) {
               console.log('SSO回调处理成功:', result)
@@ -110,7 +121,7 @@ const Login: React.FC = observer(() => {
       }
     }
 
-    initSSO()
+    !isLogin && initSSO()
 
     // 处理GitHub OAuth回调
     // if (isGithubAccess && githubAccessCode) {
@@ -121,7 +132,7 @@ const Login: React.FC = observer(() => {
     //     } catch (e) {
     //       console.error('GitHub OAuth login failed:', e)
     //     } finally {
-    //       window.sessionStorage.removeItem('github_access')
+    //       window.localStorage.removeItem('github_access')
     //       // 清理URL中的code/state
     //       const url = new URL(window.location.href)
     //       url.searchParams.delete('code')
@@ -186,23 +197,22 @@ const Login: React.FC = observer(() => {
   const handleSSOCallbackResult = async (result: any, service: SSOService) => {
     console.log('SSO登录成功:', result)
 
+    localStorage.setItem('is_login', "true")
 
 
 
-    const { app_redirect_uri, appid, origin_url } = getSubAppInfoForSessionStorage()
 
-        // 
-        const {sessionId} = getSessionFromCookies();
-        // 需要使用sessionId从cookie中发送替代token模式
-       const res = await ssoService?.get('/api/v1/auth/oauth/authorize'+origin_url,null, {
-          headers: {
-            'Authorization': `Bearer ${globalUserStore.token}`
-        }
-        })
-        console.log(res,"resres")
-        return;
-        
-    // window.location.href = 'http://localhost:8080/api/v1/auth/oauth/authorize'+origin_url
+    const { app_redirect_uri, appid, origin_app_uri } = getSubAppInfoForSessionStorage()
+
+    console.log("origin_app_uri::", origin_app_uri)
+    // 
+    // const { sessionId } = getSessionFromCookies();
+    // // 需要使用sessionId从cookie中发送替代token模式
+    // const res = await ssoService?.get('/api/v1/auth/oauth/authorize' + origin_app_uri)
+    // console.log(res, "resres")
+    window.location.href = origin_app_uri
+    return;
+
     // return;
 
     // 从URL参数中获取重定向URI

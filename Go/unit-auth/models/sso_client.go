@@ -225,6 +225,30 @@ func (c *SSOClient) ToResponse() SSOClientResponse {
 	}
 }
 
+type SSOClientResponseForCreate struct {
+	Secret string `json:"secret"` // 客户端密钥，响应时不返回
+	SSOClientResponse
+}
+
+func (c *SSOClient) ToResponseForCreate() SSOClientResponseForCreate {
+	return SSOClientResponseForCreate{
+		SSOClientResponse: SSOClientResponse{
+			ID:            c.ID,
+			Name:          c.Name,
+			Description:   c.Description,
+			RedirectURIs:  c.RedirectURIs,
+			GrantTypes:    c.GrantTypes,
+			ResponseTypes: c.ResponseTypes,
+			Scope:         c.Scope,
+			AutoApprove:   c.AutoApprove,
+			IsActive:      c.IsActive,
+			CreatedAt:     c.CreatedAt,
+			UpdatedAt:     c.UpdatedAt,
+		},
+		Secret: c.Secret,
+	}
+}
+
 // GetRedirectURIs 获取重定向URI列表
 func (c *SSOClient) GetRedirectURIs() []string {
 	var uris []string
@@ -383,6 +407,7 @@ func GenerateClientSecret() string {
 }
 
 // CreateSSOClient 创建SSO客户端
+// Zayne: 应该在创建的时候返回serect
 func CreateSSOClient(db *gorm.DB, req *CreateSSOClientRequest) (*SSOClient, error) {
 	client := &SSOClient{
 		Name:        req.Name,

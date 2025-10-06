@@ -42,8 +42,17 @@ export class SSOService extends ApiService {
 
     constructor(config: SSOConfig) {
         // 如果没有提供配置，尝试从URL参数中获取
-        const finalConfig = config.ssoServerUrl ? config : SSOService.extractConfigFromURL()
+        // 配置应该融合，url配置权限更高。
 
+        const extrace = SSOService.extractConfigFromURL();
+        const finalConfig = config;
+
+        for (let k in extrace) {
+            if (extrace[k]) {
+                console.log("警告： 字段【", k, "】将由", finalConfig[k], "被替换为: ", extrace[k],)
+                finalConfig[k] = extrace[k]
+            }
+        }
         super(finalConfig.ssoServerUrl)
         this.config = finalConfig
         this.tokenManager = new SSOTokenManager(finalConfig)
@@ -81,17 +90,18 @@ export class SSOService extends ApiService {
         const urlParams = new URLSearchParams(window.location.search)
 
         // 尝试获取issuer（发行者标识）
-        const issuer = urlParams.get('issuer') || 'http://localhost:8080'
+        const issuer = urlParams.get('issuer')
 
         // 获取客户端信息
-        const clientId = urlParams.get('client_id') || 'default-client'
-        const redirectUri = urlParams.get('redirect_uri') || window.location.origin + '/auth/callback'
+        const clientId = urlParams.get('client_id')
+        const appId = urlParams.get('app_id')
+        const redirectUri = urlParams.get('redirect_uri')
 
         // 获取响应类型
-        const responseType = urlParams.get('response_type') || 'code'
+        const responseType = urlParams.get('response_type')
 
         // 获取作用域
-        const scopeParam = urlParams.get('scope') || 'openid profile email'
+        const scopeParam = urlParams.get('scope') || ""
         const scope = scopeParam.split(' ').filter(s => s.trim())
 
         // 获取状态参数
@@ -114,7 +124,8 @@ export class SSOService extends ApiService {
             cookieSameSite: 'lax',
             // 存储原始URL参数用于回调处理
             additionalParams: Object.fromEntries(urlParams.entries()),
-            state: state || undefined
+            state: state || undefined,
+            appId
         }
     }
 
@@ -182,12 +193,13 @@ export class SSOService extends ApiService {
         if (!this.config.ssoServerUrl) {
             throw new Error('SSO server URL is required')
         }
-        if (!this.config.clientId) {
-            throw new Error('Client ID is required')
-        }
-        if (!this.config.redirectUri) {
-            throw new Error('Redirect URI is required')
-        }
+
+        // if (!this.config.clientId) {
+        //     throw new Error('Client ID is required')
+        // }
+        // if (!this.config.redirectUri) {
+        //     throw new Error('Redirect URI is required')
+        // }
     }
 
     /**
@@ -469,9 +481,9 @@ export class SSOService extends ApiService {
     /**
      * 获取当前provider的配置
      */
-    private getCurrentProviderConfig(): SSOProviderConfig | undefined {
-        const provider = this.providers.get(this.currentProviderId)
-        return provider?.config as SSOProviderConfig | undefined
+    private getCurrentProviderConfig(id = this.currentProviderId): SSOProviderConfig | undefined {
+        const provider = this.providers.get(id)
+        return provider as SSOProviderConfig | undefined
     }
 
     /**
@@ -479,6 +491,14 @@ export class SSOService extends ApiService {
      */
     setCurrentProvider(providerId: string): void {
         this.currentProviderId = providerId
+    }
+
+    getLoginUrl(provider = 'local') {
+        if (provider == 'local') {
+
+            return
+        }
+
     }
 
     /**
@@ -577,10 +597,10 @@ export class SSOService extends ApiService {
             Reflect.set(params, 'code_challenge_method', 'S256')
 
             // 存储code_verifier用于后续双重验证token交换
-            sessionStorage.setItem('pkce_code_verifier', pkceParams.code_verifier)
-            sessionStorage.setItem('pkce_state', params.state)
-            sessionStorage.setItem('login_provider', this.currentProviderId)
-            console.log('✅ PKCE参数已存储到sessionStorage')
+            localStorage.setItem('pkce_code_verifier', pkceParams.code_verifier)
+            localStorage.setItem('pkce_state', params.state)
+            localStorage.setItem('login_provider', this.currentProviderId)
+            console.log('✅ PKCE参数已存储到localStorage')
         }
 
         // 获取OAuth URL和相关参数
@@ -589,6 +609,30 @@ export class SSOService extends ApiService {
         console.log(oauthParams.auth_url, "oauthParamsoauthParams")
 
         return oauthParams.auth_url
+    }
+
+    async buildAuthorizationUrlForLocal(config) {
+        const params = new URLSearchParams({
+            client_id: config.client_id,
+            app_id: config.app_id,
+            grant_type: config.grant_type,
+            redirect_uri: config.redirect_uri,
+            response_type: config.response_type,
+            scope: config.scope,
+            state: this.generateState(),
+            provider: 'local',
+        })
+
+        if (config.grant_type === 'authorization_code') {
+            const { code_challenge, code_verifier } = await this.generatePKCE()
+            params.set('code_challenge', code_challenge)
+            params.set('code_challenge_method', 'S256')
+
+            // 存储code_verifier用于后续使用
+            localStorage.setItem('pkce_code_verifier', code_verifier)
+        }
+
+        return `${this.baseURL}/api/v1/auth/oauth/authorize?${params.toString()}`
     }
 
     /**
@@ -711,7 +755,7 @@ export class SSOService extends ApiService {
         }
 
         // 验证state参数 - 增强的双重验证
-        const storedState = sessionStorage.getItem('pkce_state') || sessionStorage.getItem('sso_state')
+        const storedState = localStorage.getItem('pkce_state') || localStorage.getItem('sso_state')
 
         // 解析state参数（可能是JSON字符串）
         let contextState = context.state
@@ -750,8 +794,8 @@ export class SSOService extends ApiService {
         }
 
         // 清除存储的state（用于后续双重验证）
-        sessionStorage.removeItem('pkce_state')
-        sessionStorage.removeItem('sso_state')
+        localStorage.removeItem('pkce_state')
+        localStorage.removeItem('sso_state')
 
         // 使用授权码获取token
         return this.exchangeCodeForToken(context.code, context.state)
@@ -914,17 +958,20 @@ export class SSOService extends ApiService {
      * 使用统一的API服务进行请求
      */
     private async exchangeCodeForToken(code: string, state?: string): Promise<SSOLoginResponse> {
+        const provider = localStorage.getItem('login_provider') || this.currentProviderId
         // 获取当前provider的配置
-        const providerConfig = this.getCurrentProviderConfig()
+        const providerConfig = this.getCurrentProviderConfig(provider)
+
+        debugger
         // || this.config.tokenEndpoint
-        const tokenEndpoint = providerConfig?.token_url || `${this.config.ssoServerUrl}/api/v1/auth/oauth-login`
+        const tokenEndpoint = providerConfig?.tokenUrl || `${this.config.ssoServerUrl}/api/v1/auth/oauth-login`
 
         // 获取PKCE code_verifier（必须包含，用于双重验证）
-        const codeVerifier = sessionStorage.getItem('pkce_code_verifier')
+        const codeVerifier = localStorage.getItem('pkce_code_verifier')
         console.log("交换exchangeCodeForToken", codeVerifier);
 
         // 构建token交换请求参数 - 双重验证模式
-        const finalState = state || sessionStorage.getItem('pkce_state')
+        const finalState = state || localStorage.getItem('pkce_state')
 
         // 解析state参数（可能是JSON格式）
         let parsedState = finalState
@@ -942,7 +989,7 @@ export class SSOService extends ApiService {
 
         const tokenRequestData = {
             grant_type: 'authorization_code',
-            provider: sessionStorage.getItem('login_provider') || this.currentProviderId,
+            provider,
             code: code,
             redirect_uri: providerConfig?.redirect_uri || this.config.redirectUri,
             client_id: providerConfig?.client_id || this.config.clientId,
@@ -999,10 +1046,14 @@ export class SSOService extends ApiService {
             const userInfo = await this.getUserInfo(response.access_token)
 
             // 创建会话
-            const session = await this.sessionManager.createSession(response.session_info)
+            let session = null;
+            if (response.session_info) {
+                session = await this.sessionManager.createSession(response.session_info)
+                // 将session_id设置到cookie中，用于后续会话保持和自动登录
+                this.setSessionCookie(response.session_info.session_id, this.config.appId || 'default')
+            }
 
-            // 将session_id设置到cookie中，用于后续会话保持和自动登录
-            this.setSessionCookie(response.session_info.session_id, this.config.appId || 'default')
+
 
             storageManager.saveAuthData({
                 user: userInfo,
@@ -1012,7 +1063,7 @@ export class SSOService extends ApiService {
 
             console.log("清理敏感数据 pkce_code_verifier")
             // 清理敏感数据
-            sessionStorage.removeItem('pkce_code_verifier')
+            localStorage.removeItem('pkce_code_verifier')
 
             console.log('✅ 双重验证模式token交换成功:', {
                 user_id: userInfo.sub,
@@ -1029,7 +1080,7 @@ export class SSOService extends ApiService {
             console.error('❌ 双重验证模式token交换失败:', error)
 
             // 清理敏感数据（即使失败也要清理）
-            sessionStorage.removeItem('pkce_code_verifier')
+            localStorage.removeItem('pkce_code_verifier')
             console.log("清理敏感数据 pkce_code_verifier error")
 
             throw error
@@ -1695,22 +1746,22 @@ export class SSOError extends Error {
 }
 
 
-    /**
-     * 创建默认SSO配置
-     */
-    export function createDefaultSSOConfig(): SSOConfig {
-        return {
-            // ssoServerUrl: 'http://localhost:8080',
-            clientId: 'your-client-id',
-            clientSecret: 'your-client-secret',
-            // redirectUri: window.location.origin + '/auth/callback',
-            redirectUri: 'www.baidu.com',
-            scope: ['openid', 'profile', 'email'],
-            responseType: 'code',
-            grantType: 'authorization_code',
-            sessionTimeout: 3600,
-            autoRefresh: true,
-            storageType: StorageType.LOCAL,
-            cookieSameSite: 'lax'
-        }
+/**
+ * 创建默认SSO配置
+ */
+export function createDefaultSSOConfig(): SSOConfig {
+    return {
+        ssoServerUrl: 'http://localhost:8080',
+        // clientId: 'your-client-id',
+        // clientSecret: 'your-client-secret',
+        // redirectUri: window.location.origin + '/auth/callback',
+        redirectUri: 'www.baidu.com',
+        scope: ['openid', 'profile', 'email'],
+        responseType: 'code',
+        grantType: 'authorization_code',
+        sessionTimeout: 3600,
+        autoRefresh: true,
+        storageType: StorageType.LOCAL,
+        cookieSameSite: 'lax'
     }
+}

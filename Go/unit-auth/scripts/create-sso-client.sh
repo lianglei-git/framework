@@ -15,8 +15,7 @@ NC='\033[0m' # No Color
 
 # 默认配置
 DEFAULT_BASE_URL="http://localhost:8080"
-DEFAULT_CLIENT_ID="temp1"
-DEFAULT_CLIENT_NAME="Test Client"
+DEFAULT_CLIENT_NAME="sso_test_b"
 DEFAULT_REDIRECT_URI="http://localhost:5173"
 DEFAULT_DESCRIPTION="Test SSO Client created by script"
 
@@ -150,7 +149,7 @@ EOF
     log_info "正在创建SSO客户端..."
 
     # 检查是否启用测试模式
-    TEST_MODE=${TEST_MODE:-"false"}
+    TEST_MODE=${TEST_MODE:-"true"}
     if [[ "$TEST_MODE" == "true" ]]; then
         log_info "🔓 测试模式已启用，设置测试环境变量"
         export UNIT_AUTH_TEST_MODE=true
@@ -199,31 +198,113 @@ EOF
         echo "$HTTP_BODY"
     fi
 
+    # 调试信息
+    log_info "调试信息："
+    log_info "HTTP状态码: $HTTP_CODE"
+    log_info "响应体长度: ${#HTTP_BODY}"
+    if command -v jq &> /dev/null; then
+        log_info "响应结构:"
+        echo "$HTTP_BODY" | jq 'keys' 2>/dev/null || echo "无法解析JSON结构"
+    fi
+
+    # 从响应中提取客户端信息
+    if command -v jq &> /dev/null; then
+        # 使用 jq 解析响应
+        RESPONSE_CLIENT_ID=$(echo "$HTTP_BODY" | jq -r '.data.id // empty')
+        RESPONSE_CLIENT_SECRET=$(echo "$HTTP_BODY" | jq -r '.data.secret // empty')
+        RESPONSE_NAME=$(echo "$HTTP_BODY" | jq -r '.data.name // empty')
+        RESPONSE_DESCRIPTION=$(echo "$HTTP_BODY" | jq -r '.data.description // empty')
+        RESPONSE_REDIRECT_URIS=$(echo "$HTTP_BODY" | jq -r '.data.redirect_uris[]? // empty' | tr '\n' ' ')
+        RESPONSE_GRANT_TYPES=$(echo "$HTTP_BODY" | jq -r '.data.grant_types[]? // empty' | tr '\n' ' ')
+        RESPONSE_RESPONSE_TYPES=$(echo "$HTTP_BODY" | jq -r '.data.response_types[]? // empty' | tr '\n' ' ')
+        RESPONSE_SCOPE=$(echo "$HTTP_BODY" | jq -r '.data.scope[]? // empty' | tr '\n' ' ')
+        RESPONSE_AUTO_APPROVE=$(echo "$HTTP_BODY" | jq -r '.data.auto_approve // false')
+        RESPONSE_IS_ACTIVE=$(echo "$HTTP_BODY" | jq -r '.data.is_active // true')
+        RESPONSE_CREATED_AT=$(echo "$HTTP_BODY" | jq -r '.data.created_at // empty')
+    else
+        # 如果没有 jq，使用默认值
+        RESPONSE_CLIENT_ID="$CLIENT_ID"
+        RESPONSE_CLIENT_SECRET="$CLIENT_SECRET"
+        RESPONSE_NAME="$CLIENT_NAME"
+        RESPONSE_DESCRIPTION="$DESCRIPTION"
+        RESPONSE_REDIRECT_URIS="$REDIRECT_URI"
+        RESPONSE_GRANT_TYPES="authorization_code refresh_token"
+        RESPONSE_RESPONSE_TYPES="code"
+        RESPONSE_SCOPE="openid profile email"
+        RESPONSE_AUTO_APPROVE="false"
+        RESPONSE_IS_ACTIVE="true"
+        RESPONSE_CREATED_AT=""
+    fi
+
     # 显示重要信息
     echo ""
     log_success "客户端配置信息："
     echo "----------------------------------------"
-    echo "客户端ID (Client ID): $CLIENT_ID"
-    echo "客户端密钥 (Client Secret): $CLIENT_SECRET"
-    echo "重定向URI (Redirect URI): $REDIRECT_URI"
+    echo "客户端ID (Client ID): ${RESPONSE_CLIENT_ID:-$CLIENT_ID}"
+    echo "客户端密钥 (Client Secret): ${RESPONSE_CLIENT_SECRET:-$CLIENT_SECRET}"
+    echo "客户端名称 (Name): ${RESPONSE_NAME:-$CLIENT_NAME}"
+    echo "描述 (Description): ${RESPONSE_DESCRIPTION:-$DESCRIPTION}"
+    echo "重定向URI (Redirect URIs): ${RESPONSE_REDIRECT_URIS:-$REDIRECT_URI}"
+    echo "授权类型 (Grant Types): ${RESPONSE_GRANT_TYPES:-authorization_code refresh_token}"
+    echo "响应类型 (Response Types): ${RESPONSE_RESPONSE_TYPES:-code}"
+    echo "权限范围 (Scope): ${RESPONSE_SCOPE:-openid profile email}"
+    echo "自动批准 (Auto Approve): ${RESPONSE_AUTO_APPROVE:-false}"
+    echo "是否激活 (Is Active): ${RESPONSE_IS_ACTIVE:-true}"
+    if [[ -n "$RESPONSE_CREATED_AT" ]]; then
+        echo "创建时间 (Created At): $RESPONSE_CREATED_AT"
+    fi
+    echo ""
+    echo "OAuth 2.0 端点信息："
     echo "授权端点 (Authorization Endpoint): $BASE_URL/oauth/authorize"
     echo "令牌端点 (Token Endpoint): $BASE_URL/oauth/token"
     echo "用户信息端点 (UserInfo Endpoint): $BASE_URL/oauth/userinfo"
     echo "----------------------------------------"
 
     # 保存到文件
-    OUTPUT_FILE="sso-client-${CLIENT_ID}.json"
-    cat > "$OUTPUT_FILE" << EOF
+    OUTPUT_FILE="sso-client-${RESPONSE_CLIENT_ID:-$CLIENT_ID}.json"
+    
+    # 处理数组格式
+    if command -v jq &> /dev/null; then
+        # 使用 jq 生成正确的 JSON 格式
+        cat > "$OUTPUT_FILE" << EOF
 {
-    "client_id": "$CLIENT_ID",
-    "client_secret": "$CLIENT_SECRET",
-    "redirect_uri": "$REDIRECT_URI",
+    "client_id": "${RESPONSE_CLIENT_ID:-$CLIENT_ID}",
+    "client_secret": "${RESPONSE_CLIENT_SECRET:-$CLIENT_SECRET}",
+    "name": "${RESPONSE_NAME:-$CLIENT_NAME}",
+    "description": "${RESPONSE_DESCRIPTION:-$DESCRIPTION}",
+    "redirect_uris": $(echo "$HTTP_BODY" | jq '.data.redirect_uris // ["'$REDIRECT_URI'"]'),
+    "grant_types": $(echo "$HTTP_BODY" | jq '.data.grant_types // ["authorization_code", "refresh_token"]'),
+    "response_types": $(echo "$HTTP_BODY" | jq '.data.response_types // ["code"]'),
+    "scope": $(echo "$HTTP_BODY" | jq '.data.scope // ["openid", "profile", "email"]'),
+    "auto_approve": ${RESPONSE_AUTO_APPROVE:-false},
+    "is_active": ${RESPONSE_IS_ACTIVE:-true},
     "authorization_endpoint": "$BASE_URL/oauth/authorize",
     "token_endpoint": "$BASE_URL/oauth/token",
     "userinfo_endpoint": "$BASE_URL/oauth/userinfo",
-    "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    "created_at": "${RESPONSE_CREATED_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 }
 EOF
+    else
+        # 如果没有 jq，使用简单的格式
+        cat > "$OUTPUT_FILE" << EOF
+{
+    "client_id": "${RESPONSE_CLIENT_ID:-$CLIENT_ID}",
+    "client_secret": "${RESPONSE_CLIENT_SECRET:-$CLIENT_SECRET}",
+    "name": "${RESPONSE_NAME:-$CLIENT_NAME}",
+    "description": "${RESPONSE_DESCRIPTION:-$DESCRIPTION}",
+    "redirect_uris": ["$REDIRECT_URI"],
+    "grant_types": ["authorization_code", "refresh_token"],
+    "response_types": ["code"],
+    "scope": ["openid", "profile", "email"],
+    "auto_approve": ${RESPONSE_AUTO_APPROVE:-false},
+    "is_active": ${RESPONSE_IS_ACTIVE:-true},
+    "authorization_endpoint": "$BASE_URL/oauth/authorize",
+    "token_endpoint": "$BASE_URL/oauth/token",
+    "userinfo_endpoint": "$BASE_URL/oauth/userinfo",
+    "created_at": "${RESPONSE_CREATED_AT:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+}
+EOF
+    fi
 
     log_success "配置已保存到文件: $OUTPUT_FILE"
 

@@ -228,6 +228,34 @@ export const SUBPROJECT_CONFIGS: Record<string, SubProjectConfig> = {
             skipSSLVerification: false,
             debugMode: false
         }
+    },
+    'temp1': {
+        id: 'temp1',
+        name: '测试应用1',
+        description: '这是测试应用',
+        homepageUrl: 'https://demo.example.com',
+        clientId: '8c1dd65d-7d2a-4ba4-aff1-610960a295e7',
+        clientSecret: 'client_secret_a4121ad0-bc7e-4b59-8ab1-e29544060fc4',
+        redirectUris: ['https://demo.example.com/auth/callback'],
+        allowedScopes: ['openid', 'profile', 'email', 'custom.read'],
+        branding: {
+            primaryColor: '#722ed1',
+            backgroundColor: '#f9f0ff',
+            logo: 'https://demo.example.com/logo.png'
+        },
+        features: {
+            autoRefresh: true,
+            rememberMe: true,
+            socialLogin: true,
+            passwordReset: true,
+            multiFactorAuth: false
+        },
+        security: {
+            requireHttps: true,
+            allowedDomains: ['example.com', 'demo.example.com'],
+            blockedDomains: [],
+            sessionTimeout: 1800
+        }
     }
 }
 
