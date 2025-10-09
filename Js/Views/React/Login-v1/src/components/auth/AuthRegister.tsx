@@ -8,6 +8,7 @@ import {
     AccountType,
     VerificationType
 } from '../../'
+import { handleSSOCallbackResult } from '../../utils/handleSSOCallbackResult'
 
 interface AuthRegisterProps {
     onSwitchToLogin: () => void
@@ -62,7 +63,7 @@ const AuthRegister: React.FC<AuthRegisterProps> = ({ onSwitchToLogin }) => {
         e.preventDefault()
         if (!registerForm.validate()) return
         try {
-            await auth.register({
+            const res = await auth.register({
                 username: registerForm.values.email.slice(0, registerForm.values.email.indexOf('@')),
                 email: registerForm.values.email,
                 password: registerForm.values.password,
@@ -70,14 +71,7 @@ const AuthRegister: React.FC<AuthRegisterProps> = ({ onSwitchToLogin }) => {
                 agree_terms: true,
                 verification_code: registerForm.values.code
             })
-            // 自动登录
-            const accountType = identifyAccountType(registerForm.values.email)
-            await auth.login({
-                account: registerForm.values.email,
-                password: registerForm.values.password,
-                remember_me: true,
-                login_type: accountType === AccountType.UNKNOWN ? 'username' : accountType
-            })
+            handleSSOCallbackResult(res);
         } catch (error: any) {
             registerForm.setError('email', error.message || '注册失败')
         }

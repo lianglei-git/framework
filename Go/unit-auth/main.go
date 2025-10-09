@@ -138,9 +138,18 @@ func main() {
 					"grantTypes":    "authorization_code",
 					"responseTypes": "code",
 					"scope":         "user:email,read:user",
-					"config": map[string]interface{}{
-						"client_id": os.Getenv("GITHUB_CLIENT_ID"),
-					},
+				},
+				{
+					"id":          "wechat",
+					"name":        "wechat",
+					"displayName": "微信",
+					// "authorizationUrl": "https://github.com/login/oauth/authorize",
+					// "tokenUrl":         "https://github.com/login/oauth/access_token",
+					// "userInfoUrl":      "https://api.github.com/user",
+					"enabled":       true,
+					"grantTypes":    "authorization_code",
+					"responseTypes": "code",
+					"scope":         "user:email,read:user",
 				},
 				{
 					"id":          "google",
@@ -311,7 +320,7 @@ func main() {
 			unifiedAuthHandler := handlers.NewUnifiedAuthHandler(db, pluginManager)
 
 			// 统一认证端点（替代原有的分离端点）
-			auth.POST("/oauth-login", unifiedAuthHandler.UnifiedOAuthLogin())
+			auth.POST("/oauth-login", unifiedAuthHandler.UnifiedOAuthLogin(mailer))
 			auth.GET("/oauth/:provider/url", unifiedAuthHandler.UnifiedGetOAuthURL())
 
 			// 兼容性端点（保持原有功能）
@@ -325,16 +334,16 @@ func main() {
 			auth.GET("/wechat/status/:state", wechatAuthHandler.CheckLoginStatus())
 
 			// 传统认证接口（保持兼容性）
-			auth.POST("/register", handlers.Register(db, mailer))
+			auth.POST("/register", unifiedAuthHandler.Register(mailer))
 			auth.POST("/send-email-code", handlers.SendEmailCode(db, mailer))
 			auth.POST("/send-sms-code", handlers.SendPhoneCode(db))
-			auth.POST("/email-login", unifiedAuthHandler.UnifiedEmailLogin()) // 使用统一处理器
+			// auth.POST("/email-login", unifiedAuthHandler.UnifiedEmailLogin()) // 使用统一处理器
 			auth.POST("/verify-email", handlers.VerifyEmail(db))
 			auth.POST("/forgot-password", handlers.ForgotPassword(db, mailer))
 			auth.POST("/reset-password", handlers.ResetPassword(db))
 
 			// 统一登录接口
-			auth.POST("/login", handlers.UnifiedLogin(db))
+			// auth.POST("/login", handlers.UnifiedLogin(db))
 
 			// 手机号认证接口
 			auth.POST("/phone-login", unifiedAuthHandler.UnifiedPhoneLogin()) // 使用统一处理器

@@ -3,13 +3,18 @@ package handlers
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 	"unit-auth/config"
+	"unit-auth/middleware"
 	"unit-auth/models"
 	"unit-auth/plugins"
+	"unit-auth/services"
+	"unit-auth/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -51,7 +56,7 @@ func calculateTokenHash(token string) string {
 // - 支持所有登录方式：local, github, google, wechat, email, phone, double_verification
 
 // UnifiedOAuthLogin 统一的OAuth登录（支持多种内部认证模式）
-func (h *UnifiedAuthHandler) UnifiedOAuthLogin() gin.HandlerFunc {
+func (h *UnifiedAuthHandler) UnifiedOAuthLogin(mailer *utils.Mailer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 解析JSON请求体
 		var req models.UnifiedOAuthLoginRequest
@@ -85,7 +90,7 @@ func (h *UnifiedAuthHandler) UnifiedOAuthLogin() gin.HandlerFunc {
 			h.handleOAuthLogin(c, req, ip, userAgent)
 			return
 		case "email":
-			h.handleEmailLogin(c, req, ip, userAgent)
+			h.handleEmailLogin(c, req, ip, userAgent, mailer)
 			return
 		case "phone":
 			h.handlePhoneLogin(c, req, ip, userAgent)
@@ -161,6 +166,111 @@ func (h *UnifiedAuthHandler) handleLocalLogin(c *gin.Context, req models.Unified
 	h.generateAndReturnTokens(c, &user, "local", ip, userAgent)
 }
 
+func (h *UnifiedAuthHandler) Register(mailer *utils.Mailer) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req models.RegisterRequest
+		db := h.db
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid request data: " + err.Error(),
+			})
+			return
+		}
+
+		// 检查邮箱是否已存在
+		var existingUser models.User
+		if err := db.Where("email = ?", req.Email).First(&existingUser).Error; err == nil {
+			c.JSON(http.StatusConflict, models.Response{
+				Code:    409,
+				Message: "Email already exists",
+			})
+			return
+		}
+
+		// 检查用户名是否已存在
+		// if err := db.Where("username = ?", req.Username).First(&existingUser).Error; err == nil {
+		// 	c.JSON(http.StatusConflict, models.Response{
+		// 		Code:    409,
+		// 		Message: "Username already exists",
+		// 	})
+		// 	return
+		// }
+
+		// 验证邮箱验证码
+		var verification models.EmailVerification
+		if err := db.Where("email = ? AND code = ? AND type = ? AND used = ? AND expires_at > ?",
+			req.Email, req.Code, "register", false, time.Now()).First(&verification).Error; err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid or expired verification code",
+			})
+			return
+		}
+
+		// 读取项目Key（若有）
+		projectKey := ""
+		if keyVal, ok := c.Get(middleware.CtxProjectKey); ok {
+			projectKey = keyVal.(string)
+		}
+
+		// 创建用户（服务内强制映射；失败回滚注册）
+		newUser, err := services.RegisterUser(db, mailer, services.RegistrationOptions{
+			Email:                &req.Email,
+			Username:             req.Username,
+			Nickname:             req.Nickname,
+			Password:             req.Password,
+			EmailVerified:        true,
+			Role:                 "user",
+			Status:               "active",
+			SendWelcome:          true,
+			ProjectKey:           projectKey,
+			GinContext:           c,
+			StrictProjectMapping: projectKey != "",
+		})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to create user: " + err.Error()})
+			return
+		}
+
+		// 标记验证码为已使用
+		if err := db.Model(&verification).Update("used", true).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to update verification code"})
+			return
+		}
+
+		// 记录请求信息
+		ip := c.ClientIP()
+		userAgent := c.GetHeader("User-Agent")
+		h.generateAndReturnTokens(c, newUser, "email", ip, userAgent)
+
+		// // 生成Token（含项目Claims）
+		// identifier := req.Email
+		// localID := ""
+		// if v, ok := c.Get("local_user_id"); ok {
+		// 	if s, ok2 := v.(string); ok2 {
+		// 		localID = s
+		// 	}
+		// }
+		// var token string
+		// if projectKey != "" && localID != "" {
+		// 	token, err = utils.GenerateTokenWithProject(newUser.ID, identifier, newUser.Role, projectKey, localID)
+		// } else {
+		// 	token, err = utils.GenerateToken(newUser.ID, identifier, newUser.Role)
+		// }
+		// if err != nil {
+		// 	c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
+		// 	return
+		// }
+
+		// c.JSON(http.StatusCreated, models.Response{
+		// 	Code:    201,
+		// 	Message: "Register successfully",
+		// 	Data:    models.LoginResponse{User: newUser.ToResponse(), Token: token},
+		// })
+	}
+}
+
 // handleOAuthLogin 处理OAuth第三方登录
 func (h *UnifiedAuthHandler) handleOAuthLogin(c *gin.Context, req models.UnifiedOAuthLoginRequest, ip, userAgent string) {
 	// 验证双重验证参数（如果提供）
@@ -220,21 +330,58 @@ func (h *UnifiedAuthHandler) handleOAuthLogin(c *gin.Context, req models.Unified
 	h.generateAndReturnTokens(c, user, req.Provider, ip, userAgent)
 }
 
-// handleEmailLogin 处理邮箱验证码登录
-func (h *UnifiedAuthHandler) handleEmailLogin(c *gin.Context, req models.UnifiedOAuthLoginRequest, ip, userAgent string) {
+// handleEmailLogin 处理邮箱验证码登录 -- 使用中
+func (h *UnifiedAuthHandler) handleEmailLogin(c *gin.Context, req models.UnifiedOAuthLoginRequest, ip, userAgent string, mailer *utils.Mailer) {
 	// 验证邮箱验证码（简化实现）
-	if req.Code != "123456" {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"error":             "invalid_grant",
-			"error_description": "Invalid email or verification code",
-		})
-		return
-	}
 
 	// 查找用户
 	var user *models.User
 	if err := h.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{
+		// c.JSON(http.StatusUnauthorized, gin.H{
+		// 	"error":             "invalid_grant",
+		// 	"error_description": "Invalid email or verification code",
+		// })
+		// return
+		// 自动注册
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			base := strings.Split(req.Email, "@")[0]
+			projectKey := ""
+			if keyVal, ok := c.Get(middleware.CtxProjectKey); ok {
+				projectKey = keyVal.(string)
+			}
+			created, err := services.RegisterUser(h.db, mailer, services.RegistrationOptions{
+				Email:                &req.Email,
+				Username:             base,
+				Nickname:             base,
+				EmailVerified:        true,
+				Role:                 "user",
+				Status:               "active",
+				SendWelcome:          true,
+				ProjectKey:           projectKey,
+				GinContext:           c,
+				StrictProjectMapping: projectKey != "",
+			})
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to create user"})
+				return
+			}
+			user = created
+		} else {
+			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Database error"})
+			return
+		}
+	}
+
+	// 用户状态检查
+	if user.Status != "active" {
+		c.JSON(http.StatusForbidden, models.Response{Code: 403, Message: "Account is disabled"})
+		return
+	}
+
+	var verification models.EmailVerification
+	if err := h.db.Where("email = ? AND code = ? AND type = ? AND used = ? AND expires_at > ?",
+		req.Email, req.Code, "login", false, time.Now()).First(&verification).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
 			"error":             "invalid_grant",
 			"error_description": "Invalid email or verification code",
 		})
@@ -243,6 +390,8 @@ func (h *UnifiedAuthHandler) handleEmailLogin(c *gin.Context, req models.Unified
 
 	// 成功登录，更新用户信息
 	user.UpdateLoginInfo(ip, userAgent)
+	// 标记验证码为已使用
+	h.db.Model(&verification).Update("used", true)
 	h.db.Save(&user)
 
 	// 记录成功日志
@@ -475,187 +624,187 @@ func (h *UnifiedAuthHandler) UnifiedGetOAuthURL() gin.HandlerFunc {
 	}
 }
 
-// UnifiedEmailLogin 统一的邮箱验证码登录
-func (h *UnifiedAuthHandler) UnifiedEmailLogin() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		email := c.PostForm("email")
-		code := c.PostForm("code")
+// // UnifiedEmailLogin 统一的邮箱验证码登录
+// func (h *UnifiedAuthHandler) UnifiedEmailLogin() gin.HandlerFunc {
+// 	return func(c *gin.Context) {
+// 		email := c.PostForm("email")
+// 		code := c.PostForm("code")
 
-		if email == "" || code == "" {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":             "invalid_request",
-				"error_description": "Missing required parameters: email and code",
-			})
-			return
-		}
+// 		if email == "" || code == "" {
+// 			c.JSON(http.StatusBadRequest, gin.H{
+// 				"error":             "invalid_request",
+// 				"error_description": "Missing required parameters: email and code",
+// 			})
+// 			return
+// 		}
 
-		// 查找用户
-		var user models.User
-		if err := h.db.Where("email = ?", email).First(&user).Error; err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error":             "invalid_grant",
-				"error_description": "Invalid email or verification code",
-			})
-			return
-		}
+// 		// 查找用户
+// 		var user models.User
+// 		if err := h.db.Where("email = ?", email).First(&user).Error; err != nil {
+// 			c.JSON(http.StatusUnauthorized, gin.H{
+// 				"error":             "invalid_grant",
+// 				"error_description": "Invalid email or verification code",
+// 			})
+// 			return
+// 		}
 
-		// 验证邮箱验证码（这里应该调用实际的验证逻辑）
-		// 简化实现：检查验证码是否为"123456"
-		if code != "123456" {
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error":             "invalid_grant",
-				"error_description": "Invalid email or verification code",
-			})
-			return
-		}
+// 		// 验证邮箱验证码（这里应该调用实际的验证逻辑）
+// 		// 简化实现：检查验证码是否为"123456"
+// 		if code != "123456" {
+// 			c.JSON(http.StatusUnauthorized, gin.H{
+// 				"error":             "invalid_grant",
+// 				"error_description": "Invalid email or verification code",
+// 			})
+// 			return
+// 		}
 
-		// 成功登录，更新用户信息
-		ip := c.ClientIP()
-		userAgent := c.GetHeader("User-Agent")
-		user.UpdateLoginInfo(ip, userAgent)
+// 		// 成功登录，更新用户信息
+// 		ip := c.ClientIP()
+// 		userAgent := c.GetHeader("User-Agent")
+// 		user.UpdateLoginInfo(ip, userAgent)
 
-		if err := h.db.Save(&user).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":             "server_error",
-				"error_description": "Failed to update user info",
-			})
-			return
-		}
+// 		if err := h.db.Save(&user).Error; err != nil {
+// 			c.JSON(http.StatusInternalServerError, gin.H{
+// 				"error":             "server_error",
+// 				"error_description": "Failed to update user info",
+// 			})
+// 			return
+// 		}
 
-		// 记录登录日志
-		loginLog := models.LoginLog{
-			UserID:    user.ID,
-			Provider:  "email",
-			IP:        ip,
-			UserAgent: userAgent,
-			Success:   true,
-			CreatedAt: time.Now(),
-		}
-		if err := h.db.Create(&loginLog).Error; err != nil {
-			fmt.Printf("Failed to record login log: %v\n", err)
-		}
+// 		// 记录登录日志
+// 		loginLog := models.LoginLog{
+// 			UserID:    user.ID,
+// 			Provider:  "email",
+// 			IP:        ip,
+// 			UserAgent: userAgent,
+// 			Success:   true,
+// 			CreatedAt: time.Now(),
+// 		}
+// 		if err := h.db.Create(&loginLog).Error; err != nil {
+// 			fmt.Printf("Failed to record login log: %v\n", err)
+// 		}
 
-		// 解析JSON请求体获取客户端ID
-		var req models.UnifiedOAuthLoginRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			// 如果解析失败，使用默认值
-			req = models.UnifiedOAuthLoginRequest{}
-		}
+// 		// 解析JSON请求体获取客户端ID
+// 		var req models.UnifiedOAuthLoginRequest
+// 		if err := c.ShouldBindJSON(&req); err != nil {
+// 			// 如果解析失败，使用默认值
+// 			req = models.UnifiedOAuthLoginRequest{}
+// 		}
 
-		// 获取客户端ID
-		clientID := req.ClientID
-		if clientID == "" {
-			clientID = "default-client"
-		}
+// 		// 获取客户端ID
+// 		clientID := req.ClientID
+// 		if clientID == "" {
+// 			clientID = "default-client"
+// 		}
 
-		// 构建JWT数据
-		var emailReq models.UnifiedOAuthLoginRequest
-		if err := c.ShouldBindJSON(&emailReq); err != nil {
-			emailReq = models.UnifiedOAuthLoginRequest{}
-		}
+// 		// 构建JWT数据
+// 		var emailReq models.UnifiedOAuthLoginRequest
+// 		if err := c.ShouldBindJSON(&emailReq); err != nil {
+// 			emailReq = models.UnifiedOAuthLoginRequest{}
+// 		}
 
-		localID := ""
-		if emailReq.AppID != "" {
-			var pm models.ProjectMapping
-			if err := h.db.Where("project_name = ? AND user_id = ?", emailReq.AppID, user.ID).First(&pm).Error; err == nil {
-				localID = pm.LocalUserID
-			}
-		}
+// 		localID := ""
+// 		if emailReq.AppID != "" {
+// 			var pm models.ProjectMapping
+// 			if err := h.db.Where("project_name = ? AND user_id = ?", emailReq.AppID, user.ID).First(&pm).Error; err == nil {
+// 				localID = pm.LocalUserID
+// 			}
+// 		}
 
-		now := time.Now()
-		allJWTDatas := &RS256TokenClaims{
-			ClientID:    clientID,
-			UserID:      user.ID,
-			Email:       *user.Email,
-			Role:        user.Role,
-			AppID:       emailReq.AppID,
-			LocalUserID: localID,
-			Lid:         localID,
-			Req:         emailReq,
-			User:        &user,
-			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
-				IssuedAt:  jwt.NewNumericDate(now),
-				NotBefore: jwt.NewNumericDate(now),
-				Issuer:    os.Getenv("JWT_ISS"),
-				ID:        uuid.New().String(),
-			},
-		}
+// 		now := time.Now()
+// 		allJWTDatas := &RS256TokenClaims{
+// 			ClientID:    clientID,
+// 			UserID:      user.ID,
+// 			Email:       *user.Email,
+// 			Role:        user.Role,
+// 			AppID:       emailReq.AppID,
+// 			LocalUserID: localID,
+// 			Lid:         localID,
+// 			Req:         emailReq,
+// 			User:        &user,
+// 			RegisteredClaims: jwt.RegisteredClaims{
+// 				ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
+// 				IssuedAt:  jwt.NewNumericDate(now),
+// 				NotBefore: jwt.NewNumericDate(now),
+// 				Issuer:    os.Getenv("JWT_ISS"),
+// 				ID:        uuid.New().String(),
+// 			},
+// 		}
 
-		// 生成访问令牌（使用sso.go中的函数）
-		accessToken, err := generateAccessTokenWithRS256(allJWTDatas)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":             "server_error",
-				"error_description": "Failed to generate access token",
-			})
-			return
-		}
+// 		// 生成访问令牌（使用sso.go中的函数）
+// 		accessToken, err := generateAccessTokenWithRS256(allJWTDatas)
+// 		if err != nil {
+// 			c.JSON(http.StatusInternalServerError, gin.H{
+// 				"error":             "server_error",
+// 				"error_description": "Failed to generate access token",
+// 			})
+// 			return
+// 		}
 
-		// 生成Id令牌
-		idToken := accessToken
+// 		// 生成Id令牌
+// 		idToken := accessToken
 
-		// 生成刷新令牌
-		refreshToken, err := generateRefreshTokenWithRS256(user.ID, clientID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":             "server_error",
-				"error_description": "Failed to generate refresh token",
-			})
-			return
-		}
+// 		// 生成刷新令牌
+// 		refreshToken, err := generateRefreshTokenWithRS256(user.ID, clientID)
+// 		if err != nil {
+// 			c.JSON(http.StatusInternalServerError, gin.H{
+// 				"error":             "server_error",
+// 				"error_description": "Failed to generate refresh token",
+// 			})
+// 			return
+// 		}
 
-		// 创建SSO会话
-		sessionID := uuid.New().String()
-		accessTokenHash := calculateTokenHash(accessToken)
-		refreshTokenHash := calculateTokenHash(refreshToken)
+// 		// 创建SSO会话
+// 		sessionID := uuid.New().String()
+// 		accessTokenHash := calculateTokenHash(accessToken)
+// 		refreshTokenHash := calculateTokenHash(refreshToken)
 
-		// 设置会话过期时间（与刷新token一致）
-		sessionExpiresAt := time.Now().Add(24 * time.Hour)
+// 		// 设置会话过期时间（与刷新token一致）
+// 		sessionExpiresAt := time.Now().Add(24 * time.Hour)
 
-		ssoSession := &models.SSOSession{
-			ID:                     sessionID,
-			UserID:                 user.ID,
-			ClientID:               clientID,
-			CurrentAccessTokenHash: accessTokenHash,
-			RefreshTokenHash:       refreshTokenHash,
-			Status:                 "active",
-			ExpiresAt:              sessionExpiresAt,
-			LastActivity:           time.Now(),
-			UserAgent:              userAgent,
-			IPAddress:              ip,
-			CurrentAppID:           emailReq.AppID,
-		}
+// 		ssoSession := &models.SSOSession{
+// 			ID:                     sessionID,
+// 			UserID:                 user.ID,
+// 			ClientID:               clientID,
+// 			CurrentAccessTokenHash: accessTokenHash,
+// 			RefreshTokenHash:       refreshTokenHash,
+// 			Status:                 "active",
+// 			ExpiresAt:              sessionExpiresAt,
+// 			LastActivity:           time.Now(),
+// 			UserAgent:              userAgent,
+// 			IPAddress:              ip,
+// 			CurrentAppID:           emailReq.AppID,
+// 		}
 
-		// 创建会话记录
-		if err := models.CreateSSOSession(h.db, ssoSession); err != nil {
-			fmt.Printf("Failed to create SSO session: %v\n", err)
-		}
+// 		// 创建会话记录
+// 		if err := models.CreateSSOSession(h.db, ssoSession); err != nil {
+// 			fmt.Printf("Failed to create SSO session: %v\n", err)
+// 		}
 
-		// 构建响应
-		response := gin.H{
-			"access_token":  accessToken,
-			"id_token":      idToken,
-			"refresh_token": refreshToken,
-			"token_type":    "Bearer",
-			"expires_in":    3600,
-			"scope":         "openid profile email",
-			"user":          user.ToResponse(),
-			"provider":      "email",
-			"session_id":    sessionID,
-			"session_info": gin.H{
-				"session_id":     sessionID,
-				"start_time":     time.Now(),
-				"last_activity":  time.Now(),
-				"expires_at":     sessionExpiresAt,
-				"current_app_id": emailReq.AppID,
-				"events":         []string{"login"},
-			},
-		}
+// 		// 构建响应
+// 		response := gin.H{
+// 			"access_token":  accessToken,
+// 			"id_token":      idToken,
+// 			"refresh_token": refreshToken,
+// 			"token_type":    "Bearer",
+// 			"expires_in":    3600,
+// 			"scope":         "openid profile email",
+// 			"user":          user.ToResponse(),
+// 			"provider":      "email",
+// 			"session_id":    sessionID,
+// 			"session_info": gin.H{
+// 				"session_id":     sessionID,
+// 				"start_time":     time.Now(),
+// 				"last_activity":  time.Now(),
+// 				"expires_at":     sessionExpiresAt,
+// 				"current_app_id": emailReq.AppID,
+// 				"events":         []string{"login"},
+// 			},
+// 		}
 
-		c.JSON(http.StatusOK, response)
-	}
-}
+// 		c.JSON(http.StatusOK, response)
+// 	}
+// }
 
 // UnifiedPhoneLogin 统一的手机号验证码登录
 func (h *UnifiedAuthHandler) UnifiedPhoneLogin() gin.HandlerFunc {

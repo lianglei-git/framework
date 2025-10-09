@@ -12,6 +12,7 @@ import {
 import { getOAuthURLAPI } from '../../services/api'
 
 import { RiGithubFill, RiGoogleFill, RiUserFill, RiWechatFill } from 'react-icons/ri'
+import { handleSSOCallbackResult } from '../../utils/handleSSOCallbackResult'
 
 interface AuthLoginProps {
     onSwitchToRegister: () => void
@@ -97,6 +98,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
         setCodeLoginHint('')
     }
 
+    // 有效
     const handleAccountLogin = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!accountForm.values.password.trim()) {
@@ -104,15 +106,16 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
             return
         }
         try {
-            const accountType = identifyAccountType(accountForm.values.account)
-            await auth.login({
-                account: accountForm.values.account,
+            const info = await auth.unifiedOAuthLogin({
                 password: accountForm.values.password,
-                remember_me: accountForm.values.remember_me,
-                login_type: accountType === AccountType.UNKNOWN ? 'username' : accountType
+                provider: 'local',
+                username: accountForm.values.account,
             })
+            handleSSOCallbackResult(info)
+            console.log("登录成功！")
+
         } catch (error: any) {
-            accountForm.setError('password', error.message || '密码错误')
+            accountForm.setError('password', error.message)
         }
     }
 
@@ -173,7 +176,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
             // if (loginStep !== 'account') setLoginStep('account')
         }
     }
-
+    // 有效
     const handleSendEmailLoginCode = async () => {
         const email = accountForm.values.account
         if (identifyAccountType(email) !== AccountType.EMAIL) {
@@ -197,6 +200,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
         }
     }
 
+    // 有效
     const handleEmailCodeLogin = async (e: React.FormEvent) => {
         e.preventDefault()
         if (emailCode.trim().length !== 6) {
@@ -204,9 +208,16 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
             return
         }
         try {
-            await auth.emailCodeLogin?.({ email: accountForm.values.account, code: emailCode })
-        } catch (err: any) {
-            setCodeLoginHint(err.message || '登录失败')
+            const info = await auth.unifiedOAuthLogin({
+                email: accountForm.values.account, 
+                code: emailCode,
+                provider: 'email',
+            })
+            handleSSOCallbackResult(info)
+            console.log("登录成功！")
+
+        } catch (error: any) {
+            accountForm.setError('password', error.message)
         }
     }
 
@@ -299,8 +310,9 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
                     <div className="divider"><span>or</span></div>
 
                     <div className="social-login">
-                        {ssoProviders.map((provider: any) => (
-                            <Button
+                        {ssoProviders.map((provider: any) => {
+                            if (provider.id == 'local') return null
+                            return <Button
                                 key={provider.id}
                                 variant="secondary"
                                 fullWidth
@@ -311,14 +323,13 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
                                     {provider.id === 'github' && <RiGithubFill />}
                                     {provider.id === 'google' && <RiGoogleFill />}
                                     {provider.id === 'wechat' && <RiWechatFill style={{ color: "#07c160" }} />}
-                                    {provider.id === 'local' && <RiUserFill />}
                                 </span>
                                 <span>使用 {provider.displayName} 登录</span>
                                 <span></span>
                             </Button>
-                        ))}
+                        })}
 
-                        <Button variant="secondary" fullWidth className="social-btn github-btn" onClick={handleGithubLogin}>
+                        {/* <Button variant="secondary" fullWidth className="social-btn github-btn" onClick={handleGithubLogin}>
                             <span className="social-icon"> <RiGithubFill /></span>
                             <span>使用 GitHub 登录</span>
                             <span></span>
@@ -327,7 +338,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
                             <span className="social-icon"><RiWechatFill style={{ color: "#07c160" }} /></span>
                             <span>使用微信登录</span>
                             <span></span>
-                        </Button>
+                        </Button> */}
                     </div>
                 </>
             ) : (

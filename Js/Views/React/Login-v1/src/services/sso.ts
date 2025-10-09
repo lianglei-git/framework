@@ -1295,11 +1295,8 @@ export class SSOService extends ApiService {
     /**
      * 验证访问令牌
      */
-    async validateAccessToken(token: string): Promise<SSOTokenValidationResult> {
-        return this.tokenManager.validateToken({
-            access_token: token,
-            token_type: 'Bearer'
-        })
+    async validateAccessToken(token_info): Promise<SSOTokenValidationResult> {
+        return await this.tokenManager.validateToken(token_info)
     }
 
     /**

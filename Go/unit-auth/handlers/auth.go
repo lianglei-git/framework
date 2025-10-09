@@ -16,104 +16,104 @@ import (
 )
 
 // 用户注册
-func Register(db *gorm.DB, mailer *utils.Mailer) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var req models.RegisterRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, models.Response{
-				Code:    400,
-				Message: "Invalid request data: " + err.Error(),
-			})
-			return
-		}
+// func Register(db *gorm.DB, mailer *utils.Mailer) gin.HandlerFunc {
+// 	return func(c *gin.Context) {
+// 		var req models.RegisterRequest
+// 		if err := c.ShouldBindJSON(&req); err != nil {
+// 			c.JSON(http.StatusBadRequest, models.Response{
+// 				Code:    400,
+// 				Message: "Invalid request data: " + err.Error(),
+// 			})
+// 			return
+// 		}
 
-		// 检查邮箱是否已存在
-		var existingUser models.User
-		if err := db.Where("email = ?", req.Email).First(&existingUser).Error; err == nil {
-			c.JSON(http.StatusConflict, models.Response{
-				Code:    409,
-				Message: "Email already exists",
-			})
-			return
-		}
+// 		// 检查邮箱是否已存在
+// 		var existingUser models.User
+// 		if err := db.Where("email = ?", req.Email).First(&existingUser).Error; err == nil {
+// 			c.JSON(http.StatusConflict, models.Response{
+// 				Code:    409,
+// 				Message: "Email already exists",
+// 			})
+// 			return
+// 		}
 
-		// 检查用户名是否已存在
-		if err := db.Where("username = ?", req.Username).First(&existingUser).Error; err == nil {
-			c.JSON(http.StatusConflict, models.Response{
-				Code:    409,
-				Message: "Username already exists",
-			})
-			return
-		}
+// 		// 检查用户名是否已存在
+// 		if err := db.Where("username = ?", req.Username).First(&existingUser).Error; err == nil {
+// 			c.JSON(http.StatusConflict, models.Response{
+// 				Code:    409,
+// 				Message: "Username already exists",
+// 			})
+// 			return
+// 		}
 
-		// 验证邮箱验证码
-		var verification models.EmailVerification
-		if err := db.Where("email = ? AND code = ? AND type = ? AND used = ? AND expires_at > ?",
-			req.Email, req.Code, "register", false, time.Now()).First(&verification).Error; err != nil {
-			c.JSON(http.StatusBadRequest, models.Response{
-				Code:    400,
-				Message: "Invalid or expired verification code",
-			})
-			return
-		}
+// 		// 验证邮箱验证码
+// 		var verification models.EmailVerification
+// 		if err := db.Where("email = ? AND code = ? AND type = ? AND used = ? AND expires_at > ?",
+// 			req.Email, req.Code, "register", false, time.Now()).First(&verification).Error; err != nil {
+// 			c.JSON(http.StatusBadRequest, models.Response{
+// 				Code:    400,
+// 				Message: "Invalid or expired verification code",
+// 			})
+// 			return
+// 		}
 
-		// 读取项目Key（若有）
-		projectKey := ""
-		if keyVal, ok := c.Get(middleware.CtxProjectKey); ok {
-			projectKey = keyVal.(string)
-		}
+// 		// 读取项目Key（若有）
+// 		projectKey := ""
+// 		if keyVal, ok := c.Get(middleware.CtxProjectKey); ok {
+// 			projectKey = keyVal.(string)
+// 		}
 
-		// 创建用户（服务内强制映射；失败回滚注册）
-		newUser, err := services.RegisterUser(db, mailer, services.RegistrationOptions{
-			Email:                &req.Email,
-			Username:             req.Username,
-			Nickname:             req.Nickname,
-			Password:             req.Password,
-			EmailVerified:        true,
-			Role:                 "user",
-			Status:               "active",
-			SendWelcome:          true,
-			ProjectKey:           projectKey,
-			GinContext:           c,
-			StrictProjectMapping: projectKey != "",
-		})
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to create user: " + err.Error()})
-			return
-		}
+// 		// 创建用户（服务内强制映射；失败回滚注册）
+// 		newUser, err := services.RegisterUser(db, mailer, services.RegistrationOptions{
+// 			Email:                &req.Email,
+// 			Username:             req.Username,
+// 			Nickname:             req.Nickname,
+// 			Password:             req.Password,
+// 			EmailVerified:        true,
+// 			Role:                 "user",
+// 			Status:               "active",
+// 			SendWelcome:          true,
+// 			ProjectKey:           projectKey,
+// 			GinContext:           c,
+// 			StrictProjectMapping: projectKey != "",
+// 		})
+// 		if err != nil {
+// 			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to create user: " + err.Error()})
+// 			return
+// 		}
 
-		// 标记验证码为已使用
-		if err := db.Model(&verification).Update("used", true).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to update verification code"})
-			return
-		}
+// 		// 标记验证码为已使用
+// 		if err := db.Model(&verification).Update("used", true).Error; err != nil {
+// 			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to update verification code"})
+// 			return
+// 		}
 
-		// 生成Token（含项目Claims）
-		identifier := req.Email
-		localID := ""
-		if v, ok := c.Get("local_user_id"); ok {
-			if s, ok2 := v.(string); ok2 {
-				localID = s
-			}
-		}
-		var token string
-		if projectKey != "" && localID != "" {
-			token, err = utils.GenerateTokenWithProject(newUser.ID, identifier, newUser.Role, projectKey, localID)
-		} else {
-			token, err = utils.GenerateToken(newUser.ID, identifier, newUser.Role)
-		}
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
-			return
-		}
+// 		// 生成Token（含项目Claims）
+// 		identifier := req.Email
+// 		localID := ""
+// 		if v, ok := c.Get("local_user_id"); ok {
+// 			if s, ok2 := v.(string); ok2 {
+// 				localID = s
+// 			}
+// 		}
+// 		var token string
+// 		if projectKey != "" && localID != "" {
+// 			token, err = utils.GenerateTokenWithProject(newUser.ID, identifier, newUser.Role, projectKey, localID)
+// 		} else {
+// 			token, err = utils.GenerateToken(newUser.ID, identifier, newUser.Role)
+// 		}
+// 		if err != nil {
+// 			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
+// 			return
+// 		}
 
-		c.JSON(http.StatusCreated, models.Response{
-			Code:    201,
-			Message: "Register successfully",
-			Data:    models.LoginResponse{User: newUser.ToResponse(), Token: token},
-		})
-	}
-}
+// 		c.JSON(http.StatusCreated, models.Response{
+// 			Code:    201,
+// 			Message: "Register successfully",
+// 			Data:    models.LoginResponse{User: newUser.ToResponse(), Token: token},
+// 		})
+// 	}
+// }
 
 // 用户登录
 func Login(db *gorm.DB) gin.HandlerFunc {
@@ -173,85 +173,89 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// UnifiedLogin 统一登录接口
-func UnifiedLogin(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var req models.UnifiedLoginRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: "Invalid request data: " + err.Error()})
-			return
-		}
+// func UnifiedLoginHandler(db *gorm.DB, c *gin.Context) {
+// 	var req models.UnifiedLoginRequest
+// 	if err := c.ShouldBindJSON(&req); err != nil {
+// 		c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: "Invalid request data: " + err.Error()})
+// 		return
+// 	}
 
-		// 识别账号类型
-		accountType := utils.IdentifyAccountType(req.Account)
-		if accountType == utils.AccountTypeUnknown {
-			c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: "Invalid account format. Please use email, phone number, or username"})
-			return
-		}
+// 	// 识别账号类型
+// 	accountType := utils.IdentifyAccountType(req.Account)
+// 	if accountType == utils.AccountTypeUnknown {
+// 		c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: "Invalid account format. Please use email, phone number, or username"})
+// 		return
+// 	}
 
-		// 根据账号类型查找用户
-		var user models.User
-		var queryErr error
-		switch accountType {
-		case utils.AccountTypeEmail:
-			queryErr = db.Where("email = ?", req.Account).First(&user).Error
-		case utils.AccountTypePhone:
-			queryErr = db.Where("phone = ?", req.Account).First(&user).Error
-		case utils.AccountTypeUsername:
-			queryErr = db.Where("username = ?", req.Account).First(&user).Error
-		}
-		if queryErr != nil {
-			c.JSON(http.StatusUnauthorized, models.Response{Code: 401, Message: "Invalid account or password"})
-			return
-		}
+// 	// 根据账号类型查找用户
+// 	var user models.User
+// 	var queryErr error
+// 	switch accountType {
+// 	case utils.AccountTypeEmail:
+// 		queryErr = db.Where("email = ?", req.Account).First(&user).Error
+// 	case utils.AccountTypePhone:
+// 		queryErr = db.Where("phone = ?", req.Account).First(&user).Error
+// 	case utils.AccountTypeUsername:
+// 		queryErr = db.Where("username = ?", req.Account).First(&user).Error
+// 	}
+// 	if queryErr != nil {
+// 		c.JSON(http.StatusUnauthorized, models.Response{Code: 401, Message: "Invalid account or password"})
+// 		return
+// 	}
 
-		// 检查用户状态
-		if user.Status != "active" {
-			c.JSON(http.StatusForbidden, models.Response{Code: 403, Message: "Account is disabled"})
-			return
-		}
+// 	// 检查用户状态
+// 	if user.Status != "active" {
+// 		c.JSON(http.StatusForbidden, models.Response{Code: 403, Message: "Account is disabled"})
+// 		return
+// 	}
 
-		// 验证密码
-		if !user.CheckPassword(req.Password) {
-			c.JSON(http.StatusUnauthorized, models.Response{Code: 401, Message: "Invalid account or password"})
-			return
-		}
+// 	// 验证密码
+// 	if !user.CheckPassword(req.Password) {
+// 		c.JSON(http.StatusUnauthorized, models.Response{Code: 401, Message: "Invalid account or password"})
+// 		return
+// 	}
 
-		// 读取项目Key并查找映射以注入 pid/luid
-		projectKey := ""
-		if keyVal, ok := c.Get(middleware.CtxProjectKey); ok {
-			projectKey = keyVal.(string)
-		}
-		localID := ""
-		if projectKey != "" {
-			var pm models.ProjectMapping
-			if err := db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
-				localID = pm.LocalUserID
-			}
-		}
+// 	// 读取项目Key并查找映射以注入 pid/luid
+// 	projectKey := ""
+// 	if keyVal, ok := c.Get(middleware.CtxProjectKey); ok {
+// 		projectKey = keyVal.(string)
+// 	}
+// 	localID := ""
+// 	if projectKey != "" {
+// 		var pm models.ProjectMapping
+// 		if err := db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
+// 			localID = pm.LocalUserID
+// 		}
+// 	}
 
-		// 选择标识符（邮箱优先，其次手机号，最后用户ID）
-		identifier := user.ID
-		if user.Email != nil && *user.Email != "" {
-			identifier = *user.Email
-		} else if user.Phone != nil && *user.Phone != "" {
-			identifier = *user.Phone
-		}
+// 	// 选择标识符（邮箱优先，其次手机号，最后用户ID）
+// 	identifier := user.ID
+// 	if user.Email != nil && *user.Email != "" {
+// 		identifier = *user.Email
+// 	} else if user.Phone != nil && *user.Phone != "" {
+// 		identifier = *user.Phone
+// 	}
 
-		// 生成统一紧凑JWT（写入 pid/luid 当可用）
-		token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey, localID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
-			return
-		}
+// 	// 生成统一紧凑JWT（写入 pid/luid 当可用）
+// 	token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey, localID)
+// 	if err != nil {
+// 		c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
+// 		return
+// 	}
 
-		// 更新最后登录时间
-		now := time.Now()
-		db.Model(&user).Update("last_login_at", &now)
+// 	// 更新最后登录时间
+// 	now := time.Now()
+// 	db.Model(&user).Update("last_login_at", &now)
 
-		c.JSON(http.StatusOK, models.Response{Code: 200, Message: "Login successful", Data: models.LoginResponse{User: user.ToResponse(), Token: token}})
-	}
-}
+// 	c.JSON(http.StatusOK, models.Response{Code: 200, Message: "Login successful", Data: models.LoginResponse{User: user.ToResponse(), Token: token}})
+// }
+
+// // UnifiedLogin 统一登录接口
+// func UnifiedLogin(db *gorm.DB) gin.HandlerFunc {
+// 	return func(c *gin.Context) {
+// 		UnifiedLoginHandler(db, c)
+// 	}
+// }
 
 // 发送邮箱验证码
 func SendEmailCode(db *gorm.DB, mailer *utils.Mailer) gin.HandlerFunc {

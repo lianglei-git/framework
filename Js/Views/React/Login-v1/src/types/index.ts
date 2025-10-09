@@ -41,6 +41,56 @@ export enum UserStatus {
     PENDING = 'pending'
 }
 
+// 统一授权登录
+export interface UnifiedOAuthLoginRequest {
+    internal_auth?: string
+    double_verification?: string
+    provider: string
+    app_id?: string
+    client_id?: string
+    username?: string
+    email?: string
+    phone?: string
+    password?: string
+    code?: string
+    state?: string
+}
+export interface UnifiedOAuthLoginResponse {
+    access_token: string;
+    expires_in: number;
+    id_token: string;
+    provider: string;
+    refresh_token: string;
+    scope: string;
+    session_id: string;
+    session_info: {
+        current_app_id: string;
+        events: string[];
+        expires_at: string;
+        last_activity: string;
+        session_id: string;
+        start_time: string;
+    };
+    token_type: string;
+    user: {
+        id: string;
+        email: string;
+        phone: string;
+        username: string;
+        nickname: string;
+        meta: {
+            avatar: string;
+        };
+        role: string;
+        status: string;
+        email_verified: boolean;
+        phone_verified: boolean;
+        login_count: number;
+        last_login_at: string;
+        created_at: string;
+    };
+}
+
 // 认证类型
 export interface LoginRequest {
     account: string
@@ -257,6 +307,8 @@ export interface UseAuthReturn {
     getSSOAuthorizationUrl?: (provider: string, options?: any) => string
     refreshSSOToken?: () => Promise<any>
     validateSSOToken?: (token: string) => Promise<any>
+
+    unifiedOAuthLogin: (data: UnifiedOAuthLoginRequest) => Promise<void>
 }
 
 // 存储类型

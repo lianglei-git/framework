@@ -21,7 +21,9 @@ import {
     SSOUser,
     SSOSession,
     SSOLoginRequest,
-    SSOLoginResponse
+    SSOLoginResponse,
+    UnifiedOAuthLoginRequest,
+    UnifiedOAuthLoginResponse
 } from '../types'
 import axios from 'axios'
 import queryString from '../../../../../utils/queryString'
@@ -488,6 +490,13 @@ export class AuthApiService extends ApiService {
         }
         throw new Error(response.message || 'OAuth登录失败')
     }
+    async unifiedOauthLogin(params: UnifiedOAuthLoginRequest): Promise<UnifiedOAuthLoginResponse> {
+        const response = await this.post(`${this.baseURL}/api/v1/auth/oauth-login`, params, {
+            headers: getCommonHeaders()
+        })
+        return response as UnifiedOAuthLoginResponse
+       
+    }
 
     // 用户注册 - 支持201状态码，注册成功后返回登录信息
     async register(data: RegisterRequest): Promise<LoginResponse> {
@@ -501,12 +510,14 @@ export class AuthApiService extends ApiService {
             headers: getCommonHeaders()
         })
 
+        return response
+
         // 支持200和201状态码
-        if (response.code === 200 || response.code === 201) {
-            return response.data
-        } else {
-            throw new Error(response.message || '注册失败')
-        }
+        // if (response.code === 200 || response.code === 201) {
+        //     return response.data
+        // } else {
+        //     throw new Error(response.message || '注册失败')
+        // }
     }
 
     // 发送邮箱验证码

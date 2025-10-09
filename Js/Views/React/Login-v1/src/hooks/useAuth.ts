@@ -12,20 +12,23 @@ import {
     SSOLoginRequest,
     SSOLoginResponse,
     SSOUser,
-    SSOSession
+    SSOSession,
+    UnifiedOAuthLoginRequest,
+    UnifiedOAuthLoginResponse
 } from '../types'
 import { authApi, userApi } from '../services/api'
 import { storage } from '../utils/storage'
 import { oauthLoginAPI } from '../services/api'
 import { SSOService, createDefaultSSOConfig } from '../services/sso'
 
-export const useAuth = (): UseAuthReturn => {
+
+export const useAuth = () => {
     // 状态管理
     const [user, setUser] = useState<User | null>(null)
     const [token, setToken] = useState<string | null>(null)
     const [ssoUser, setSSOUser] = useState<SSOUser | null>(null)
     const [ssoSession, setSSOSession] = useState<SSOSession | null>(null)
-    const [ssoService, setSSOService] = useState<SSOService | null>(null)
+    const [ssoService, setSSOService]: [SSOService, (k: any) => void] = useState(null)
     const [isLoading, setIsLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
@@ -99,6 +102,47 @@ export const useAuth = (): UseAuthReturn => {
         }
     }, [])
 
+    const unifiedSaveLoginInfos = async (response) => {
+        const validationResult = await ssoService.validateAccessToken(response)
+        if (!validationResult.is_valid) {
+            throw new Error(validationResult.error_description || 'Token validation failed')
+        }
+
+        let session = null;
+        if (response.session_info) {
+            session = await ssoService.sessionManager.createSession(response.session_info)
+            // 将session_id设置到cookie中，用于后续会话保持和自动登录
+            ssoService.setSessionCookie(response.session_info.session_id, ssoService.config.appId || 'default')
+        }
+
+        const info = {
+            user: response.user,
+            token: response,
+            session: session
+        }
+        storage.saveAuth(info)
+
+        setUser(response.user)
+        setToken(response.access_token)
+        return info
+    }
+
+    // 统一认证
+    const unifiedOAuthLogin = async (data: UnifiedOAuthLoginRequest) => {
+        setIsLoading(true)
+        setError(null)
+        try {
+            const response = await authApi.unifiedOauthLogin(data);
+            return unifiedSaveLoginInfos(response)
+
+        } catch (err: any) {
+            setError(err.message || '登录失败')
+            throw err
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
     const phoneLogin = useCallback(async (data: PhoneLoginRequest) => {
         setIsLoading(true)
         setError(null)
@@ -153,7 +197,7 @@ export const useAuth = (): UseAuthReturn => {
     }, [])
 
     // 用户注册 - 注册成功后自动登录
-    const register = useCallback(async (data: RegisterRequest) => {
+    const register = async (data: RegisterRequest) => {
         setIsLoading(true)
         setError(null)
 
@@ -161,30 +205,14 @@ export const useAuth = (): UseAuthReturn => {
             // 调用注册API，现在返回LoginResponse
             const loginResponse = await authApi.register(data)
 
-            // 注册成功，自动登录
-            setUser(loginResponse.user)
-            setToken(loginResponse.token)
-
-            // 保存到本地存储
-            const authData = {
-                user: loginResponse.user,
-                token: loginResponse.token,
-                refresh_token: loginResponse.refresh_token,
-                remember_me: true,
-                expires_at: Date.now() + (loginResponse.expires_in * 1000)
-            }
-
-            storage.saveAuth(authData)
-
-            // 触发登录成功事件
-            window.dispatchEvent(new CustomEvent('auth:login', { detail: loginResponse }))
+            return await unifiedSaveLoginInfos(loginResponse)
         } catch (err: any) {
             setError(err.message || '注册失败')
             throw err
         } finally {
             setIsLoading(false)
         }
-    }, [authApi])
+    }
 
     const logout = useCallback(async () => {
         setIsLoading(true)
@@ -563,7 +591,9 @@ export const useAuth = (): UseAuthReturn => {
         checkSSOSession,
         getSSOAuthorizationUrl,
         refreshSSOToken,
-        validateSSOToken
+        validateSSOToken,
+
+        unifiedOAuthLogin
     }
 }
 
