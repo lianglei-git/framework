@@ -1,5 +1,5 @@
-import { useState, useCallback, useMemo, useEffect } from 'react'
-import {
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
+import type {
     User,
     LoginRequest,
     PhoneLoginRequest,
@@ -13,24 +13,82 @@ import {
     SSOLoginResponse,
     SSOUser,
     SSOSession,
-    UnifiedOAuthLoginRequest,
-    UnifiedOAuthLoginResponse
+    unifiedNormalLocalLoginRequest,
+    unifiedNormalLocalLoginResponse
 } from '../types'
 import { authApi, userApi } from '../services/api'
 import { storage } from '../utils/storage'
 import { oauthLoginAPI } from '../services/api'
-import { SSOService, createDefaultSSOConfig } from '../services/sso'
+import { handleSSOCallbackResult } from '../utils/handleSSOCallbackResult'
 
+import { SSOService, setSSOConfig,getSSOConfig } from '../services/sso'
+
+
+const useSSOService = () => {
+    const [ssoService, setSSOService]: [SSOService, (k: any) => void] = useState(null)
+    const [ssoProviders, setSSOProviders] = useState<any>(null)
+
+    useEffect( () => {
+        const init = async()=>{
+            
+            const ssoConfig = getSSOConfig()
+            const service = await SSOService.getInstance(ssoConfig)
+            // 加载SSO提供商
+            setSSOProviders(service.getProviders())
+            setSSOService(service)
+        }
+        init();
+
+    }, [])
+
+    return {
+        ssoService,
+        ssoProviders
+    }
+}
+
+
+type LoadingInfos =  {
+    status: "stop",
+    message: "",
+    provider: ""
+}
+
+let gloadingInfos:LoadingInfos = {
+    status: "stop",
+    message: "",
+    provider: ""
+};
+
+const k = 'loading_infos';
+try{
+    let p = localStorage.getItem(k);
+    if(p){
+        gloadingInfos = JSON.parse(p)
+    }
+}catch(err){}
 
 export const useAuth = () => {
     // 状态管理
+    const [authInfo, setAuthInfo] = useState(null);
     const [user, setUser] = useState<User | null>(null)
     const [token, setToken] = useState<string | null>(null)
     const [ssoUser, setSSOUser] = useState<SSOUser | null>(null)
     const [ssoSession, setSSOSession] = useState<SSOSession | null>(null)
-    const [ssoService, setSSOService]: [SSOService, (k: any) => void] = useState(null)
     const [isLoading, setIsLoading] = useState(false)
+
+    const [loadingInfos, _setLoadingInfos] = useState(gloadingInfos);
+    
+    const setLoadingInfos = (status: "stop" | "loading",msg = '',provider = '') => {
+        const gb = {status, message:msg, provider};
+        _setLoadingInfos(gb);
+        localStorage.setItem(k,JSON.stringify(gb));
+    }
     const [error, setError] = useState<string | null>(null)
+    const {
+        ssoService,
+        ssoProviders
+    } = useSSOService();
 
     // 计算属性
     const isAuthenticated = useMemo(() => !!token && !!user, [token, user])
@@ -42,24 +100,22 @@ export const useAuth = () => {
         const initAuth = async () => {
             // 初始化传统认证状态
             const authData = storage.getAuth()
+            // 用户与SSO的token不相干
             if (authData) {
+                setAuthInfo(authData)
                 setUser(authData.user)
                 setToken(authData.token)
             }
 
             // 初始化SSO服务
             try {
-                const ssoConfig = createDefaultSSOConfig()
-                const service = new SSOService(ssoConfig)
-                await service.initialize()
-                setSSOService(service)
-
                 // 检查SSO会话
                 const ssoData = storage.getSSOData()
                 if (ssoData && !storage.isSSOTokenExpired()) {
                     const session = storage.getSSOSession()
+                    // 检查会话状态！
                     if (session) {
-                        setSSOUser(await service.getCurrentUser())
+                        // setSSOUser(await service.getCurrentUser())
                         setSSOSession(session)
                     }
                 }
@@ -67,40 +123,63 @@ export const useAuth = () => {
                 console.warn('Failed to initialize SSO service:', error)
             }
         }
-
         initAuth()
     }, [])
 
+
+    // 登录成功的回调函数
+    useAuthEvents('login', (details) => {
+        setLoadingInfos("stop")
+        storage.saveSSOData({
+            token: details.token,
+            expires_at:details.session?.expires_in
+        })
+    })
+
     // 认证方法
-    const login = useCallback(async (data: LoginRequest) => {
-        setIsLoading(true)
-        setError(null)
+    // const login = useCallback(async (data: LoginRequest) => {
+    //     setIsLoading(true)
+    //     setError(null)
+
+    //     try {
+    //         const response = await authApi.login(data)
+
+    //         // 保存认证数据
+    //         const authData = {
+    //             user: response.user,
+    //             token: response.token,
+    //             refresh_token: response.refresh_token,
+    //             remember_me: data.remember_me || false,
+    //             expires_at: Date.now() + response.expires_in * 1000
+    //         }
+
+    //         storage.saveAuth(authData)
+    //         setUser(response.user)
+    //         setToken(response.token)
+
+    //         // 触发登录事件
+    //         window.dispatchEvent(new CustomEvent('auth:login', { detail: response }))
+    //     } catch (err: any) {
+    //         setError(err.message || '登录失败')
+    //         throw err
+    //     } finally {
+    //         setIsLoading(false)
+    //     }
+    // }, [])
+    const login = () => { }
+    const oauthLogin = async (provider: string) => {
+        if (!ssoService) return
 
         try {
-            const response = await authApi.login(data)
-
-            // 保存认证数据
-            const authData = {
-                user: response.user,
-                token: response.token,
-                refresh_token: response.refresh_token,
-                remember_me: data.remember_me || false,
-                expires_at: Date.now() + response.expires_in * 1000
-            }
-
-            storage.saveAuth(authData)
-            setUser(response.user)
-            setToken(response.token)
-
-            // 触发登录事件
-            window.dispatchEvent(new CustomEvent('auth:login', { detail: response }))
-        } catch (err: any) {
-            setError(err.message || '登录失败')
-            throw err
-        } finally {
-            setIsLoading(false)
+            const authUrl = await ssoService.buildAuthorizationUrl(provider)
+            setLoadingInfos("loading", "授权中...", provider)
+            window.location.href = authUrl
+            console.log("authUrl::", authUrl)
+        } catch (error) {
+            console.error('SSO login failed:', error)
+            // 可以在这里显示错误消息
         }
-    }, [])
+    }
 
     const unifiedSaveLoginInfos = async (response) => {
         const validationResult = await ssoService.validateAccessToken(response)
@@ -121,6 +200,8 @@ export const useAuth = () => {
             session: session
         }
         storage.saveAuth(info)
+        setAuthInfo(info)
+
 
         setUser(response.user)
         setToken(response.access_token)
@@ -128,11 +209,11 @@ export const useAuth = () => {
     }
 
     // 统一认证
-    const unifiedOAuthLogin = async (data: UnifiedOAuthLoginRequest) => {
+    const unifiedNormalLocalLogin = async (data: unifiedNormalLocalLoginRequest) => {
         setIsLoading(true)
         setError(null)
         try {
-            const response = await authApi.unifiedOauthLogin(data);
+            const response = await authApi.unifiedNormalLocalLogin(data);
             return unifiedSaveLoginInfos(response)
 
         } catch (err: any) {
@@ -313,29 +394,29 @@ export const useAuth = () => {
     }, [])
 
     // OAuth 登录（GitHub等）
-    const oauthLogin = useCallback(async (provider: string, code: string, state?: string) => {
-        setIsLoading(true)
-        setError(null)
-        try {
-            const response = await authApi.oauthLogin(provider, code, state)
-            const authData = {
-                user: response.user,
-                token: response.token,
-                refresh_token: response.refresh_token,
-                remember_me: true,
-                expires_at: Date.now() + response.expires_in * 1000
-            }
-            storage.saveAuth(authData)
-            setUser(response.user)
-            setToken(response.token)
-            window.dispatchEvent(new CustomEvent('auth:login', { detail: response }))
-        } catch (err: any) {
-            setError(err.message || 'OAuth登录失败')
-            throw err
-        } finally {
-            setIsLoading(false)
-        }
-    }, [])
+    // const oauthLogin = useCallback(async (provider: string, code: string, state?: string) => {
+    //     setIsLoading(true)
+    //     setError(null)
+    //     try {
+    //         const response = await authApi.oauthLogin(provider, code, state)
+    //         const authData = {
+    //             user: response.user,
+    //             token: response.token,
+    //             refresh_token: response.refresh_token,
+    //             remember_me: true,
+    //             expires_at: Date.now() + response.expires_in * 1000
+    //         }
+    //         storage.saveAuth(authData)
+    //         setUser(response.user)
+    //         setToken(response.token)
+    //         window.dispatchEvent(new CustomEvent('auth:login', { detail: response }))
+    //     } catch (err: any) {
+    //         setError(err.message || 'OAuth登录失败')
+    //         throw err
+    //     } finally {
+    //         setIsLoading(false)
+    //     }
+    // }, [])
 
     // SSO登录
     const ssoLogin = useCallback(async (request: SSOLoginRequest) => {
@@ -375,6 +456,9 @@ export const useAuth = () => {
             setIsLoading(false)
         }
     }, [ssoService])
+
+
+
 
     // SSO登出
     const ssoLogout = useCallback(async () => {
@@ -547,6 +631,8 @@ export const useAuth = () => {
     }, [user, isAdmin])
 
     return {
+        authInfo,
+
         // 传统认证状态
         user,
         token,
@@ -563,6 +649,7 @@ export const useAuth = () => {
 
         // 传统认证方法
         login,
+        oauthLogin,
         phoneLogin,
         register,
         logout,
@@ -576,6 +663,8 @@ export const useAuth = () => {
         refreshUser,
         clearError,
 
+        loadingInfos,
+
         // 计算属性
         isAdmin,
         hasRole,
@@ -584,6 +673,7 @@ export const useAuth = () => {
         // 新增传统方法
         emailCodeLogin,
         oauthLogin,
+        ssoProviders,
 
         // SSO认证方法
         ssoLogin,
@@ -593,9 +683,10 @@ export const useAuth = () => {
         refreshSSOToken,
         validateSSOToken,
 
-        unifiedOAuthLogin
+        unifiedNormalLocalLogin
     }
 }
+
 
 // 辅助Hooks
 export const useAuthEvents = (eventType: string, callback: AuthEventListener) => {

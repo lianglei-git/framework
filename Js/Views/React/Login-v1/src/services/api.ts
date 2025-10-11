@@ -22,8 +22,8 @@ import {
     SSOSession,
     SSOLoginRequest,
     SSOLoginResponse,
-    UnifiedOAuthLoginRequest,
-    UnifiedOAuthLoginResponse
+    unifiedNormalLocalLoginRequest,
+    unifiedNormalLocalLoginResponse
 } from '../types'
 import axios from 'axios'
 import queryString from '../../../../../utils/queryString'
@@ -490,11 +490,11 @@ export class AuthApiService extends ApiService {
         }
         throw new Error(response.message || 'OAuth登录失败')
     }
-    async unifiedOauthLogin(params: UnifiedOAuthLoginRequest): Promise<UnifiedOAuthLoginResponse> {
+    async unifiedNormalLocalLogin(params: unifiedNormalLocalLoginRequest): Promise<unifiedNormalLocalLoginResponse> {
         const response = await this.post(`${this.baseURL}/api/v1/auth/oauth-login`, params, {
             headers: getCommonHeaders()
         })
-        return response as UnifiedOAuthLoginResponse
+        return response as unifiedNormalLocalLoginResponse
        
     }
 

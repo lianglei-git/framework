@@ -25,6 +25,7 @@ import {
 import { ApiService } from './api'
 import { storageManager } from '../utils/storage'
 import { globalUserStore } from '../stores/UserStore'
+import { handleSSOCallbackResult } from '../utils/handleSSOCallbackResult'
 
 /**
  * SSO 认证服务类
@@ -40,7 +41,14 @@ export class SSOService extends ApiService {
     private isCallbackMode: boolean = false
     private currentProviderId: string = 'local'
 
+
+
+
     constructor(config: SSOConfig) {
+        if (SSOService.instance) {
+            return SSOService.instance;
+        }
+
         // 如果没有提供配置，尝试从URL参数中获取
         // 配置应该融合，url配置权限更高。
 
@@ -54,6 +62,7 @@ export class SSOService extends ApiService {
             }
         }
         super(finalConfig.ssoServerUrl)
+
         this.config = finalConfig
         this.tokenManager = new SSOTokenManager(finalConfig)
         this.sessionManager = new SSOSessionManager(finalConfig)
@@ -65,8 +74,8 @@ export class SSOService extends ApiService {
         // 检测并设置当前应用ID
         this.detectCurrentAppId()
 
-        // 初始化时加载支持的SSO提供商
-        this.loadProviders()
+
+
     }
 
     /**
@@ -158,10 +167,23 @@ export class SSOService extends ApiService {
         }
     }
 
+    static instance: SSOService | null = null;
+    static getInstance = async (config: any): Promise<SSOService> => {
+        if (SSOService.instance) return SSOService.instance;
+        const ins = new SSOService(config);
+        let rescb: any;
+        SSOService.instance = new Promise(res => (rescb = res)) as any
+        await ins.initialize();
+        rescb(ins);
+        SSOService.instance = ins
+        return SSOService.instance
+    }
+
+
     /**
      * 初始化SSO服务
      */
-    async initialize(): Promise<void> {
+    protected async initialize(): Promise<void> {
         try {
             // 验证配置
             await this.validateConfig()
@@ -178,6 +200,24 @@ export class SSOService extends ApiService {
 
             // 检查session cookies并尝试自动登录
             // await this.checkSessionCookies()
+
+                    // 处理SSO回调（如果有）
+        if (this.isInCallbackMode()) {
+            console.log('检测到SSO回调，自动处理...')
+            try {
+                const promise = this.handleCallback()
+                promise.then(result => {
+                    if (result) {
+                        console.log('SSO回调处理成功:', result)
+                        handleSSOCallbackResult(result, this)
+                    }
+                })
+
+            } catch (error) {
+                console.error('SSO回调处理失败:', error)
+                alert(`登录失败: ${error.message}`)
+            }
+        }
 
             console.log('SSO service initialized successfully')
         } catch (error) {
@@ -315,10 +355,11 @@ export class SSOService extends ApiService {
      * @param options 额外的选项
      */
     async getOAuthURL(providerId: string, options: Partial<SSOAuthRequest> = {}): Promise<SSOOAuthUrlParams> {
-        const response = await this.get<SSOOAuthUrlParams>(`/api/v1/auth/oauth/${providerId}/url`, {
-            ...options,
-            app_id: this.config.appId || 'default'
-        })
+        // 子项目使用中心服务开放接口
+        if (providerId == 'sub_job') {
+            return {auth_url: `${this.baseURL}/api/v1/auth/oauth/authorize?${new URLSearchParams(options).toString()}`}
+        }
+        const response = await this.get<SSOOAuthUrlParams>(`/api/v1/auth/oauth/${providerId}/url`, options)
 
         console.log('✅ 获取OAuth URL成功:', response.data)
         return response.data
@@ -561,8 +602,6 @@ export class SSOService extends ApiService {
         // 设置当前使用的provider
         this.setCurrentProvider(providerId)
 
-
-
         // 如果处于回调模式且没有明确指定选项，使用URL参数
         const finalOptions = this.isInCallbackMode() && Object.keys(options).length === 0
             ? this.getAuthRequestContext()
@@ -571,11 +610,20 @@ export class SSOService extends ApiService {
         // 构建URL参数
         const params = {
             redirect_uri: "http://localhost:3033",
-            state: this.generateState()
+            state: this.generateState(),
         }
 
         // 添加可选参数
         if (finalOptions.prompt) Reflect.set(params, 'prompt', finalOptions.prompt)
+
+        if (finalOptions.client_id) Reflect.set(params, 'client_id', finalOptions.client_id)
+        if (finalOptions.app_id) Reflect.set(params, 'app_id', finalOptions.app_id)
+        if (finalOptions.grant_type) Reflect.set(params, 'grant_type', finalOptions.grant_type)
+
+        if (finalOptions.redirect_uri) Reflect.set(params, 'redirect_uri', finalOptions.redirect_uri)
+        if (finalOptions.response_type) Reflect.set(params, 'response_type', finalOptions.response_type)
+        if (finalOptions.scope) Reflect.set(params, 'scope', finalOptions.scope)
+
         if (finalOptions.max_age) Reflect.set(params, 'max_age', finalOptions.max_age.toString())
         if (finalOptions.login_hint) Reflect.set(params, 'login_hint', finalOptions.login_hint)
         if (finalOptions.ui_locales) Reflect.set(params, 'ui_locales', finalOptions.ui_locales.join(' '))
@@ -599,7 +647,6 @@ export class SSOService extends ApiService {
             // 存储code_verifier用于后续双重验证token交换
             localStorage.setItem('pkce_code_verifier', pkceParams.code_verifier)
             localStorage.setItem('pkce_state', params.state)
-            localStorage.setItem('login_provider', this.currentProviderId)
             console.log('✅ PKCE参数已存储到localStorage')
         }
 
@@ -611,29 +658,29 @@ export class SSOService extends ApiService {
         return oauthParams.auth_url
     }
 
-    async buildAuthorizationUrlForLocal(config) {
-        const params = new URLSearchParams({
-            client_id: config.client_id,
-            app_id: config.app_id,
-            grant_type: config.grant_type,
-            redirect_uri: config.redirect_uri,
-            response_type: config.response_type,
-            scope: config.scope,
-            state: this.generateState(),
-            provider: 'local',
-        })
+    // async buildAuthorizationUrlForLocal(config) {
+    //     const params = new URLSearchParams({
+    //         client_id: config.client_id,
+    //         app_id: config.app_id,
+    //         grant_type: config.grant_type,
+    //         redirect_uri: config.redirect_uri,
+    //         response_type: config.response_type,
+    //         scope: config.scope,
+    //         state: this.generateState(),
+    //         provider: 'local',
+    //     })
 
-        if (config.grant_type === 'authorization_code') {
-            const { code_challenge, code_verifier } = await this.generatePKCE()
-            params.set('code_challenge', code_challenge)
-            params.set('code_challenge_method', 'S256')
+    //     if (config.grant_type === 'authorization_code') {
+    //         const { code_challenge, code_verifier } = await this.generatePKCE()
+    //         params.set('code_challenge', code_challenge)
+    //         params.set('code_challenge_method', 'S256')
 
-            // 存储code_verifier用于后续使用
-            localStorage.setItem('pkce_code_verifier', code_verifier)
-        }
+    //         // 存储code_verifier用于后续使用
+    //         localStorage.setItem('pkce_code_verifier', code_verifier)
+    //     }
 
-        return `${this.baseURL}/api/v1/auth/oauth/authorize?${params.toString()}`
-    }
+    //     return `${this.baseURL}/api/v1/auth/oauth/authorize?${params.toString()}`
+    // }
 
     /**
      * 生成PKCE参数
@@ -961,10 +1008,8 @@ export class SSOService extends ApiService {
         const provider = localStorage.getItem('login_provider') || this.currentProviderId
         // 获取当前provider的配置
         const providerConfig = this.getCurrentProviderConfig(provider)
-
-        debugger
         // || this.config.tokenEndpoint
-        const tokenEndpoint = providerConfig?.tokenUrl || `${this.config.ssoServerUrl}/api/v1/auth/oauth-login`
+        const tokenEndpoint = `${this.config.ssoServerUrl}${this.config.tokenEndpoint}`
 
         // 获取PKCE code_verifier（必须包含，用于双重验证）
         const codeVerifier = localStorage.getItem('pkce_code_verifier')
@@ -1759,6 +1804,20 @@ export function createDefaultSSOConfig(): SSOConfig {
         sessionTimeout: 3600,
         autoRefresh: true,
         storageType: StorageType.LOCAL,
-        cookieSameSite: 'lax'
+        cookieSameSite: 'lax',
+        "authorizationUrl": "/api/v1/auth/oauth/authorize",
+        "tokenEndpoint":  "/api/v1/auth/oauth-login",
+        "userInfoUrl":      "/api/v1/auth/oauth/userinfo",
+        "logoutUrl":        "/api/v1/auth/oauth/logout",
+        
     }
+}
+
+let ssoconfig = createDefaultSSOConfig();
+export const getSSOConfig = () => {
+    return ssoconfig
+}
+
+export const setSSOConfig = (target) => {
+    ssoconfig = target
 }

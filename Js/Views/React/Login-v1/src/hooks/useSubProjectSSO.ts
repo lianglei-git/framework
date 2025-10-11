@@ -1,7 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { SSOService } from '../services/sso'
+import { setSSOConfig, SSOService } from '../services/sso'
 import { getSubProjectConfig, SubProjectConfig } from '../config/subproject-integration'
 import type { SSOToken, SSOUser, SSOSession } from '../types'
+import {useAuth, useAuthEvents} from "./useAuth"
+
+
+
+
 
 export interface UseSubProjectSSOOptions {
     subProjectId?: string
@@ -41,6 +46,8 @@ export interface UseSubProjectSSOResult {
 
 const _storage = {}
 
+
+
 /**
  * 子项目SSO Hook
  * 提供完整的子项目SSO集成能力
@@ -55,60 +62,63 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         autoInit = true
     } = options
 
+
+    // 获取子项目配置
+    let subProjectConfig = null
+    if (subProjectId) {
+        subProjectConfig = getSubProjectConfig(subProjectId)
+    }
+
+    if (!subProjectConfig && !customConfig) {
+        console.log('必须提供子项目ID或自定义配置')
+    }
+
+    // 合并配置
+    const finalConfig = {
+        ...subProjectConfig,
+        ...customConfig
+    } as SubProjectConfig
+    setSSOConfig(finalConfig);
+
+    const {authInfo, ssoService, user, token, isAuthenticated} = useAuth();
+    
+
     // 状态
     const [isInitialized, setIsInitialized] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
-    const [isAuthenticated, setIsAuthenticated] = useState(false)
     const [error, setError] = useState<Error | null>(null)
-    // const error = useRef(null);
-    // const setError = (info: any) => {
-    //     error.current = info;
-    // }
-
-
-
 
     // 数据
-    const [ssoService, setSsoService]: [SSOService, () => void] = useState<SSOService | null>(null)
-    const [user, setUser] = useState<SSOUser | null>(null)
-    const [token, setToken] = useState<SSOToken | null>(null)
     const [session, setSession] = useState<SSOSession | null>(null)
     const [config, setConfig] = useState<SubProjectConfig | null>(null)
 
     // 初始化SSO服务
     const initialize = useCallback(async () => {
         try {
-            const user = JSON.parse(localStorage.getItem(`${subProjectId}_user`))
-            setUser(user);
-            setToken(JSON.parse(localStorage.getItem(`${subProjectId}_token`)))
-            user && setIsAuthenticated(true)
-        } catch (err) { }
-        try {
             setIsLoading(true)
             setError(null)
 
-            // 获取子项目配置
-            let subProjectConfig = null
-            if (subProjectId) {
-                subProjectConfig = getSubProjectConfig(subProjectId)
-            }
+            // // 获取子项目配置
+            // let subProjectConfig = null
+            // if (subProjectId) {
+            //     subProjectConfig = getSubProjectConfig(subProjectId)
+            // }
 
-            if (!subProjectConfig && !customConfig) {
-                throw new Error('必须提供子项目ID或自定义配置')
-            }
+            // if (!subProjectConfig && !customConfig) {
+            //     throw new Error('必须提供子项目ID或自定义配置')
+            // }
 
-            // 合并配置
-            const finalConfig = {
-                ...subProjectConfig,
-                ...customConfig
-            } as SubProjectConfig
+            // // 合并配置
+            // const finalConfig = {
+            //     ...subProjectConfig,
+            //     ...customConfig
+            // } as SubProjectConfig
 
             // 创建SSO服务实例
-            const service = new SSOService(finalConfig)
-            await service.initialize()
+            // await service.initialize()
             // ssoService.setCurrentProvider('local')
 
-            setSsoService(service)
+            // setSsoService(service)
             setConfig(finalConfig)
             setIsInitialized(true)
 
@@ -134,33 +144,38 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
             setIsLoading(true)
             setError(null)
 
+            // if(!options.redirect) {
+            //     throw Error("请传入回调URL")
+            // }
+            localStorage.setItem('login_provider', 'sub_job')
+
             if (options.redirect) {
                 // 重定向到SSO登录页面
-                const loginUrl = await ssoService.buildAuthorizationUrlForLocal({
+                const loginUrl = await ssoService.buildAuthorizationUrl('sub_job', {
                     // config
                     client_id: config.clientId,
                     app_id: config.id,
+                    grant_type: config.grantType,
                     redirect_uri: config.redirectUri,
                     response_type: "code",
-                    grant_type: config.grantType,
                     scope: (config.allowedScopes || []).join(' '),
-                    provider: 'local',
                 })
                 window.location.href = loginUrl
             } else {
                 // 直接调用登录API
-                const result = await ssoService.login({
-                    provider: options.provider || 'local',
-                    login_type: 'sso'
-                })
+                console.log("⚠️ 无法执行：没有 options.redirect 参数")
+                // const result = await ssoService.login({
+                //     provider: options.provider || 'local',
+                //     login_type: 'sso'
+                // })
 
-                if (result.success && result.user && result.token && result.session) {
-                    setUser(result.user)
-                    setToken(result.token)
-                    setSession(result.session)
-                    setIsAuthenticated(true)
-                    onSuccess?.(result.user, result.token, result.session)
-                }
+                // if (result.success && result.user && result.token && result.session) {
+                //     setUser(result.user)
+                //     setToken(result.token)
+                //     setSession(result.session)
+                //     setIsAuthenticated(true)
+                //     onSuccess?.(result.user, result.token, result.session)
+                // }
             }
         } catch (err: any) {
             const error = new Error(err.message || '登录失败')
@@ -177,16 +192,18 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         if (!ssoService) {
             throw new Error('SSO服务未初始化')
         }
+        console.log(authInfo,"authInfo")
+        return 
 
         try {
             setIsLoading(true)
+            // 跳转到认证中心
 
-            await ssoService.logout()
+            await ssoService.logout({
+                id_token_hint: authInfo
+            })
 
-            setUser(null)
-            setToken(null)
             setSession(null)
-            setIsAuthenticated(false)
             onLogout?.()
 
             console.log('用户已登出')
@@ -213,7 +230,6 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
             const result = await ssoService.refreshToken()
 
             if (result.success && result.token) {
-                setToken(result.token)
                 console.log('令牌刷新成功')
             }
         } catch (err: any) {
@@ -245,19 +261,17 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
             setIsLoading(true)
             setError(null)
 
-            const result = await ssoService.handleCallback()
+            // const result = await ssoService.handleCallback()
             console.log("子项目回调结果: ", result)
             if (result) {
 
+                
                 // 存储到storage中
                 localStorage.setItem(`${subProjectId}_user`, JSON.stringify(result.user))
                 localStorage.setItem(`${subProjectId}_token`, JSON.stringify(result.token))
 
-                setUser(result.user)
-                setToken(result.token)
                 setSession(result.session)
-                setIsAuthenticated(true)
-                onSuccess?.(result.user, result.token, result.session)
+          
             }
         } catch (err: any) {
             const error = new Error(err.message || '回调处理失败')
@@ -268,6 +282,10 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
             setIsLoading(false)
         }
     }, [ssoService, onSuccess, onError])
+
+    useAuthEvents('login', (details) => {
+        onSuccess?.(details.user, details.token, null)
+    })
 
     // 检查是否在回调模式
     const isInCallback = useCallback(() => {
@@ -296,12 +314,12 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
     }, [autoInit, isInitialized, isLoading, initialize])
 
     // 自动处理回调
-    useEffect(() => {
-        if (isInitialized && ssoService && isInCallback() && error == null && !user) {
-            handleCallback()
-            console.log('死循环！！')
-        }
-    }, [isInitialized, ssoService, isInCallback, handleCallback])
+    // useEffect(() => {
+    //     if (isInitialized && ssoService && isInCallback() && error == null && !user) {
+    //         // handleCallback()
+    //         console.log('死循环！！')
+    //     }
+    // }, [isInitialized, ssoService, isInCallback, handleCallback])
 
     return {
         // 状态

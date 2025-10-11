@@ -17,8 +17,8 @@ export const handleSSOCallbackResult = async (result: any) => {
     const { app_redirect_uri, appid, origin_app_uri } = getSubAppInfoForSessionStorage()
 
     console.log("origin_app_uri::", origin_app_uri)
+    window.dispatchEvent(new CustomEvent('auth:login', { detail: result }))
     if (!origin_app_uri) {
-        window.dispatchEvent(new CustomEvent('auth:login', { detail: result }))
         return
     }
     localStorage.removeItem('origin_app_uri');

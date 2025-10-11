@@ -6,9 +6,7 @@ import './Login.less'
 import { ForgotPassword } from './src/components/ForgotPassword'
 import { ThirdPartyLogin } from './src'
 import { useAuth } from './src'
-import { SSOService, createDefaultSSOConfig } from './src/services/sso'
-import { handleSSOCallbackResult } from './src/utils/handleSSOCallbackResult'
-
+import {RiGithubFill} from "react-icons/ri"
 const urlParams = new URLSearchParams(window.location.search);
 const githubAccessCode = urlParams.get('code');
 const githubState = urlParams.get('state');
@@ -72,9 +70,8 @@ const Login: React.FC = observer(() => {
   const [wechatVisible, setWechatVisible] = useState(false)
   const [showTerms, setShowTerms] = useState(false)
   const [showPrivacy, setShowPrivacy] = useState(false)
-  const [ssoService, setSSOService]: [SSOService | null, (service: SSOService | null) => void] = useState<SSOService | null>(null)
-  const [ssoProviders, setSSOProviders] = useState<any[]>([])
   const auth = useAuth()
+
 
   useEffect(() => {
 
@@ -83,40 +80,40 @@ const Login: React.FC = observer(() => {
 
 
     // 初始化SSO服务
-    const initSSO = async () => {
-      try {
-        const ssoConfig = createDefaultSSOConfig()
-        const service = new SSOService(ssoConfig)
-        console.log("ssoConfig ----->>> ", service);
-        await service.initialize()
-        setSSOService(service)
+    // const initSSO = async () => {
+    //   try {
+    //     const ssoConfig = createDefaultSSOConfig()
+    //     const service = new SSOService(ssoConfig)
+    //     console.log("ssoConfig ----->>> ", service);
+    //     await service.initialize()
+    //     setSSOService(service)
 
-        // 加载SSO提供商
-        const providers = service.getProviders()
-        setSSOProviders(providers)
+    //     // 加载SSO提供商
+    //     const providers = service.getProviders()
+    //     setSSOProviders(providers)
 
-        // 处理SSO回调（如果有）
-        if (service.isInCallbackMode()) {
-          console.log('检测到SSO回调，自动处理...')
-          try {
-            const result = await service.handleAutomaticSSO()
+    //     // 处理SSO回调（如果有）
+    //     if (service.isInCallbackMode()) {
+    //       console.log('检测到SSO回调，自动处理...')
+    //       try {
+    //         const result = await service.handleAutomaticSSO()
 
 
-            if (result) {
-              console.log('SSO回调处理成功:', result)
-              handleSSOCallbackResult(result, service)
-            }
-          } catch (error) {
-            console.error('SSO回调处理失败:', error)
-            alert(`登录失败: ${error.message}`)
-          }
-        }
-      } catch (error) {
-        console.warn('Failed to initialize SSO service:', error)
-      }
-    }
+    //         if (result) {
+    //           console.log('SSO回调处理成功:', result)
+    //           handleSSOCallbackResult(result, service)
+    //         }
+    //       } catch (error) {
+    //         console.error('SSO回调处理失败:', error)
+    //         alert(`登录失败: ${error.message}`)
+    //       }
+    //     }
+    //   } catch (error) {
+    //     console.warn('Failed to initialize SSO service:', error)
+    //   }
+    // }
 
-    !isLogin && initSSO()
+    // !isLogin && initSSO()
 
     // 处理GitHub OAuth回调
     // if (isGithubAccess && githubAccessCode) {
@@ -139,12 +136,12 @@ const Login: React.FC = observer(() => {
   }, [])
 
   // 加载组件（GitHub授权中）
-  if (isGithubAccess) {
+  if (auth.loadingInfos?.status == 'loading') {
     return <div className="login-container">
       <div className="login-card">
         <div className="success-state github-access">
-          <span className="social-icon" style={{ fontSize: 60 }}><i class="ri-github-fill"></i></span>
-          <h2>授权中...</h2>
+          <span className="social-icon" style={{ fontSize: 60 }}><RiGithubFill /></span>
+          <h2>{auth.loadingInfos.message}</h2>
         </div>
       </div>
     </div>
@@ -177,19 +174,9 @@ const Login: React.FC = observer(() => {
 
   // SSO登录处理
   const handleSSOLogin = async (provider: string) => {
-    if (!ssoService) return
-
-    try {
-      const authUrl = await ssoService.buildAuthorizationUrl(provider)
-      
-      window.location.href = authUrl
-      console.log("authUrl::", authUrl)
-    } catch (error) {
-      console.error('SSO login failed:', error)
-      // 可以在这里显示错误消息
-    }
+    auth.oauthLogin(provider);
   }
-  
+
 
   return (
     <div className="login-container">
@@ -204,8 +191,8 @@ const Login: React.FC = observer(() => {
                 onForgotPassword={() => setMode('forgot-password')}
                 onOpenThirdparty={() => setWechatVisible(true)}
                 // 传递SSO相关props
-                ssoService={ssoService}
-                ssoProviders={ssoProviders}
+                ssoService={auth.ssoService}
+                ssoProviders={auth.ssoProviders ?? []}
                 onSSOLogin={handleSSOLogin}
               />
             ) : (

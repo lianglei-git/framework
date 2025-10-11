@@ -106,7 +106,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
             return
         }
         try {
-            const info = await auth.unifiedOAuthLogin({
+            const info = await auth.unifiedNormalLocalLogin({
                 password: accountForm.values.password,
                 provider: 'local',
                 username: accountForm.values.account,
@@ -208,7 +208,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
             return
         }
         try {
-            const info = await auth.unifiedOAuthLogin({
+            const info = await auth.unifiedNormalLocalLogin({
                 email: accountForm.values.account, 
                 code: emailCode,
                 provider: 'email',

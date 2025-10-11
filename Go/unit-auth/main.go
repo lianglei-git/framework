@@ -115,8 +115,8 @@ func main() {
 			"message": "SSO providers retrieved successfully",
 			"data": []map[string]interface{}{
 				{
-					"id":               "local",
-					"name":             "local",
+					"id":               "sub_job",
+					"name":             "sub_job",
 					"displayName":      "本地账户",
 					"authorizationUrl": "/api/v1/auth/oauth/authorize",
 					"tokenUrl":         "/api/v1/auth/oauth/token",

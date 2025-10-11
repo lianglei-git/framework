@@ -42,7 +42,7 @@ export enum UserStatus {
 }
 
 // 统一授权登录
-export interface UnifiedOAuthLoginRequest {
+export interface unifiedNormalLocalLoginRequest {
     internal_auth?: string
     double_verification?: string
     provider: string
@@ -55,7 +55,7 @@ export interface UnifiedOAuthLoginRequest {
     code?: string
     state?: string
 }
-export interface UnifiedOAuthLoginResponse {
+export interface unifiedNormalLocalLoginResponse {
     access_token: string;
     expires_in: number;
     id_token: string;
@@ -308,7 +308,7 @@ export interface UseAuthReturn {
     refreshSSOToken?: () => Promise<any>
     validateSSOToken?: (token: string) => Promise<any>
 
-    unifiedOAuthLogin: (data: UnifiedOAuthLoginRequest) => Promise<void>
+    unifiedNormalLocalLogin: (data: unifiedNormalLocalLoginRequest) => Promise<void>
 }
 
 // 存储类型
@@ -512,6 +512,9 @@ export interface SSOAuthRequest {
     claims_locales?: string[]
     id_token_hint?: string
     login_hint?: string
+    client_id?: string
+    app_id?: string
+    grant_type?: string
     acr_values?: string[]
     additional_params?: Record<string, any>
 }

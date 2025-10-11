@@ -41,6 +41,13 @@ function App() {
       clientSecret: 'client_secret_22e58ccf-c367-4ead-b517-3be17f796211',
       // redirectUris: ['https://demo.example.com/auth/callback'],
       redirectUri: "http://localhost:5173",
+      logoutEndpoint: "",
+      tokenEndpoint: "/api/v1/auth/oauth/token",
+      // 这个字段目前在我这是没用的，因为已经被写死了
+      "authorizationUrl": "/api/v1/auth/oauth/authorize",
+      "tokenUrl":         "/api/v1/auth/oauth/token",
+      "userInfoUrl":      "/api/v1/auth/oauth/userinfo",
+      "logoutUrl":        "/api/v1/auth/oauth/logout",
       allowedScopes: ['openid', 'profile', 'email', 'custom.read'],
       branding: {
         primaryColor: '#722ed1',
