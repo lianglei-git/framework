@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { setSSOConfig, SSOService } from '../services/sso'
 import { getSubProjectConfig, SubProjectConfig } from '../config/subproject-integration'
-import type { SSOToken, SSOUser, SSOSession } from '../types'
+import { type SSOToken, type SSOUser, type SSOSession, StorageType } from '../types'
 import {useAuth, useAuthEvents} from "./useAuth"
+import { storage } from '../utils'
 
 
 
@@ -80,7 +81,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
     } as SubProjectConfig
     setSSOConfig(finalConfig);
 
-    const {authInfo, ssoService, user, token, isAuthenticated} = useAuth();
+    const {authInfo, ssoService, user, token, isAuthenticated, ssoLogout} = useAuth();
     
 
     // 状态
@@ -134,6 +135,19 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         }
     }, [])
 
+    const _buildLoginUrl = async () => {
+        const loginUrl = await ssoService.buildAuthorizationUrl('sub_job', {
+            // config
+            client_id: config.clientId,
+            app_id: config.id,
+            grant_type: config.grantType,
+            redirect_uri: config.redirectUri,
+            response_type: "code",
+            scope: (config.allowedScopes || []).join(' '),
+        });
+        return loginUrl
+    }
+
     // 登录
     const login = useCallback(async (options: { redirect?: boolean; provider?: string } = {}) => {
         if (!ssoService) {
@@ -147,19 +161,10 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
             // if(!options.redirect) {
             //     throw Error("请传入回调URL")
             // }
-            localStorage.setItem('login_provider', 'sub_job')
 
             if (options.redirect) {
                 // 重定向到SSO登录页面
-                const loginUrl = await ssoService.buildAuthorizationUrl('sub_job', {
-                    // config
-                    client_id: config.clientId,
-                    app_id: config.id,
-                    grant_type: config.grantType,
-                    redirect_uri: config.redirectUri,
-                    response_type: "code",
-                    scope: (config.allowedScopes || []).join(' '),
-                })
+                const loginUrl = await _buildLoginUrl()
                 window.location.href = loginUrl
             } else {
                 // 直接调用登录API
@@ -188,7 +193,13 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
     }, [ssoService, onSuccess, onError])
 
     // 登出
-    const logout = useCallback(async () => {
+    const logout = async () => {
+        
+        const loginUrl = await _buildLoginUrl();
+
+        ssoLogout({
+            post_logout_redirect_uri: "http://localhost:3033?app_origin=true&redirect_uri="+loginUrl,
+        });
         if (!ssoService) {
             throw new Error('SSO服务未初始化')
         }
@@ -215,7 +226,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         } finally {
             setIsLoading(false)
         }
-    }, [ssoService, onError, onLogout])
+    }
 
     // 刷新令牌
     const refreshToken = useCallback(async () => {

@@ -1,8 +1,10 @@
 import { LocalStorageData, StorageType, Theme, User, SSOToken, SSOSession, SSOConfig } from '../types'
 
+
+
 // 存储管理器
 export class StorageManager {
-    private prefix = 'verita_'
+    private prefix = import.meta.env.VITE_SSO_STORAGE_PREFIX || 'verita_'
 
     // 认证相关存储
     saveAuthData(data: LocalStorageData): void {
@@ -176,6 +178,8 @@ export class StorageManager {
             console.error('Storage clear error:', error)
         }
     }
+
+    
 }
 
 // 创建存储管理器实例

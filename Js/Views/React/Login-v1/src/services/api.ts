@@ -495,7 +495,7 @@ export class AuthApiService extends ApiService {
             headers: getCommonHeaders()
         })
         return response as unifiedNormalLocalLoginResponse
-       
+
     }
 
     // 用户注册 - 支持201状态码，注册成功后返回登录信息
@@ -602,6 +602,43 @@ export class AuthApiService extends ApiService {
     async logout(): Promise<void> {
         // 后端暂时没有logout接口，前端清除token即可
         localStorage.removeItem('auth_token')
+    }
+
+    async ssoLogoutPost({ id_token_hint, post_logout_redirect_uri, state }: {
+        id_token_hint: string;
+        post_logout_redirect_uri: string;
+        state: string;
+    }) {
+        this.post(`${this.baseURL}/api/v1/auth/oauth/logout`, {
+            id_token_hint,
+            post_logout_redirect_uri,
+            state
+        }, {
+            headers: getCommonHeaders()
+        })
+    }
+
+    // 登出
+    async ssoLogout({ id_token_hint, post_logout_redirect_uri, state }: {
+        id_token_hint: string;
+        post_logout_redirect_uri: string;
+        state: string;
+    }, requestType = 'href') {
+        if (requestType == 'href') {
+            const querys = new URLSearchParams({
+                id_token_hint,
+                post_logout_redirect_uri,
+                state
+            })
+            const uri = `${this.baseURL}/api/v1/auth/oauth/logout?${querys.toString()}`
+            window.location.href = uri;
+            return;
+        }
+        return this.post(`/api/v1/auth/oauth/logout`, {
+            id_token_hint,
+        }, {
+            headers: getCommonHeaders()
+        })
     }
 
     // 微信登录相关

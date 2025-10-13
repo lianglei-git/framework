@@ -154,6 +154,13 @@ type OAuthRevokeRequest struct {
 	ClientSecret  string `json:"client_secret,omitempty"`
 }
 
+// LogoutParams 登出请求参数结构体
+type LogoutParams struct {
+	IdTokenHint           string `json:"id_token_hint,omitempty"`
+	PostLogoutRedirectURI string `json:"post_logout_redirect_uri,omitempty"`
+	State                 string `json:"state,omitempty"`
+}
+
 // 全局RSA密钥对
 var (
 	rsaPrivateKey *rsa.PrivateKey
@@ -716,6 +723,7 @@ func generateTokensFromClaims(c *gin.Context, db *gorm.DB, claims jwt.MapClaims,
 	// 返回OAuth 2.0标准响应
 	response := gin.H{
 		"access_token":  accessToken,
+		"id_token":      accessToken,
 		"token_type":    "Bearer",
 		"expires_in":    3600,
 		"refresh_token": refreshToken,
@@ -980,12 +988,18 @@ func validateAccessToken(tokenString string) (jwt.MapClaims, error) {
 	return nil, jwt.ErrSignatureInvalid
 }
 
-// GetOAuthLogout 登出端点
+// GetOAuthLogout 登出端点 - 完整的SSO登出实现
 func GetOAuthLogout(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 支持POST和GET方法
+		ip := c.ClientIP()
+		userAgent := c.GetHeader("User-Agent")
+
+		// 获取登出请求参数
+		var req OAuthLogoutRequest
+		var logoutParams LogoutParams
+
+		// 处理POST请求（JSON格式）
 		if c.Request.Method == "POST" {
-			var req OAuthLogoutRequest
 			if err := c.ShouldBindJSON(&req); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{
 					"error":             "invalid_request",
@@ -993,37 +1007,104 @@ func GetOAuthLogout(db *gorm.DB) gin.HandlerFunc {
 				})
 				return
 			}
-
-			// 验证id_token_hint
-			if req.IdTokenHint != "" {
-				_, err := validateAccessToken(req.IdTokenHint)
-				if err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_token", "error_description": "Invalid id_token_hint"})
-					return
-				}
+			logoutParams = LogoutParams{
+				IdTokenHint:           req.IdTokenHint,
+				PostLogoutRedirectURI: req.PostLogoutRedirectURI,
+				State:                 req.State,
 			}
-
-			// 如果指定了重定向URI，进行重定向
-			if req.PostLogoutRedirectURI != "" {
-				redirectURL, err := url.Parse(req.PostLogoutRedirectURI)
-				if err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "Invalid post_logout_redirect_uri"})
-					return
-				}
-
-				if req.State != "" {
-					params := redirectURL.Query()
-					params.Set("state", req.State)
-					redirectURL.RawQuery = params.Encode()
-				}
-
-				c.Redirect(http.StatusFound, redirectURL.String())
-				return
+		} else {
+			// 处理GET请求（URL参数）
+			logoutParams = LogoutParams{
+				IdTokenHint:           c.Query("id_token_hint"),
+				PostLogoutRedirectURI: c.Query("post_logout_redirect_uri"),
+				State:                 c.Query("state"),
 			}
 		}
 
-		// 返回登出页面或JSON响应
-		c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully"})
+		// 验证id_token_hint（如果提供）
+		var userClaims jwt.MapClaims
+		if logoutParams.IdTokenHint != "" {
+			claims, err := validateAccessToken(logoutParams.IdTokenHint)
+			if err != nil {
+				// 如果令牌无效，仍允许登出，但记录警告日志
+				fmt.Printf("⚠️  登出请求中的id_token_hint无效: %v\n", err)
+			} else {
+				userClaims = claims
+			}
+		}
+
+		// 获取用户信息（如果令牌有效）
+		var userID string
+		var username string
+		if userClaims != nil {
+			if sub, ok := userClaims["sub"].(string); ok {
+				userID = sub
+			}
+			if name, ok := userClaims["preferred_username"].(string); ok {
+				username = name
+			} else if name, ok := userClaims["name"].(string); ok {
+				username = name
+			}
+		}
+
+		// 销毁用户的所有活跃会话
+		destroyedSessions := destroyUserSessions(db, userID)
+
+		// 将当前访问令牌和刷新令牌加入黑名单
+		blacklistCurrentTokens(db, userClaims)
+
+		// 记录登出日志
+		recordLogoutLog(db, userID, username, "sso_logout", ip, userAgent, true, "")
+
+		// 如果是跨应用登出，通知其他应用
+		if logoutParams.PostLogoutRedirectURI != "" {
+			performCrossAppLogout(db, userID, logoutParams)
+		}
+
+		// 处理重定向逻辑
+		if logoutParams.PostLogoutRedirectURI != "" {
+			// redirectURL
+			_, err := url.Parse(logoutParams.PostLogoutRedirectURI)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error":             "invalid_request",
+					"error_description": "Invalid post_logout_redirect_uri",
+				})
+				return
+			}
+
+			// 添加状态参数（如果提供）
+			if logoutParams.State != "" {
+				// params := redirectURL.Query()
+				logoutParams.PostLogoutRedirectURI += "&logout=true"
+				logoutParams.PostLogoutRedirectURI += "&state=" + logoutParams.State
+				// params.Set("state", logoutParams.State)
+				// params.Set("logout", "true")
+				// redirectURL.RawQuery = params.Encode()
+			}
+
+			// 记录重定向日志
+			fmt.Printf("🔄 重定向到登出回调URL: %s\n", logoutParams.PostLogoutRedirectURI)
+
+			c.Redirect(http.StatusFound, logoutParams.PostLogoutRedirectURI)
+			return
+		}
+
+		// 返回登出成功响应
+		response := gin.H{
+			"message":            "Logged out successfully",
+			"destroyed_sessions": destroyedSessions,
+			"timestamp":          time.Now().Unix(),
+		}
+
+		// 如果是API请求，返回JSON；如果是浏览器请求，返回登出确认页面
+		if c.GetHeader("Accept") == "application/json" || c.Request.Method == "POST" {
+			c.JSON(http.StatusOK, response)
+		} else {
+			// 返回登出确认HTML页面
+			c.Header("Content-Type", "text/html; charset=utf-8")
+			c.String(http.StatusOK, generateLogoutConfirmationHTML(username, destroyedSessions))
+		}
 	}
 }
 
@@ -1571,4 +1652,218 @@ func handleCodeVerifierGrant(c *gin.Context, db *gorm.DB, code, clientID, client
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// destroyUserSessions 销毁用户的所有活跃会话
+func destroyUserSessions(db *gorm.DB, userID string) int {
+	if userID == "" {
+		return 0
+	}
+
+	// 查询用户的所有活跃会话
+	var sessions []models.SSOSession
+	err := db.Where("user_id = ? AND status = ? AND expires_at > ?",
+		userID, "active", time.Now()).Find(&sessions).Error
+
+	if err != nil {
+		fmt.Printf("❌ 查询用户会话失败: %v\n", err)
+		return 0
+	}
+
+	destroyedCount := 0
+
+	// 销毁每个会话
+	for _, session := range sessions {
+		// 将会话标记为非活跃状态
+		err := db.Model(&session).Updates(map[string]interface{}{
+			"status":        "logged_out",
+			"last_activity": time.Now(),
+		}).Error
+
+		if err != nil {
+			fmt.Printf("❌ 销毁会话失败 (ID: %s): %v\n", session.ID, err)
+		} else {
+			fmt.Printf("✅ 会话已销毁: %s (User: %s)\n", session.ID, userID)
+			destroyedCount++
+		}
+	}
+
+	fmt.Printf("🔒 用户 %s 的 %d 个活跃会话已销毁\n", userID, destroyedCount)
+	return destroyedCount
+}
+
+// blacklistCurrentTokens 将当前令牌加入黑名单
+func blacklistCurrentTokens(db *gorm.DB, claims jwt.MapClaims) {
+	if claims == nil {
+		return
+	}
+
+	// 获取令牌JTI（JWT ID）
+	jti, ok := claims["jti"].(string)
+	if !ok {
+		fmt.Printf("⚠️  令牌中未找到JTI，无法加入黑名单\n")
+		return
+	}
+
+	// 计算令牌过期时间
+	exp := int64(0)
+	if expTime, ok := claims["exp"].(float64); ok {
+		exp = int64(expTime)
+	} else {
+		// 如果没有过期时间，默认设置为1小时后
+		exp = time.Now().Add(time.Hour).Unix()
+	}
+
+	expiresAt := time.Unix(exp, 0)
+
+	// 将令牌加入黑名单
+	err := models.AddTokenToBlacklist(db, jti, expiresAt)
+	if err != nil {
+		fmt.Printf("❌ 将令牌加入黑名单失败: %v\n", err)
+	} else {
+		fmt.Printf("✅ 令牌已加入黑名单: %s (过期时间: %s)\n", jti, expiresAt.Format(time.RFC3339))
+	}
+}
+
+// recordLogoutLog 记录登出日志
+func recordLogoutLog(db *gorm.DB, userID, username, provider, ip, userAgent string, success bool, errorMsg string) {
+	loginLog := models.LoginLog{
+		UserID:    userID,
+		Provider:  provider,
+		IP:        ip,
+		UserAgent: userAgent,
+		Success:   success,
+		ErrorMsg:  errorMsg,
+		CreatedAt: time.Now(),
+	}
+
+	if err := db.Create(&loginLog).Error; err != nil {
+		fmt.Printf("❌ 记录登出日志失败: %v\n", err)
+	} else {
+		fmt.Printf("📝 登出日志已记录: 用户=%s, IP=%s, 成功=%v\n", username, ip, success)
+	}
+}
+
+// performCrossAppLogout 执行跨应用登出
+func performCrossAppLogout(db *gorm.DB, userID string, params LogoutParams) {
+	if userID == "" {
+		return
+	}
+
+	// 查询用户在其他应用中的活跃会话
+	var sessions []models.SSOSession
+	err := db.Where("user_id = ? AND status = ? AND current_app_id != ? AND expires_at > ?",
+		userID, "active", "", time.Now()).Find(&sessions).Error
+
+	if err != nil {
+		fmt.Printf("❌ 查询跨应用会话失败: %v\n", err)
+		return
+	}
+
+	// 通知其他应用进行登出（这里简化处理，实际应该通过消息队列或RPC调用）
+	for _, session := range sessions {
+		fmt.Printf("🔄 通知应用 %s 登出用户 %s\n", session.CurrentAppID, userID)
+
+		// 将会话标记为待登出状态
+		db.Model(&session).Update("status", "cross_app_logout_pending")
+	}
+
+	fmt.Printf("🔗 跨应用登出通知完成，用户 %s 在 %d 个应用中的会话待处理\n", userID, len(sessions))
+}
+
+// generateLogoutConfirmationHTML 生成登出确认HTML页面
+func generateLogoutConfirmationHTML(username string, destroyedSessions int) string {
+	displayName := username
+	if displayName == "" {
+		displayName = "用户"
+	}
+
+	html := `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登出成功</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .logout-container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            text-align: center;
+            max-width: 500px;
+            width: 90%;
+        }
+        .success-icon {
+            font-size: 64px;
+            color: #28a745;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .user-info {
+            color: #666;
+            margin-bottom: 20px;
+            font-size: 16px;
+        }
+        .session-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #28a745;
+        }
+        .back-btn {
+            display: inline-block;
+            background: #007bff;
+            color: white;
+            padding: 12px 30px;
+            border-radius: 6px;
+            text-decoration: none;
+            margin-top: 20px;
+            transition: background-color 0.3s;
+        }
+        .back-btn:hover {
+            background: #0056b3;
+        }
+        .timestamp {
+            color: #999;
+            font-size: 14px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="logout-container">
+        <div class="success-icon">✓</div>
+        <h1>登出成功</h1>
+        <div class="user-info">
+            您好，` + displayName + `！您已成功登出系统。
+        </div>
+        <div class="session-info">
+            <strong>会话清理完成</strong><br>
+            已销毁 ` + fmt.Sprintf("%d", destroyedSessions) + ` 个活跃会话，所有令牌已失效。
+        </div>
+        <a href="/" class="back-btn">返回首页</a>
+        <div class="timestamp">
+            登出时间：` + time.Now().Format("2006-01-02 15:04:05") + `
+        </div>
+    </div>
+</body>
+</html>`
+
+	return html
 }

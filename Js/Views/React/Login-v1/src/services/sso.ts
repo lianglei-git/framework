@@ -23,9 +23,10 @@ import {
     StorageType
 } from '../types'
 import { ApiService } from './api'
-import { storageManager } from '../utils/storage'
+import { storage, storageManager } from '../utils/storage'
 import { globalUserStore } from '../stores/UserStore'
 import { handleSSOCallbackResult } from '../utils/handleSSOCallbackResult'
+
 
 /**
  * SSO 认证服务类
@@ -199,25 +200,27 @@ export class SSOService extends ApiService {
             await this.checkSession()
 
             // 检查session cookies并尝试自动登录
+
+            // 处理SSO回调（如果有）
+            if (this.isInCallbackMode()) {
+                console.log('检测到SSO回调，自动处理...')
+                try {
+                    const promise = this.handleCallback()
+                    promise.then(result => {
+                        if (result) {
+                            console.log('SSO回调处理成功:', result)
+                            handleSSOCallbackResult(result, this)
+                        }
+                    })
+
+                } catch (error) {
+                    console.error('SSO回调处理失败:', error)
+                    alert(`登录失败: ${error.message}`)
+                }
+            }
+
             // await this.checkSessionCookies()
 
-                    // 处理SSO回调（如果有）
-        if (this.isInCallbackMode()) {
-            console.log('检测到SSO回调，自动处理...')
-            try {
-                const promise = this.handleCallback()
-                promise.then(result => {
-                    if (result) {
-                        console.log('SSO回调处理成功:', result)
-                        handleSSOCallbackResult(result, this)
-                    }
-                })
-
-            } catch (error) {
-                console.error('SSO回调处理失败:', error)
-                alert(`登录失败: ${error.message}`)
-            }
-        }
 
             console.log('SSO service initialized successfully')
         } catch (error) {
@@ -357,7 +360,7 @@ export class SSOService extends ApiService {
     async getOAuthURL(providerId: string, options: Partial<SSOAuthRequest> = {}): Promise<SSOOAuthUrlParams> {
         // 子项目使用中心服务开放接口
         if (providerId == 'sub_job') {
-            return {auth_url: `${this.baseURL}/api/v1/auth/oauth/authorize?${new URLSearchParams(options).toString()}`}
+            return { auth_url: `${this.baseURL}/api/v1/auth/oauth/authorize?${new URLSearchParams(options).toString()}` }
         }
         const response = await this.get<SSOOAuthUrlParams>(`/api/v1/auth/oauth/${providerId}/url`, options)
 
@@ -599,6 +602,7 @@ export class SSOService extends ApiService {
      * 支持PKCE双重验证和动态URL参数
      */
     async buildAuthorizationUrl(providerId: string, options: Partial<SSOAuthRequest> = {}): Promise<string> {
+        storage.set('login_provider', providerId, StorageType.LOCAL)
         // 设置当前使用的provider
         this.setCurrentProvider(providerId)
 
@@ -609,7 +613,6 @@ export class SSOService extends ApiService {
 
         // 构建URL参数
         const params = {
-            redirect_uri: "http://localhost:3033",
             state: this.generateState(),
         }
 
@@ -930,10 +933,8 @@ export class SSOService extends ApiService {
         return !!(sessionId && appId)
     }
 
-    /**
-     * 清除session cookies
-     */
-    private clearSessionCookies(): void {
+
+    static clearSessionCookies(): void {
         try {
             // 清除session cookies
             document.cookie = 'sso_session_id=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax'
@@ -944,13 +945,18 @@ export class SSOService extends ApiService {
             console.error('❌ 清除session cookies失败:', error)
         }
     }
+    /**
+     * 清除session cookies
+     */
+    clearSessionCookies(): void {
+        SSOService.clearSessionCookies()
+    }
 
     /**
      * 检查session cookies并尝试自动登录
      */
     private async checkSessionCookies(): Promise<void> {
         //
-
         try {
             // 检查是否存在有效的session cookies
             if (!this.hasValidSessionCookie()) {
@@ -979,19 +985,19 @@ export class SSOService extends ApiService {
                 // 创建本地会话
                 const session = await this.sessionManager.createSession(sessionCheckResponse.session)
 
-                // 如果有token信息，也保存token
-                if (sessionCheckResponse.token) {
-                    storageManager.saveAuthData({
-                        user: sessionCheckResponse.user!,
-                        token: sessionCheckResponse.token,
-                        session: session
-                    })
-                }
+                // // 如果有token信息，也保存token
+                // if (sessionCheckResponse.token) {
+                //     storageManager.saveAuthData({
+                //         user: sessionCheckResponse.user!,
+                //         token: sessionCheckResponse.token,
+                //         session: session
+                //     })
+                // }
 
                 console.log('✅ 自动登录成功，用户信息:', sessionCheckResponse.user?.name)
             } else {
                 console.log('⚠️ Session验证失败，清除无效的session cookies')
-                this.clearSessionCookies()
+                // this.clearSessionCookies()
             }
         } catch (error) {
             console.warn('❌ Session cookies检查失败:', error)
@@ -999,21 +1005,24 @@ export class SSOService extends ApiService {
         }
     }
 
+
     /**
      * 使用授权码交换访问令牌
      * 支持PKCE (Proof Key for Code Exchange) 双重验证模式
      * 使用统一的API服务进行请求
      */
     private async exchangeCodeForToken(code: string, state?: string): Promise<SSOLoginResponse> {
-        const provider = localStorage.getItem('login_provider') || this.currentProviderId
+        const provider = storage.get('login_provider', StorageType.LOCAL);
         // 获取当前provider的配置
         const providerConfig = this.getCurrentProviderConfig(provider)
         // || this.config.tokenEndpoint
         const tokenEndpoint = `${this.config.ssoServerUrl}${this.config.tokenEndpoint}`
 
+        console.log("tokenEndpoint:", tokenEndpoint)
         // 获取PKCE code_verifier（必须包含，用于双重验证）
         const codeVerifier = localStorage.getItem('pkce_code_verifier')
         console.log("交换exchangeCodeForToken", codeVerifier);
+
 
         // 构建token交换请求参数 - 双重验证模式
         const finalState = state || localStorage.getItem('pkce_state')
@@ -1034,6 +1043,7 @@ export class SSOService extends ApiService {
 
         const tokenRequestData = {
             grant_type: 'authorization_code',
+            // grant_type: "code",
             provider,
             code: code,
             redirect_uri: providerConfig?.redirect_uri || this.config.redirectUri,
@@ -1080,47 +1090,10 @@ export class SSOService extends ApiService {
 
             // 使用统一的API服务进行token交换
             const response = await this.post<SSOToken>(tokenEndpoint, tokenRequestData)
-
-            // 验证token响应
-            const validationResult = await this.tokenManager.validateToken(response)
-            if (!validationResult.is_valid) {
-                throw new Error(validationResult.error_description || 'Token validation failed')
-            }
-
-            // 获取用户信息
-            const userInfo = await this.getUserInfo(response.access_token)
-
-            // 创建会话
-            let session = null;
-            if (response.session_info) {
-                session = await this.sessionManager.createSession(response.session_info)
-                // 将session_id设置到cookie中，用于后续会话保持和自动登录
-                this.setSessionCookie(response.session_info.session_id, this.config.appId || 'default')
-            }
+            
 
 
-
-            storageManager.saveAuthData({
-                user: userInfo,
-                token: response,
-                session: session
-            })
-
-            console.log("清理敏感数据 pkce_code_verifier")
-            // 清理敏感数据
-            localStorage.removeItem('pkce_code_verifier')
-
-            console.log('✅ 双重验证模式token交换成功:', {
-                user_id: userInfo.sub,
-                token_type: response.token_type,
-                expires_in: response.expires_in
-            })
-
-            return {
-                user: userInfo,
-                token: response,
-                session: session
-            }
+            return this.unifiedSaveLoginInfos(response) as any;
         } catch (error) {
             console.error('❌ 双重验证模式token交换失败:', error)
 
@@ -1132,6 +1105,54 @@ export class SSOService extends ApiService {
         }
     }
 
+
+    // 统一保存登录信息
+    unifiedSaveLoginInfos = async (response: any) => {
+        // 验证token响应
+        const validationResult = await this.tokenManager.validateToken(response)
+        if (!validationResult.is_valid) {
+            throw new Error(validationResult.error_description || 'Token validation failed')
+        }
+
+
+        // 创建会话
+        let session = null;
+        if (response.session_info) {
+            session = await this.sessionManager.createSession(response.session_info)
+            // 将session_id设置到cookie中，用于后续会话保持和自动登录
+            this.setSessionCookie(response.session_info.session_id, 'centeral')
+        }
+
+        // 获取用户信息
+        const userInfo = await this.getUserInfo(response.access_token)
+
+        const auth = {
+            user: userInfo,
+            token: response,
+            session: session
+        }
+
+        storage.saveAuth(auth as any);
+        session && storage.saveSSOData({
+            token: response,
+            expires_at: session?.expires_at
+        })
+
+        console.log("清理敏感数据 pkce_code_verifier")
+        // 清理敏感数据
+        localStorage.removeItem('pkce_code_verifier')
+
+        console.log('✅ 双重验证模式token交换成功:', {
+            user_id: userInfo.sub,
+            token_type: response.token_type,
+            expires_in: response.expires_in
+        })
+
+        window.dispatchEvent(new CustomEvent('auth:login', { detail: auth }))
+
+        return auth;
+
+    }
     /**
      * 获取用户信息
      */
@@ -1797,7 +1818,7 @@ export function createDefaultSSOConfig(): SSOConfig {
         // clientId: 'your-client-id',
         // clientSecret: 'your-client-secret',
         // redirectUri: window.location.origin + '/auth/callback',
-        redirectUri: 'www.baidu.com',
+        redirectUri: "http://localhost:3033",
         scope: ['openid', 'profile', 'email'],
         responseType: 'code',
         grantType: 'authorization_code',
@@ -1806,10 +1827,10 @@ export function createDefaultSSOConfig(): SSOConfig {
         storageType: StorageType.LOCAL,
         cookieSameSite: 'lax',
         "authorizationUrl": "/api/v1/auth/oauth/authorize",
-        "tokenEndpoint":  "/api/v1/auth/oauth-login",
-        "userInfoUrl":      "/api/v1/auth/oauth/userinfo",
-        "logoutUrl":        "/api/v1/auth/oauth/logout",
-        
+        "tokenEndpoint": "/api/v1/auth/oauth-login",
+        "userInfoUrl": "/api/v1/auth/oauth/userinfo",
+        "logoutUrl": "/api/v1/auth/oauth/logout",
+
     }
 }
 

@@ -12,12 +12,9 @@ const getSubAppInfoForSessionStorage = () => {
 export const handleSSOCallbackResult = async (result: any) => {
     console.log('SSO登录成功:', result)
 
-    localStorage.setItem('is_login', "true")
-
     const { app_redirect_uri, appid, origin_app_uri } = getSubAppInfoForSessionStorage()
 
     console.log("origin_app_uri::", origin_app_uri)
-    window.dispatchEvent(new CustomEvent('auth:login', { detail: result }))
     if (!origin_app_uri) {
         return
     }

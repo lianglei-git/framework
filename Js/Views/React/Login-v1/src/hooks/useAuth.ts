@@ -1,28 +1,34 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
-import type {
-    User,
-    LoginRequest,
-    PhoneLoginRequest,
-    RegisterRequest,
-    ResetPasswordRequest,
-    VerificationType,
-    UseAuthReturn,
-    AuthEventListener,
-    PhoneResetPasswordRequest,
-    SSOLoginRequest,
-    SSOLoginResponse,
-    SSOUser,
-    SSOSession,
-    unifiedNormalLocalLoginRequest,
-    unifiedNormalLocalLoginResponse
+import {
+    type User,
+    type LoginRequest,
+    type PhoneLoginRequest,
+    type RegisterRequest,
+    type ResetPasswordRequest,
+    type VerificationType,
+    type UseAuthReturn,
+    type AuthEventListener,
+    type PhoneResetPasswordRequest,
+    type SSOLoginRequest,
+    type SSOLoginResponse,
+    type SSOUser,
+    type SSOSession,
+    type unifiedNormalLocalLoginRequest,
+    type unifiedNormalLocalLoginResponse,
+    StorageType
 } from '../types'
 import { authApi, userApi } from '../services/api'
-import { storage } from '../utils/storage'
+import { storage, storageManager } from '../utils/storage'
 import { oauthLoginAPI } from '../services/api'
 import { handleSSOCallbackResult } from '../utils/handleSSOCallbackResult'
 
 import { SSOService, setSSOConfig,getSSOConfig } from '../services/sso'
 
+
+export const storageKeys = {
+    "loading_infos": "loading_infos",
+    "is_login": "is_login",
+}
 
 const useSSOService = () => {
     const [ssoService, setSSOService]: [SSOService, (k: any) => void] = useState(null)
@@ -65,8 +71,14 @@ try{
     let p = localStorage.getItem(k);
     if(p){
         gloadingInfos = JSON.parse(p)
+        if(gloadingInfos.time && (Date.now() - gloadingInfos.time) > 1000 * 10){
+            gloadingInfos = {status: "stop", message: "", provider: ""};
+        }
     }
 }catch(err){}
+
+// 这里应该进行判断，如果查询参数里有logout=true，则进行登出
+
 
 export const useAuth = () => {
     // 状态管理
@@ -78,9 +90,9 @@ export const useAuth = () => {
     const [isLoading, setIsLoading] = useState(false)
 
     const [loadingInfos, _setLoadingInfos] = useState(gloadingInfos);
-    
+
     const setLoadingInfos = (status: "stop" | "loading",msg = '',provider = '') => {
-        const gb = {status, message:msg, provider};
+        const gb = {status, message:msg, provider, time: Date.now()};
         _setLoadingInfos(gb);
         localStorage.setItem(k,JSON.stringify(gb));
     }
@@ -94,6 +106,25 @@ export const useAuth = () => {
     const isAuthenticated = useMemo(() => !!token && !!user, [token, user])
     const isSSOAuthenticated = useMemo(() => !!ssoUser && !!ssoSession && !!ssoService, [ssoUser, ssoSession, ssoService])
     const isAdmin = useMemo(() => user?.role === 'admin', [user?.role])
+
+    const clearLocalAuth = () => {
+        storage.clearAuth()
+        storage.clearSSOData();
+        storage.clearSSOSession();
+
+         
+        setUser(null)
+        setToken(null)
+        setIsLoading(false)
+
+        SSOService.clearSessionCookies()
+
+        // 清理cookie
+        document.cookie = 'sso_session_id=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax'
+        console.log("已经退出登录了啊阿啊！！！！")
+    }
+    console.log("token::", token)
+    console.log("user::", user)
 
     // 初始化认证状态和SSO服务
     useEffect(() => {
@@ -123,17 +154,22 @@ export const useAuth = () => {
                 console.warn('Failed to initialize SSO service:', error)
             }
         }
+        const url = new URL(window.location.href);
+        if(url.searchParams.get('logout') === 'true'){
+            clearLocalAuth();
+        }
         initAuth()
     }, [])
+
 
 
     // 登录成功的回调函数
     useAuthEvents('login', (details) => {
         setLoadingInfos("stop")
-        storage.saveSSOData({
-            token: details.token,
-            expires_at:details.session?.expires_in
-        })
+
+        setAuthInfo(details)
+        setUser(details.user)
+        setToken(details.token)
     })
 
     // 认证方法
@@ -181,32 +217,8 @@ export const useAuth = () => {
         }
     }
 
-    const unifiedSaveLoginInfos = async (response) => {
-        const validationResult = await ssoService.validateAccessToken(response)
-        if (!validationResult.is_valid) {
-            throw new Error(validationResult.error_description || 'Token validation failed')
-        }
+  
 
-        let session = null;
-        if (response.session_info) {
-            session = await ssoService.sessionManager.createSession(response.session_info)
-            // 将session_id设置到cookie中，用于后续会话保持和自动登录
-            ssoService.setSessionCookie(response.session_info.session_id, ssoService.config.appId || 'default')
-        }
-
-        const info = {
-            user: response.user,
-            token: response,
-            session: session
-        }
-        storage.saveAuth(info)
-        setAuthInfo(info)
-
-
-        setUser(response.user)
-        setToken(response.access_token)
-        return info
-    }
 
     // 统一认证
     const unifiedNormalLocalLogin = async (data: unifiedNormalLocalLoginRequest) => {
@@ -214,7 +226,7 @@ export const useAuth = () => {
         setError(null)
         try {
             const response = await authApi.unifiedNormalLocalLogin(data);
-            return unifiedSaveLoginInfos(response)
+            return ssoService.unifiedSaveLoginInfos(response)
 
         } catch (err: any) {
             setError(err.message || '登录失败')
@@ -253,29 +265,31 @@ export const useAuth = () => {
     }, [])
 
     // 邮箱验证码登录
-    const emailCodeLogin = useCallback(async (data: { email: string; code: string }) => {
-        setIsLoading(true)
-        setError(null)
-        try {
-            const response = await authApi.emailCodeLogin(data)
-            const authData = {
-                user: response.user,
-                token: response.token,
-                refresh_token: response.refresh_token,
-                remember_me: true,
-                expires_at: Date.now() + response.expires_in * 1000
-            }
-            storage.saveAuth(authData)
-            setUser(response.user)
-            setToken(response.token)
-            window.dispatchEvent(new CustomEvent('auth:login', { detail: response }))
-        } catch (err: any) {
-            setError(err.message || '登录失败')
-            throw err
-        } finally {
-            setIsLoading(false)
-        }
-    }, [])
+    // const emailCodeLogin = useCallback(async (data: { email: string; code: string }) => {
+    //     setIsLoading(true)
+    //     setError(null)
+    //     try {
+    //         const response = await authApi.emailCodeLogin(data)
+    //         const authData = {
+    //             user: response.user,
+    //             token: response.token,
+    //             refresh_token: response.refresh_token,
+    //             remember_me: true,
+    //             expires_at: Date.now() + response.expires_in * 1000
+    //         }
+    //         storage.saveAuth(authData)
+    //         setUser(response.user)
+    //         setToken(response.token)
+    //         window.dispatchEvent(new CustomEvent('auth:login', { detail: response }))
+    //     } catch (err: any) {
+    //         setError(err.message || '登录失败')
+    //         throw err
+    //     } finally {
+    //         setIsLoading(false)
+    //     }
+    // }, [])
+
+    const emailCodeLogin = () => []
 
     // 用户注册 - 注册成功后自动登录
     const register = async (data: RegisterRequest) => {
@@ -285,8 +299,7 @@ export const useAuth = () => {
         try {
             // 调用注册API，现在返回LoginResponse
             const loginResponse = await authApi.register(data)
-
-            return await unifiedSaveLoginInfos(loginResponse)
+            return ssoService.unifiedSaveLoginInfos(loginResponse)
         } catch (err: any) {
             setError(err.message || '注册失败')
             throw err
@@ -295,24 +308,42 @@ export const useAuth = () => {
         }
     }
 
-    const logout = useCallback(async () => {
+    const logout = () => {};
+
+    /**
+        1. 用户发起退出请求：用户在当前应用系统（如应用 A）中点击 “退出登录” 按钮，触发本地的退出流程。
+        2. 应用系统销毁本地会话：应用 A 接收到退出请求后，销毁当前用户的局部会话（Local Session），清除本地存储的登录凭证，如 Cookie、Token 等。
+        3. 通知中央认证服务器：应用 A 向中央认证服务器（SSO Server）发送注销请求，通常携带用户的全局会话标识（如 Ticket 或 Token），告知 SSO 服务器用户已在本系统退出。
+        4. 中央认证服务器销毁全局会话：SSO 服务器收到注销请求后，验证请求的合法性，然后销毁与该用户相关的全局会话（Global Session），清除服务器端存储的用户登录状态信息。
+        5. 通知其他关联应用系统：SSO 服务器遍历所有与该全局会话关联的已登录应用系统（如应用 B），向这些应用系统发送退出通知。通知方式可以是调用应用系统提供的注销接口，或者通过消息队列等机制。
+        6. 其他应用系统同步退出：其他关联应用系统收到 SSO 服务器的退出通知后，销毁各自系统中的局部会话，清除本地的登录凭证，并根据需要重定向用户到登录页面或其他指定页面。
+        7. 用户被重定向到登录页面：在所有相关系统都完成退出操作后，SSO 服务器或应用系统将用户重定向到登录页面，提示用户已退出登录，等待用户重新登录以访问系统资源。
+     */
+    const ssoLogout = async (params: any = {}) => {
         setIsLoading(true)
         setError(null)
-
+        if(!token.id_token) {
+            debugger
+            throw Error("没有token")
+            return
+        }
         try {
-            await authApi.logout()
+            authApi.ssoLogout({
+                id_token_hint: token.id_token,
+                post_logout_redirect_uri: "http://localhost:3033",
+                state: "123",
+                ...params,
+            })
         } catch (err) {
             console.error('Logout API error:', err)
         } finally {
             // 清除本地状态
-            storage.clearAuth()
-            setUser(null)
-            setToken(null)
-            setIsLoading(false)
-
+            clearLocalAuth()
             window.dispatchEvent(new CustomEvent('auth:logout'))
         }
-    }, [])
+    }
+
+
 
     // 忘记密码 - 发送邮件验证码
     const forgotPassword = useCallback(async (email: string) => {
@@ -419,68 +450,70 @@ export const useAuth = () => {
     // }, [])
 
     // SSO登录
-    const ssoLogin = useCallback(async (request: SSOLoginRequest) => {
-        if (!ssoService) {
-            throw new Error('SSO service not initialized')
-        }
+    // const ssoLogin = useCallback(async (request: SSOLoginRequest) => {
+    //     if (!ssoService) {
+    //         throw new Error('SSO service not initialized')
+    //     }
 
-        setIsLoading(true)
-        setError(null)
+    //     setIsLoading(true)
+    //     setError(null)
 
-        try {
-            const response = await ssoService.login(request)
+    //     try {
+    //         const response = await ssoService.login(request)
 
-            // 保存SSO数据
-            await storage.saveSSOData({
-                token: response.token,
-                expires_at: response.session.expires_at
-            })
-            await storage.saveSSOSession(response.session)
+    //         // 保存SSO数据
+    //         await storage.saveSSOData({
+    //             token: response.token,
+    //             expires_at: response.session.expires_at
+    //         })
+    //         await storage.saveSSOSession(response.session)
 
-            // 设置状态
-            setSSOUser(response.user)
-            setSSOSession(response.session)
+    //         // 设置状态
+    //         setSSOUser(response.user)
+    //         setSSOSession(response.session)
 
-            // 如果是本地登录，也更新传统用户状态以保持兼容性
-            if (request.login_type === 'local' && response.user.custom_claims?.original_user) {
-                const originalUser = response.user.custom_claims.original_user
-                setUser(originalUser)
-                setToken(response.token.access_token)
-            }
+    //         // 如果是本地登录，也更新传统用户状态以保持兼容性
+    //         if (request.login_type === 'local' && response.user.custom_claims?.original_user) {
+    //             const originalUser = response.user.custom_claims.original_user
+    //             setUser(originalUser)
+    //             setToken(response.token.access_token)
+    //         }
 
-            window.dispatchEvent(new CustomEvent('auth:sso:login', { detail: response }))
-        } catch (err: any) {
-            setError(err.message || 'SSO登录失败')
-            throw err
-        } finally {
-            setIsLoading(false)
-        }
-    }, [ssoService])
+    //         window.dispatchEvent(new CustomEvent('auth:sso:login', { detail: response }))
+    //     } catch (err: any) {
+    //         setError(err.message || 'SSO登录失败')
+    //         throw err
+    //     } finally {
+    //         setIsLoading(false)
+    //     }
+    // }, [ssoService])
+
+    const ssoLogin = () => {}
 
 
 
 
     // SSO登出
-    const ssoLogout = useCallback(async () => {
-        if (!ssoService) {
-            throw new Error('SSO service not initialized')
-        }
+    // const ssoLogout = useCallback(async () => {
+    //     if (!ssoService) {
+    //         throw new Error('SSO service not initialized')
+    //     }
 
-        setIsLoading(true)
-        setError(null)
+    //     setIsLoading(true)
+    //     setError(null)
 
-        try {
-            await ssoService.logout()
-            setSSOUser(null)
-            setSSOSession(null)
-            window.dispatchEvent(new CustomEvent('auth:sso:logout'))
-        } catch (err: any) {
-            setError(err.message || 'SSO登出失败')
-            throw err
-        } finally {
-            setIsLoading(false)
-        }
-    }, [ssoService])
+    //     try {
+    //         await ssoService.logout()
+    //         setSSOUser(null)
+    //         setSSOSession(null)
+    //         window.dispatchEvent(new CustomEvent('auth:sso:logout'))
+    //     } catch (err: any) {
+    //         setError(err.message || 'SSO登出失败')
+    //         throw err
+    //     } finally {
+    //         setIsLoading(false)
+    //     }
+    // }, [ssoService])
 
     // 检查SSO会话
     const checkSSOSession = useCallback(async () => {

@@ -148,7 +148,7 @@ const Login: React.FC = observer(() => {
   }
 
   // 已登录
-  if (globalUserStore.isLogin) {
+  if (auth.isAuthenticated) {
     return (
       <div className="login-container">
         <div className="login-card">
@@ -156,6 +156,7 @@ const Login: React.FC = observer(() => {
             <div className="success-icon">✓</div>
             <h2>已登录</h2>
             <p>欢迎回来，<b style={{ color: '#000' }}>{globalUserStore.nickName}</b></p>
+            <button onClick={() => auth.ssoLogout()}>退出登录</button>
           </div>
         </div>
       </div>

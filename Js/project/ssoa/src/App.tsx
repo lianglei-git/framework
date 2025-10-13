@@ -11,16 +11,24 @@ function App() {
     isLoading,
     error
   } = useSubProjectSSO({
+    
     customConfig: {
-      id: 'temp1',
-      name: '测试应用1',
+      id: 'sso_test_a',
+      name: 'ssoa ',
       description: '这是测试应用',
       ssoServerUrl: 'http://localhost:8080',
       homepageUrl: 'https://demo.example.com',
       clientId: '8c1dd65d-7d2a-4ba4-aff1-610960a295e7',
       clientSecret: 'client_secret_a4121ad0-bc7e-4b59-8ab1-e29544060fc4',
-      // redirectUris: ['https://demo.example.com/auth/callback'],
+     // redirectUris: ['https://demo.example.com/auth/callback'],
       redirectUri: "http://localhost:5173",
+      logoutEndpoint: "",
+      tokenEndpoint: "/api/v1/auth/oauth/token",
+      // 这个字段目前在我这是没用的，因为已经被写死了
+      "authorizationUrl": "/api/v1/auth/oauth/authorize",
+      "tokenUrl":         "/api/v1/auth/oauth/token",
+      "userInfoUrl":      "/api/v1/auth/oauth/userinfo",
+      "logoutUrl":        "/api/v1/auth/oauth/logout",
       allowedScopes: ['openid', 'profile', 'email', 'custom.read'],
       branding: {
         primaryColor: '#722ed1',

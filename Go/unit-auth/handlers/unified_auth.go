@@ -449,8 +449,7 @@ func (h *UnifiedAuthHandler) handlePhoneLogin(c *gin.Context, req models.Unified
 	h.generateAndReturnTokens(c, user, "phone", ip, userAgent)
 }
 
-// generateAndReturnTokens 统一的token生成和响应
-func (h *UnifiedAuthHandler) generateAndReturnTokens(c *gin.Context, user *models.User, provider string, ip, userAgent string) {
+func generateAndReturnTokensCore(db *gorm.DB, c *gin.Context, user *models.User, provider string, ip, userAgent string) {
 	// 解析JSON请求体获取客户端ID
 	var req models.UnifiedOAuthLoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -463,7 +462,7 @@ func (h *UnifiedAuthHandler) generateAndReturnTokens(c *gin.Context, user *model
 	localID := ""
 	if req.AppID != "" {
 		var pm models.ProjectMapping
-		if err := h.db.Where("project_name = ? AND user_id = ?", req.AppID, user.ID).First(&pm).Error; err == nil {
+		if err := db.Where("project_name = ? AND user_id = ?", req.AppID, user.ID).First(&pm).Error; err == nil {
 			localID = pm.LocalUserID
 		}
 	}
@@ -553,7 +552,7 @@ func (h *UnifiedAuthHandler) generateAndReturnTokens(c *gin.Context, user *model
 	}
 
 	// 创建会话记录
-	if err := models.CreateSSOSession(h.db, ssoSession); err != nil {
+	if err := models.CreateSSOSession(db, ssoSession); err != nil {
 		fmt.Printf("Failed to create SSO session: %v\n", err)
 		// 即使会话创建失败，也继续返回token
 	}
@@ -580,6 +579,11 @@ func (h *UnifiedAuthHandler) generateAndReturnTokens(c *gin.Context, user *model
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// generateAndReturnTokens 统一的token生成和响应
+func (h *UnifiedAuthHandler) generateAndReturnTokens(c *gin.Context, user *models.User, provider string, ip, userAgent string) {
+	generateAndReturnTokensCore(h.db, c, user, provider, ip, userAgent)
 }
 
 // UnifiedGetOAuthURL 统一的OAuth URL获取（替代原有的GetOAuthURL）

@@ -306,6 +306,7 @@ func main() {
 			auth.POST("/oauth/token", handlers.GetOAuthToken(db))
 			auth.GET("/oauth/userinfo", handlers.GetOAuthUserinfo(db))
 			auth.POST("/oauth/logout", handlers.GetOAuthLogout(db))
+			auth.GET("/oauth/logout", handlers.GetOAuthLogout(db))
 			auth.POST("/oauth/revoke", handlers.GetOAuthRevoke(db))
 
 			// 兼容性端点
