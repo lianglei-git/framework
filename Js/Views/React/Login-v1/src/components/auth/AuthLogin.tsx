@@ -46,8 +46,8 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
     // 账号密码登录表单（两步）
     const accountForm = useForm({
         initialValues: {
-            account: '',
-            password: '',
+            account: '2838370086@qq.com',
+            password: 'lianglei1216',
             remember_me: false,
             login_type: 'username' as const
         },

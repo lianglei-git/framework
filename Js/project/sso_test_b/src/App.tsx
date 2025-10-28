@@ -19,7 +19,50 @@
 // }
 
 import './App.css'
-import { useSubProjectSSO } from '../../../Views/React/Login-v1/src/hooks/useSubProjectSSO'
+import { useSubProjectSSO, setSSOConfig } from '../../../Views/React/Login-v1/src/hooks/useSubProjectSSO'
+
+
+const customConfig = {
+  id: 'sso_test_b',
+  name: 'kajsd ',
+  description: '这是测试应用',
+  ssoServerUrl: 'http://localhost:5555',
+  // 上线后需要替换和ssoServerUrl一样的路径
+  ssoHomeUrl: 'http://localhost:3033',
+  homepageUrl: 'https://demo.example.com',
+  clientId: '6a7db4e5-1c21-4cf1-92c9-507a0f924e29',
+  clientSecret: 'client_secret_22e58ccf-c367-4ead-b517-3be17f796211',
+  // redirectUris: ['https://demo.example.com/auth/callback'],
+  redirectUri: "http://localhost:5173",
+  logoutEndpoint: "",
+  tokenEndpoint: "http://localhost:5555/auth/oauth/token",
+  // 这个字段目前在我这是没用的，因为已经被写死了
+  "authorizationUrl": "/api/v1/auth/oauth/authorize",
+  "tokenUrl":         "/api/v1/auth/oauth/token",
+  "userInfoUrl":      "/api/v1/auth/oauth/userinfo",
+  "logoutUrl":        "/api/v1/auth/oauth/logout",
+  allowedScopes: ['openid', 'profile', 'email', 'custom.read'],
+  branding: {
+    primaryColor: '#722ed1',
+    backgroundColor: '#f9f0ff',
+    logo: 'https://demo.example.com/logo.png'
+  },
+  features: {
+    autoRefresh: true,
+    rememberMe: true,
+    socialLogin: true,
+    passwordReset: true,
+    multiFactorAuth: false
+  },
+  security: {
+    requireHttps: true,
+    allowedDomains: ['example.com', 'demo.example.com'],
+    blockedDomains: [],
+    sessionTimeout: 1800
+  }
+}
+
+setSSOConfig(customConfig);
 
 function App() {
 
@@ -31,43 +74,7 @@ function App() {
     isLoading,
     error
   } = useSubProjectSSO({
-    customConfig: {
-      id: 'sso_test_b',
-      name: 'kajsd ',
-      description: '这是测试应用',
-      ssoServerUrl: 'http://localhost:8080',
-      homepageUrl: 'https://demo.example.com',
-      clientId: '6a7db4e5-1c21-4cf1-92c9-507a0f924e29',
-      clientSecret: 'client_secret_22e58ccf-c367-4ead-b517-3be17f796211',
-      // redirectUris: ['https://demo.example.com/auth/callback'],
-      redirectUri: "http://localhost:5173",
-      logoutEndpoint: "",
-      tokenEndpoint: "/api/v1/auth/oauth/token",
-      // 这个字段目前在我这是没用的，因为已经被写死了
-      "authorizationUrl": "/api/v1/auth/oauth/authorize",
-      "tokenUrl":         "/api/v1/auth/oauth/token",
-      "userInfoUrl":      "/api/v1/auth/oauth/userinfo",
-      "logoutUrl":        "/api/v1/auth/oauth/logout",
-      allowedScopes: ['openid', 'profile', 'email', 'custom.read'],
-      branding: {
-        primaryColor: '#722ed1',
-        backgroundColor: '#f9f0ff',
-        logo: 'https://demo.example.com/logo.png'
-      },
-      features: {
-        autoRefresh: true,
-        rememberMe: true,
-        socialLogin: true,
-        passwordReset: true,
-        multiFactorAuth: false
-      },
-      security: {
-        requireHttps: true,
-        allowedDomains: ['example.com', 'demo.example.com'],
-        blockedDomains: [],
-        sessionTimeout: 1800
-      }
-    },
+    customConfig,
     onSuccess: (user, token, session) => {
       console.log('自定义配置认证成功:', { user, token, session })
     },

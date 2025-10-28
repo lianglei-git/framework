@@ -84,6 +84,15 @@ func (cts *CentralizedTokenService) RefreshAccessToken(req *TokenRefreshRequest)
 		}, err
 	}
 
+	// 1.1 验证全局session_id是否存在于sso_sessions表中
+	if err := cts.validateGlobalSessionID(sessionID); err != nil {
+		return &TokenRefreshResult{
+			Success:   false,
+			Error:     "session_not_found",
+			ErrorDesc: "Global session ID not found or invalid",
+		}, err
+	}
+
 	// 2. 获取完整的会话信息（单次查询优化）
 	session, err := cts.getSessionWithValidation(sessionID)
 	if err != nil {
@@ -199,6 +208,24 @@ func (cts *CentralizedTokenService) extractSessionIDFromToken(token string) (str
 	}
 
 	return "", errors.New("session_id not found in token")
+}
+
+// validateGlobalSessionID 验证全局session_id是否存在于sso_sessions表中
+func (cts *CentralizedTokenService) validateGlobalSessionID(sessionID string) error {
+	var count int64
+	err := cts.db.Model(&models.SSOSession{}).
+		Where("id = ? AND status = 'active'", sessionID).
+		Count(&count).Error
+
+	if err != nil {
+		return err
+	}
+
+	if count == 0 {
+		return errors.New("global session ID not found in sso_sessions table")
+	}
+
+	return nil
 }
 
 // getSessionWithValidation 获取并验证会话信息（优化查询）

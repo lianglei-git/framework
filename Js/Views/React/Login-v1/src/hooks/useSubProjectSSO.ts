@@ -4,6 +4,9 @@ import { getSubProjectConfig, SubProjectConfig } from '../config/subproject-inte
 import { type SSOToken, type SSOUser, type SSOSession, StorageType } from '../types'
 import {useAuth, useAuthEvents} from "./useAuth"
 import { storage } from '../utils'
+export {
+    setSSOConfig
+}
 
 
 
@@ -37,7 +40,6 @@ export interface UseSubProjectSSOResult {
     logout: () => Promise<void>
     refreshToken: () => Promise<void>
     getLoginUrl: (provider?: string) => string
-    handleCallback: () => Promise<void>
 
     // 工具方法
     isInCallback: () => boolean
@@ -79,7 +81,6 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         ...subProjectConfig,
         ...customConfig
     } as SubProjectConfig
-    setSSOConfig(finalConfig);
 
     const {authInfo, ssoService, user, token, isAuthenticated, ssoLogout} = useAuth();
     
@@ -91,7 +92,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
 
     // 数据
     const [session, setSession] = useState<SSOSession | null>(null)
-    const [config, setConfig] = useState<SubProjectConfig | null>(null)
+    const [config, setConfig] = useState<SubProjectConfig | null>(customConfig)
 
     // 初始化SSO服务
     const initialize = useCallback(async () => {
@@ -120,7 +121,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
             // ssoService.setCurrentProvider('local')
 
             // setSsoService(service)
-            setConfig(finalConfig)
+            // setConfig(finalConfig)
             setIsInitialized(true)
 
             console.log('子项目SSO服务初始化完成', { subProjectId, config: finalConfig })
@@ -198,7 +199,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         const loginUrl = await _buildLoginUrl();
 
         ssoLogout({
-            post_logout_redirect_uri: "http://localhost:3033?app_origin=true&redirect_uri="+loginUrl,
+            post_logout_redirect_uri: config.ssoHomeUrl + "?app_origin=true&redirect_uri="+loginUrl,
         });
         if (!ssoService) {
             throw new Error('SSO服务未初始化')
@@ -262,38 +263,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
     }, [ssoService])
 
 
-    // 处理回调
-    const handleCallback = useCallback(async () => {
-        if (!ssoService) {
-            throw new Error('SSO服务未初始化')
-        }
-
-        try {
-            setIsLoading(true)
-            setError(null)
-
-            // const result = await ssoService.handleCallback()
-            console.log("子项目回调结果: ", result)
-            if (result) {
-
-                
-                // 存储到storage中
-                localStorage.setItem(`${subProjectId}_user`, JSON.stringify(result.user))
-                localStorage.setItem(`${subProjectId}_token`, JSON.stringify(result.token))
-
-                setSession(result.session)
-          
-            }
-        } catch (err: any) {
-            const error = new Error(err.message || '回调处理失败')
-            setError(error)
-            onError?.(error)
-            console.error('回调处理失败:', err)
-        } finally {
-            setIsLoading(false)
-        }
-    }, [ssoService, onSuccess, onError])
-
+   
     useAuthEvents('login', (details) => {
         onSuccess?.(details.user, details.token, null)
     })
@@ -324,14 +294,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         }
     }, [autoInit, isInitialized, isLoading, initialize])
 
-    // 自动处理回调
-    // useEffect(() => {
-    //     if (isInitialized && ssoService && isInCallback() && error == null && !user) {
-    //         // handleCallback()
-    //         console.log('死循环！！')
-    //     }
-    // }, [isInitialized, ssoService, isInCallback, handleCallback])
-
+   
     return {
         // 状态
         isInitialized,
@@ -351,7 +314,6 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         logout,
         refreshToken,
         getLoginUrl,
-        handleCallback,
 
         // 工具方法
         isInCallback,

@@ -328,7 +328,7 @@ export const useAuth = () => {
             return
         }
         try {
-            authApi.ssoLogout({
+            ssoService.ssoLogout({
                 id_token_hint: token.id_token,
                 post_logout_redirect_uri: "http://localhost:3033",
                 state: "123",

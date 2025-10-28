@@ -29,6 +29,7 @@ import axios from 'axios'
 import queryString from '../../../../../utils/queryString'
 import apiClient from './axiosInterceptor'
 import { getGenresType } from '../utils/getGenresType'
+import { storage } from '../utils'
 
 // 基础配置 - 对接后端unit-auth服务
 const basicUrl = import.meta.env.DEV ? "http://localhost:8080" : "https://sparrowui.cn/translate"
@@ -64,11 +65,14 @@ export class ApiService {
         url: string,
         options: any = {}
     ): Promise<T> {
-        const token = localStorage.getItem('auth_token')
+        const token = storage.getToken()
+        const access_token = token?.access_token
+        console.log(access_token,"access_token")
+        debugger
         const headers = {
             ...this.defaultHeaders,
             ...options.headers,
-            ...(token && { Authorization: `Bearer ${token}` })
+            ...(token && { Authorization: `Bearer ${access_token}` })
         }
 
         const config = {
@@ -618,28 +622,29 @@ export class AuthApiService extends ApiService {
         })
     }
 
-    // 登出
-    async ssoLogout({ id_token_hint, post_logout_redirect_uri, state }: {
-        id_token_hint: string;
-        post_logout_redirect_uri: string;
-        state: string;
-    }, requestType = 'href') {
-        if (requestType == 'href') {
-            const querys = new URLSearchParams({
-                id_token_hint,
-                post_logout_redirect_uri,
-                state
-            })
-            const uri = `${this.baseURL}/api/v1/auth/oauth/logout?${querys.toString()}`
-            window.location.href = uri;
-            return;
-        }
-        return this.post(`/api/v1/auth/oauth/logout`, {
-            id_token_hint,
-        }, {
-            headers: getCommonHeaders()
-        })
-    }
+    // // 登出
+    // async ssoLogout({ id_token_hint, post_logout_redirect_uri, state }: {
+    //     id_token_hint: string;
+    //     post_logout_redirect_uri: string;
+    //     state: string;
+    // }, requestType = 'href') {
+    //     if (requestType == 'href') {
+    //         const querys = new URLSearchParams({
+    //             id_token_hint,
+    //             post_logout_redirect_uri,
+    //             state
+    //         })
+    //         debugger
+    //         const uri = `${this.baseURL}/api/v1/auth/oauth/logout?${querys.toString()}`
+    //         window.location.href = uri;
+    //         return;
+    //     }
+    //     return this.post(`/api/v1/auth/oauth/logout`, {
+    //         id_token_hint,
+    //     }, {
+    //         headers: getCommonHeaders()
+    //     })
+    // }
 
     // 微信登录相关
     async getWechatQRCode(): Promise<any> {

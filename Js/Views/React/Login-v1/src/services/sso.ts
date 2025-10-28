@@ -201,6 +201,8 @@ export class SSOService extends ApiService {
 
             // 检查session cookies并尝试自动登录
 
+            console.log(this.isInCallbackMode(),"this.isInCallbackMode()")
+            debugger
             // 处理SSO回调（如果有）
             if (this.isInCallbackMode()) {
                 console.log('检测到SSO回调，自动处理...')
@@ -216,6 +218,14 @@ export class SSOService extends ApiService {
                 } catch (error) {
                     console.error('SSO回调处理失败:', error)
                     alert(`登录失败: ${error.message}`)
+                }
+            }else {
+                // 如果登录有效
+                const { sessionId, appId } = this.getSessionFromCookies()
+                if (sessionId && appId) {
+                    console.log('SSO登录有效，跳过回调处理')
+                    handleSSOCallbackResult(storage.getAuth())
+                    return;
                 }
             }
 
@@ -359,9 +369,10 @@ export class SSOService extends ApiService {
      */
     async getOAuthURL(providerId: string, options: Partial<SSOAuthRequest> = {}): Promise<SSOOAuthUrlParams> {
         // 子项目使用中心服务开放接口
-        if (providerId == 'sub_job') {
-            return { auth_url: `${this.baseURL}/api/v1/auth/oauth/authorize?${new URLSearchParams(options).toString()}` }
-        }
+        // if (providerId == 'sub_job') {
+        //     return { auth_url: `${this.config.ssoServerUrl}/api/v1/auth/oauth/authorize?${new URLSearchParams(options).toString()}` }
+        // }
+        debugger
         const response = await this.get<SSOOAuthUrlParams>(`/api/v1/auth/oauth/${providerId}/url`, options)
 
         console.log('✅ 获取OAuth URL成功:', response.data)
@@ -1272,6 +1283,29 @@ export class SSOService extends ApiService {
         }
     }
 
+
+    // 登出
+    async ssoLogout({ id_token_hint, post_logout_redirect_uri, state }: {
+        id_token_hint: string;
+        post_logout_redirect_uri: string;
+        state: string;
+    }, requestType = 'href') {
+        if (requestType == 'href') {
+            const querys = new URLSearchParams({
+                id_token_hint,
+                post_logout_redirect_uri,
+                state
+            })
+            debugger
+            const uri = `${this.baseURL}/api/v1/auth/oauth/logout?${querys.toString()}`
+            window.location.href = uri;
+            return;
+        }
+        return this.post(`/api/v1/auth/oauth/logout`, {
+            id_token_hint,
+        })
+    }
+
     /**
      * 构建登出URL
      */
@@ -1335,27 +1369,167 @@ export class SSOService extends ApiService {
 
     /**
      * 刷新访问令牌
+     * 支持后端的refresh_token轮换机制
      */
     async refreshToken(refreshToken?: string): Promise<SSORefreshTokenResponse> {
-        const token = refreshToken || this.tokenManager.getRefreshToken()
+        debugger
+        try {
+            // 步骤1: 获取refresh_token
+            const token = refreshToken || this.tokenManager.getRefreshToken()
 
-        if (!token) {
-            throw new Error('No refresh token available')
+            if (!token) {
+                throw new Error('No refresh token available')
+            }
+
+            console.log('🔄 开始刷新token...')
+
+            // 步骤2: 构建请求参数
+            const refreshRequest: any = {
+                grant_type: 'refresh_token',
+                refresh_token: token,
+                client_id: this.config.clientId,
+                client_secret: this.config.clientSecret,
+                app_id: (this.config as any).appId || 'default' // 支持多应用场景，获取local_user_id
+            }
+
+            // 步骤3: 调用正确的token端点（与后端一致）
+            const tokenEndpoint = `${this.config.ssoServerUrl}/api/v1/auth/oauth/token`
+            console.log('📡 调用token端点:', tokenEndpoint)
+
+            const response = await this.post<any>(tokenEndpoint, refreshRequest)
+
+            console.log('✅ Token刷新成功:', {
+                has_access_token: !!response.access_token,
+                has_refresh_token: !!response.refresh_token,
+                expires_in: response.expires_in,
+                token_type: response.token_type
+            })
+
+            // 步骤4: 更新token到tokenManager（处理refresh_token轮换）
+            await this.tokenManager.setToken(response as SSOToken)
+
+            // 步骤5: 更新session信息（如果返回了）
+            if (response.session_info) {
+                console.log('📝 更新session信息')
+                await this.sessionManager.createSession(response.session_info)
+                
+                // 更新session cookie
+                this.setSessionCookie(response.session_info.session_id, (this.config as any).appId || 'centeral')
+            }
+
+            // 步骤6: 更新本地存储的认证信息
+            const auth = storage.getAuth()
+            if (auth) {
+                auth.token = response as any
+                // 如果返回了用户信息，也更新用户信息
+                if (response.user) {
+                    auth.user = response.user
+                }
+                storage.saveAuth(auth)
+                console.log('💾 本地认证信息已更新')
+            }
+
+            // 步骤7: 更新SSO数据存储
+            storage.saveSSOData({
+                token: response as any,
+                expires_at: Date.now() + (response.expires_in * 1000)
+            })
+
+            // 步骤8: 触发token刷新事件，通知应用
+            window.dispatchEvent(new CustomEvent('auth:token-refreshed', { 
+                detail: {
+                    access_token: response.access_token,
+                    refresh_token: response.refresh_token,
+                    expires_in: response.expires_in,
+                    user: response.user
+                }
+            }))
+
+            console.log('🎉 Token刷新流程完成')
+
+            return response as SSORefreshTokenResponse
+        } catch (error: any) {
+            console.error('❌ Token刷新失败:', error)
+            
+            const errorCode = error.response?.data?.error_code
+            const suggestAction = error.response?.data?.suggest_action
+            
+            // 处理可以通过session恢复的错误
+            if (errorCode === 'REFRESH_TOKEN_INVALID' || 
+                errorCode === 'TOKEN_HASH_MISMATCH' ||
+                errorCode === 'SESSION_NOT_FOUND') {
+                
+                console.log('⚠️ Refresh token无效，尝试使用session恢复登录...')
+                
+                const { sessionId } = this.getSessionFromCookies()
+                
+                if (sessionId && suggestAction === 'check_session') {
+                    try {
+                        const recovered = await this.recoverFromSession(sessionId)
+                        
+                        if (recovered) {
+                            console.log('✅ 通过session成功恢复登录')
+                            return recovered
+                        }
+                    } catch (recoverError) {
+                        console.warn('❌ Session恢复失败:', recoverError)
+                    }
+                }
+                
+                console.log('⚠️ 无法通过session恢复，需要重新登录')
+                await this.handleCompleteLogout('refresh_token_invalid_and_session_failed')
+                throw new Error('Unable to recover session, please login again')
+            }
+            
+            // Session已失效，直接登出
+            if (errorCode === 'SESSION_INACTIVE') {
+                await this.handleCompleteLogout('session_inactive')
+                throw new Error('Session is not active, please login again')
+            }
+            
+            throw error
         }
+    }
 
-        const refreshRequest: SSORefreshTokenRequest = {
-            refresh_token: token,
-            grant_type: 'refresh_token',
-            client_id: this.config.clientId,
-            client_secret: this.config.clientSecret
+    /**
+     * 通过session ID恢复登录
+     */
+    private async recoverFromSession(sessionId: string): Promise<any | null> {
+        try {
+            console.log('🔄 尝试通过session ID恢复登录:', sessionId)
+            
+            const sessionCheck = await this.post<any>('/api/v1/auth/oauth/session-check', {
+                session_id: sessionId,
+                app_id: (this.config as any).appId || 'default'
+            })
+            
+            if (sessionCheck.is_authenticated && sessionCheck.token) {
+                console.log('✅ Session有效，已获取新token')
+                await this.unifiedSaveLoginInfos(sessionCheck.token)
+                return sessionCheck.token
+            }
+            
+            return null
+        } catch (error) {
+            console.error('❌ Session恢复失败:', error)
+            return null
         }
+    }
 
-        const response = await this.post<SSORefreshTokenResponse>('/oauth/token', refreshRequest)
-
-        // 更新token
-        await this.tokenManager.setToken(response)
-
-        return response
+    /**
+     * 完整登出处理
+     */
+    private async handleCompleteLogout(reason: string): Promise<void> {
+        console.log(`🚪 执行完整登出，原因: ${reason}`)
+        
+        await this.tokenManager.clearTokens()
+        await this.sessionManager.destroySession()
+        storage.clearAuth()
+        this.clearSessionCookies()
+        
+        window.dispatchEvent(new CustomEvent('auth:logout', { 
+            detail: { reason, message: 'Please login again' }
+        }))
     }
 
     /**

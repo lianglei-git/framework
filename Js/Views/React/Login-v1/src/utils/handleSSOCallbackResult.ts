@@ -10,7 +10,6 @@ const getSubAppInfoForSessionStorage = () => {
 
 // 处理SSO回调结果
 export const handleSSOCallbackResult = async (result: any) => {
-    console.log('SSO登录成功:', result)
 
     const { app_redirect_uri, appid, origin_app_uri } = getSubAppInfoForSessionStorage()
 

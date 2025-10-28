@@ -139,7 +139,7 @@ type SSOSession struct {
 
 	// Token管理（中心化架构）
 	CurrentAccessTokenHash string `json:"current_access_token_hash" gorm:"type:varchar(256)"`
-	RefreshTokenHash       string `json:"refresh_token_hash" gorm:"not null;type:varchar(256)"`
+	RefreshTokenHash       string `json:"refresh_token_hash" gorm:"not null;type:varchar(256);index:idx_refresh_token_hash"`
 
 	// 状态管理
 	Status        string     `json:"status" gorm:"default:'active';type:varchar(20)"`
@@ -176,7 +176,7 @@ type TokenBlacklist struct {
 type TokenRefreshLogs struct {
 	ID uint `json:"id" gorm:"primaryKey;autoIncrement"`
 	// SessionID        string    `json:"session_id" gorm:"column:session_id;not null;index;type:varchar(128);constraint:fk_token_refresh_logs_session:OnUpdate:CASCADE,OnDelete:CASCADE"`
-	SessionID        string    `json:"session_id" gorm:"not null;type:varchar(128)`
+	SessionID        string    `json:"session_id" gorm:"not null;type:varchar(128)"`
 	UserID           string    `json:"user_id" gorm:"not null;index;type:varchar(64)"`
 	AppID            string    `json:"app_id" gorm:"not null;index;type:varchar(64)"`
 	OldTokenHash     string    `json:"old_token_hash" gorm:"type:varchar(256)"`

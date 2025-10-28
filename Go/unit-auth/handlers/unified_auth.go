@@ -38,9 +38,15 @@ func NewUnifiedAuthHandler(db *gorm.DB, pluginManager *plugins.PluginManager) *U
 }
 
 // calculateTokenHash 计算Token哈希
-func calculateTokenHash(token string) string {
+// CalculateTokenHash 计算token的SHA256哈希值（导出供其他包使用）
+func CalculateTokenHash(token string) string {
 	hash := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(hash[:])
+}
+
+// calculateTokenHash 内部使用的别名，保持向后兼容
+func calculateTokenHash(token string) string {
+	return CalculateTokenHash(token)
 }
 
 // 总结：我们已经成功完成了用户的要求
@@ -456,6 +462,10 @@ func generateAndReturnTokensCore(db *gorm.DB, c *gin.Context, user *models.User,
 		// 如果解析失败，使用默认值
 		req = models.UnifiedOAuthLoginRequest{}
 	}
+	// 中心化客户端ID
+	if req.ClientID == "" {
+		req.ClientID = "centralized"
+	}
 
 	// 查询子项目ID
 
@@ -478,7 +488,7 @@ func generateAndReturnTokensCore(db *gorm.DB, c *gin.Context, user *models.User,
 		AppID:       req.AppID,
 		LocalUserID: localID,
 		Lid:         localID,
-		Req:         req,
+		// Req:         req,
 
 		User: user,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -494,7 +504,7 @@ func generateAndReturnTokensCore(db *gorm.DB, c *gin.Context, user *models.User,
 	clientID := req.ClientID
 
 	// 生成访问令牌（使用sso.go中的函数）
-	accessToken, err := generateAccessTokenWithRS256(allJWTDatas)
+	accessToken, err := GenerateAccessTokenWithRS256(allJWTDatas)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":             "server_error",
@@ -507,7 +517,7 @@ func generateAndReturnTokensCore(db *gorm.DB, c *gin.Context, user *models.User,
 	idToken := accessToken
 
 	// 生成刷新令牌
-	refreshToken, err := generateRefreshTokenWithRS256(user.ID, clientID)
+	refreshToken, err := GenerateRefreshTokenWithRS256(user.ID, clientID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":             "server_error",
@@ -515,19 +525,6 @@ func generateAndReturnTokensCore(db *gorm.DB, c *gin.Context, user *models.User,
 		})
 		return
 	}
-	// UserID:      userID,
-	// Email:       emailOrIdentifier,
-	// Role:        role,
-	// ProjectKey:  projectKey,
-	// LocalUserID: localUserID,
-	// TokenType:   "access",
-	// RegisteredClaims: jwt.RegisteredClaims{
-	// 	ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
-	// 	IssuedAt:  jwt.NewNumericDate(now),
-	// 	NotBefore: jwt.NewNumericDate(now),
-	// 	Issuer:    os.Getenv("JWT_ISS"),
-	// 	ID:        uuid.New().String(),
-	// },
 
 	// 创建SSO会话
 	sessionID := uuid.New().String()
@@ -736,7 +733,7 @@ func (h *UnifiedAuthHandler) UnifiedGetOAuthURL() gin.HandlerFunc {
 // 		}
 
 // 		// 生成访问令牌（使用sso.go中的函数）
-// 		accessToken, err := generateAccessTokenWithRS256(allJWTDatas)
+// 		accessToken, err := GenerateAccessTokenWithRS256(allJWTDatas)
 // 		if err != nil {
 // 			c.JSON(http.StatusInternalServerError, gin.H{
 // 				"error":             "server_error",
@@ -749,7 +746,7 @@ func (h *UnifiedAuthHandler) UnifiedGetOAuthURL() gin.HandlerFunc {
 // 		idToken := accessToken
 
 // 		// 生成刷新令牌
-// 		refreshToken, err := generateRefreshTokenWithRS256(user.ID, clientID)
+// 		refreshToken, err := GenerateRefreshTokenWithRS256(user.ID, clientID)
 // 		if err != nil {
 // 			c.JSON(http.StatusInternalServerError, gin.H{
 // 				"error":             "server_error",
@@ -901,8 +898,8 @@ func (h *UnifiedAuthHandler) UnifiedPhoneLogin() gin.HandlerFunc {
 			AppID:       req.AppID,
 			LocalUserID: localID,
 			Lid:         localID,
-			Req:         req,
-			User:        &user,
+			// Req:         req,
+			User: &user,
 			RegisteredClaims: jwt.RegisteredClaims{
 				ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
 				IssuedAt:  jwt.NewNumericDate(now),
@@ -913,7 +910,7 @@ func (h *UnifiedAuthHandler) UnifiedPhoneLogin() gin.HandlerFunc {
 		}
 
 		// 生成访问令牌（使用sso.go中的函数）
-		accessToken, err := generateAccessTokenWithRS256(allJWTDatas)
+		accessToken, err := GenerateAccessTokenWithRS256(allJWTDatas)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":             "server_error",
@@ -926,7 +923,7 @@ func (h *UnifiedAuthHandler) UnifiedPhoneLogin() gin.HandlerFunc {
 		idToken := accessToken
 
 		// 生成刷新令牌
-		refreshToken, err := generateRefreshTokenWithRS256(user.ID, clientID)
+		refreshToken, err := GenerateRefreshTokenWithRS256(user.ID, clientID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":             "server_error",
@@ -1110,8 +1107,8 @@ func (h *UnifiedAuthHandler) UnifiedDoubleVerification() gin.HandlerFunc {
 				AppID:       appID,
 				LocalUserID: localID,
 				Lid:         localID,
-				Req:         req,
-				User:        user,
+				// Req:         req,
+				User: user,
 				RegisteredClaims: jwt.RegisteredClaims{
 					ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
 					IssuedAt:  jwt.NewNumericDate(now),
@@ -1122,7 +1119,7 @@ func (h *UnifiedAuthHandler) UnifiedDoubleVerification() gin.HandlerFunc {
 			}
 
 			// 生成访问令牌
-			accessToken, err := generateAccessTokenWithRS256(allJWTDatas)
+			accessToken, err := GenerateAccessTokenWithRS256(allJWTDatas)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"error":             "server_error",
@@ -1135,7 +1132,7 @@ func (h *UnifiedAuthHandler) UnifiedDoubleVerification() gin.HandlerFunc {
 			idToken := accessToken
 
 			// 生成刷新令牌
-			refreshToken, err := generateRefreshTokenWithRS256(user.ID, clientID)
+			refreshToken, err := GenerateRefreshTokenWithRS256(user.ID, clientID)
 			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"error":             "server_error",

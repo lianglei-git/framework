@@ -99,7 +99,7 @@ type RS256TokenClaims struct {
 	Lid              string `json:"lid,omitempty"`
 	RegisteredClaims jwt.RegisteredClaims
 	User             *models.User
-	Req              models.UnifiedOAuthLoginRequest
+	// Req              models.UnifiedOAuthLoginRequest
 }
 
 // JWKSet JSON Web Key Set
@@ -584,7 +584,7 @@ func GetOAuthToken(db *gorm.DB) gin.HandlerFunc {
 		case "authorization_code":
 			handleAuthorizationCodeGrant(c, db, req.Code, req.RedirectURI, req.ClientID, req.ClientSecret, req)
 		case "refresh_token":
-			handleRefreshTokenGrant(c, db, req.RefreshToken, req.ClientID, req.ClientSecret)
+			handleRefreshTokenGrant(c, db, req)
 		case "password":
 			handlePasswordGrant(c, db, req.Username, req.Password, req.ClientID, req.ClientSecret)
 		case "code_verifier":
@@ -626,7 +626,7 @@ func handleAuthorizationCodeGrant(c *gin.Context, db *gorm.DB, code, redirectURI
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant", "error_description": err.Error()})
 			return
 		}
-		generateTokensFromClaims(c, db, claims, clientID, clientSecret, "double_verification")
+		generateTokensFromClaims(c, db, claims, clientID, clientSecret, "double_verification", req)
 	} else {
 		// 标准OIDC模式：验证授权码（从数据库）
 		claims, err := validateAuthorizationCode(db, code, clientID, redirectURI)
@@ -646,14 +646,18 @@ func handleAuthorizationCodeGrant(c *gin.Context, db *gorm.DB, code, redirectURI
 			}
 		}
 
-		generateTokensFromClaims(c, db, claims, clientID, clientSecret, "authorization_code")
+		generateTokensFromClaims(c, db, claims, clientID, clientSecret, "authorization_code", req)
 	}
 }
 
-// generateTokensFromClaims 从JWT声明生成令牌
-func generateTokensFromClaims(c *gin.Context, db *gorm.DB, claims jwt.MapClaims, clientID, clientSecret, grantType string) {
+// generateTokensFromClms 从JWT声明生成令牌
+func generateTokensFromClaims(c *gin.Context, db *gorm.DB, claims jwt.MapClaims, clientID, clientSecret, grantType string, req OAuthTokenRequest) {
 	// 获取用户信息
 	sub, ok := claims["sub"].(string)
+	sessionID := claims["jti"].(string)
+	sessionExpiresAt := claims["exp"].(int64)
+	lastActivity := claims["iat"].(int64)
+
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Invalid user ID in token"})
 		return
@@ -671,13 +675,15 @@ func generateTokensFromClaims(c *gin.Context, db *gorm.DB, claims jwt.MapClaims,
 	userAgent := c.GetHeader("User-Agent")
 	user.UpdateLoginInfo(ip, userAgent)
 
+	// 子应用web请求接口，中间件监测到token已经过期，需要重新生成token，告诉前端重新请求新的token
+
 	// 保存到数据库
 	if err := db.Save(&user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to update user info"})
 		return
 	}
 
-	// 记录登录日志
+	// // 记录登录日志
 	loginLog := models.LoginLog{
 		UserID:    user.ID,
 		Provider:  grantType,
@@ -690,44 +696,76 @@ func generateTokensFromClaims(c *gin.Context, db *gorm.DB, claims jwt.MapClaims,
 		fmt.Printf("Failed to record login log: %v\n", err)
 	}
 
-	// 生成访问令牌
-	accessToken, err := generateAccessTokenWithRS256(&RS256TokenClaims{
+	localID := ""
+	if req.AppID != "" {
+		var pm models.ProjectMapping
+		if err := db.Where("project_name = ? AND user_id = ?", req.AppID, user.ID).First(&pm).Error; err == nil {
+			localID = pm.LocalUserID
+		}
+	}
+
+	now := time.Now()
+	allJWTDatas := &RS256TokenClaims{
 		ClientID:    clientID,
 		UserID:      user.ID,
 		Email:       *user.Email,
 		Role:        user.Role,
-		AppID:       "", // 可以从claims中获取
-		LocalUserID: "",
-		Lid:         "",
-		User:        &user,
+		AppID:       req.AppID,
+		LocalUserID: localID,
+		Lid:         localID,
+		// Req:         req,
+
+		User: &user,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			NotBefore: jwt.NewNumericDate(time.Now()),
-			Issuer:    config.AppConfig.ServerHost,
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			Issuer:    os.Getenv("JWT_ISS"),
 			ID:        uuid.New().String(),
 		},
-	})
+	}
+
+	// // 生成访问令牌
+	accessToken, err := GenerateAccessTokenWithRS256(allJWTDatas)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to generate access token"})
 		return
 	}
 
-	// 生成刷新令牌
-	refreshToken, err := generateRefreshTokenWithRS256(user.ID, clientID)
+	// // 生成刷新令牌
+	refreshToken, err := GenerateRefreshTokenWithRS256(user.ID, clientID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to generate refresh token"})
 		return
 	}
 
-	// 返回OAuth 2.0标准响应
+	calculateAccessTokenHash := calculateTokenHash(accessToken)
+	calculateRefreshTokenHash := calculateTokenHash(refreshToken)
+
+	// 更新session中的tokenhash
+	if err := db.Model(&models.SSOSession{}).Where("id = ?", sessionID).Update("current_access_token_hash", calculateAccessTokenHash).Update("refresh_token_hash", calculateRefreshTokenHash).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to update session token hash"})
+		return
+	}
+	// // 返回OAuth 2.0标准响应
 	response := gin.H{
 		"access_token":  accessToken,
 		"id_token":      accessToken,
+		"refresh_token": refreshToken,
 		"token_type":    "Bearer",
 		"expires_in":    3600,
-		"refresh_token": refreshToken,
-		"scope":         "openid profile email",
+		"scope":         "openid profile email phone",
+		"user":          user.ToResponse(),
+		"provider":      "centralized",
+		"session_id":    sessionID,
+		"session_info": gin.H{
+			"session_id":     sessionID,
+			"start_time":     time.Now(),
+			"last_activity":  lastActivity,
+			"expires_at":     sessionExpiresAt,
+			"current_app_id": req.AppID,
+			"events":         []string{"login"},
+		},
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -776,8 +814,8 @@ func validateAuthorizationCode(db *gorm.DB, code, clientID, redirectURI string) 
 	return claims, nil
 }
 
-// 生成RSA签名的访问令牌
-func generateAccessTokenWithRS256(allJWTDatas *RS256TokenClaims) (string, error) {
+// GenerateAccessTokenWithRS256 生成RSA签名的访问令牌（导出供其他包使用）
+func GenerateAccessTokenWithRS256(allJWTDatas *RS256TokenClaims) (string, error) {
 	initRSAKeys()
 
 	// 确保RSA私钥已初始化
@@ -790,11 +828,11 @@ func generateAccessTokenWithRS256(allJWTDatas *RS256TokenClaims) (string, error)
 		"sub": allJWTDatas.UserID,
 		"aud": allJWTDatas.ClientID,
 		// jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour))
-		"exp":           time.Now().Add(1 * time.Hour).Unix(),
-		"iat":           time.Now().Unix(),
-		"jti":           uuid.New().String(),
+		"exp":           allJWTDatas.RegisteredClaims.ExpiresAt.Unix(),
+		"iat":           allJWTDatas.RegisteredClaims.IssuedAt.Unix(),
+		"jti":           allJWTDatas.RegisteredClaims.ID,
 		"local_user_id": allJWTDatas.LocalUserID,
-		"lid":           allJWTDatas.LocalUserID,
+		"lid":           allJWTDatas.Lid,
 		"role":          allJWTDatas.Role,
 		"app_id":        allJWTDatas.AppID,
 	}
@@ -808,8 +846,8 @@ func generateAccessTokenWithRS256(allJWTDatas *RS256TokenClaims) (string, error)
 	return signedToken, nil
 }
 
-// 生成RSA签名的刷新令牌
-func generateRefreshTokenWithRS256(userID, audience string) (string, error) {
+// GenerateRefreshTokenWithRS256 生成RSA签名的刷新令牌（导出供其他包使用）
+func GenerateRefreshTokenWithRS256(userID, audience string) (string, error) {
 	initRSAKeys()
 
 	// 确保RSA私钥已初始化
@@ -864,7 +902,7 @@ func TestTokenGeneration() error {
 	fmt.Println("🧪 测试令牌生成和验证...")
 
 	// 测试访问令牌生成
-	accessToken, err := generateAccessTokenWithRS256(&RS256TokenClaims{})
+	accessToken, err := GenerateAccessTokenWithRS256(&RS256TokenClaims{})
 	if err != nil {
 		return fmt.Errorf("failed to generate access token: %v", err)
 	}
@@ -1165,22 +1203,117 @@ func isValidRedirectURI(requestedURI, allowedURIs string) bool {
 }
 
 // 构建查询字符串
-func buildQueryString(params map[string]string) string {
-	values := make([]string, 0, len(params))
-	for key, value := range params {
-		values = append(values, key+"="+value)
+// func buildQueryString(params map[string]string) string {
+// 	values := make([]string, 0, len(params))
+// 	for key, value := range params {
+// 		values = append(values, key+"="+value)
+// 	}
+// 	return strings.Join(values, "&")
+// }
+
+// cleanupInvalidTokenHash 清理无效的token hash
+func cleanupInvalidTokenHash(db *gorm.DB, userID, clientID string) {
+	err := db.Model(&models.SSOSession{}).
+		Where("user_id = ? AND client_id = ?", userID, clientID).
+		Updates(map[string]interface{}{
+			"refresh_token_hash":        "",
+			"current_access_token_hash": "",
+		}).Error
+
+	if err != nil {
+		log.Printf("❌ 清理token hash失败: %v", err)
+	} else {
+		log.Printf("✅ 已清理用户 %s 的无效token hash", userID)
 	}
-	return strings.Join(values, "&")
 }
 
 // 处理刷新令牌
-func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, refreshToken, clientID, clientSecret string) {
+// 刷新token的逻辑
+// SSO 体系中会创建两种不同的 Session，分别在中心登录系统登录时和子系统首次验证时创建，二者功能不同且相互关联，并非只在某一处创建
+/**
+1. 中心登录系统：创建 “全局 Session”（核心）
+创建时机： 仅在用户通过中心登录系统（SSO Server）完成首次登录（如输入账号密码验证通过）时创建。
+存储位置：存储在 SSO 服务器端，而非用户客户端或子系统。
+核心作用：
+	标记用户在整个 SSO 体系中的 “全局登录状态”，是子系统获取登录权限的基础。
+	关联用户身份信息（如用户 ID、权限范围）和全局有效期（如 2 小时），后续滑动续签、登出操作均围绕全局 Session 展开。
+
+2. 子系统：创建 “本地 Session”
+创建时机： 在用户首次访问子系统（如应用 A、B）时创建。
+存储位置：存储在子系统服务器端。
+核心作用：
+	标记用户在特定子系统中的 “本地登录状态”，是用户在该子系统内访问资源的通行证。
+	关联用户身份信息（如用户 ID、权限范围）和本地有效期（如 1 小时），后续滑动续签、登出操作均围绕本地 Session 展开。
+	与全局 Session 关联，确保用户在不同子系统间的登录状态一致。
+
+3. 关联关系
+	用户首次登录 SSO，SSO 创建全局 Session，并生成临时授权凭证（如 Ticket）。
+	用户访问子系统时，子系统携带授权凭证向 SSO 验证，SSO 确认全局 Session 有效后，返回用户身份信息。
+	子系统基于该身份信息，创建自己的局部 Session，用户后续在子系统内操作时，直接验证局部 Session 即可。
+	若全局 Session 失效（如超时、用户登出），所有子系统的局部 Session 会在下次验证时同步失效，强制用户重新登录 SSO。
+
+4. 子系统持有 “关联凭证” 而非全局 Session ID
+用户通过 SSO 登录后，SSO 服务器会向子系统发放一个授权凭证（如access_token或code），该凭证与全局 Session ID 存在映射关系（存储在 SSO 服务器端）。
+子系统将这个授权凭证存储在自己的前端（如 Cookie 或 localStorage），作为后续通信的 “钥匙”。
+
+
+登录阶段：
+用户在 SSO 服务器登录，SSO 创建全局 Session（ID：G123），并在自己的 Cookie 中存储G123。
+SSO 向子系统发放授权凭证T456（后端记录T456 → G123的映射）。
+子系统将T456存储在自己的前端（如https://app1.com的 Cookie）。
+续签阶段：
+子系统检测到T456即将过期，前端将T456发送给子系统后端（或直接调用 SSO 的/refresh接口）。
+SSO 服务器收到T456，通过后端映射找到G123，验证全局 Session 有效后，延长G123的有效期，并生成新凭证T789（映射关系更新为T789 → G123）。
+子系统接收T789并替换本地的T456，完成续签。
+
+refresh_token的续签（轮换）机制
+基本逻辑当使用refresh_token获取新的access_token时，SSO 服务器不仅返回新的access_token，还会同时返回一个新的refresh_token，并使旧的refresh_token失效。
+新refresh_token的有效期通常从当前时间重新计算（如保持 7 天有效期）。
+旧refresh_token立即或在短时间内（如 5 分钟）失效，防止重复使用。
+与全局会话的关联新refresh_token仍与原全局会话（session id）绑定，延续用户的登录状态。只有当全局会话失效（如超时、用户登出）时，refresh_token的轮换才会失败。
+流程示例
+初始登录：SSO 返回access_token（30 分钟）和refresh_token（7 天，记为RT1）。
+首次续签：子应用用RT1请求续签，SSO 返回新access_token和新refresh_token（RT2），RT1失效。
+二次续签：子应用用RT2请求续签，SSO 返回新access_token和RT3，RT2失效。
+以此类推，每次续签都生成新的refresh_token，形成 “轮换链”。
+
+
+子系统中的 session id（局部 session id）依然有重要作用，它和 SSO 的全局 session、refresh token 是分工明确的三层机制，缺一不可。子系统的局部 session id 主要解决 “性能优化” 和 “子系统专属状态管理” 的问题，具体价值如下
+
+*/
+func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest) {
+	// 验证刷新令牌
+	clientID := req.ClientID
+	clientSecret := req.ClientSecret
+	refreshToken := req.RefreshToken
+
 	// 验证刷新令牌
 	claims, err := validateAccessToken(refreshToken)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant", "error_description": "Invalid refresh token"})
+		log.Printf("⚠️ Refresh token无效，尝试清理数据: %v", err)
+		// 尝试从claims中获取userID进行清理
+		if claims != nil {
+			if userID, ok := claims["sub"].(string); ok {
+				cleanupInvalidTokenHash(db, userID, clientID)
+			}
+		}
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_grant",
+			"error_description": "Refresh token is invalid or expired",
+			"error_code":        "REFRESH_TOKEN_INVALID",
+			"suggest_action":    "check_session",
+		})
 		return
 	}
+
+	log.Println("claims: ", claims)
+
+	isUpdateRefreshToken := true
+	// 如果小于100分钟到期的情况下，则需要重新刷新refreshToken
+	if int64(claims["exp"].(float64)) < time.Now().Unix()+6000 {
+		isUpdateRefreshToken = true
+	}
+	userID := claims["sub"].(string)
 
 	// 验证客户端
 	var client SSOClient
@@ -1188,20 +1321,130 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, refreshToken, clientID
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_client", "error_description": "Invalid client credentials"})
 		return
 	}
+	var user models.User
+	if err := db.Where("id = ?", userID).First(&user).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant", "error_description": "Invalid user"})
+		return
+	}
 
+	localID := ""
+	if req.AppID != "" {
+		var pm models.ProjectMapping
+		if err := db.Where("project_name = ? AND user_id = ?", req.AppID, user.ID).First(&pm).Error; err == nil {
+			localID = pm.LocalUserID
+		}
+	}
+
+	now := time.Now()
+	allJWTDatas := &RS256TokenClaims{
+		ClientID:    clientID,
+		UserID:      userID,
+		Email:       *user.Email,
+		Role:        user.Role,
+		AppID:       req.AppID,
+		LocalUserID: localID,
+		Lid:         localID,
+		// Req:         req,
+
+		User: &user,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			Issuer:    os.Getenv("JWT_ISS"),
+			ID:        uuid.New().String(),
+		},
+	}
 	// 生成新的访问令牌
-	// accessToken, err := generateAccessTokenWithRS256(claims["sub"].(string), claims["aud"].(string))
-	accessToken, err := generateAccessTokenWithRS256(&RS256TokenClaims{})
+	accessToken, err := GenerateAccessTokenWithRS256(allJWTDatas)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to generate access token"})
 		return
 	}
 
+	if isUpdateRefreshToken {
+		log.Println("需要重新 刷新refreshToken")
+
+		// 计算 refresh_token 的 hash
+		calculateRefreshTokenHash := calculateTokenHash(refreshToken)
+
+		// 直接用 refresh_token_hash 查询（唯一条件）
+		var session models.SSOSession
+		if err := db.Where("refresh_token_hash = ? AND status = ? AND expires_at > ?",
+			calculateRefreshTokenHash, "active", time.Now()).First(&session).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				log.Printf("⚠️ Refresh token hash不存在或session已失效")
+				// 清理可能存在的无效数据
+				cleanupInvalidTokenHash(db, userID, clientID)
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error":             "invalid_grant",
+					"error_description": "Refresh token not found or session expired",
+					"error_code":        "TOKEN_HASH_MISMATCH",
+					"suggest_action":    "check_session",
+				})
+				return
+			}
+			log.Printf("❌ 查询session失败: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":             "server_error",
+				"error_description": "Failed to get session",
+			})
+			return
+		}
+
+		// 验证 session 是否属于当前用户（安全检查）
+		if session.UserID != userID {
+			log.Printf("⚠️ Refresh token的用户ID与session不匹配: token_user=%s, session_user=%s", userID, session.UserID)
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":             "invalid_grant",
+				"error_description": "Token user mismatch",
+				"error_code":        "TOKEN_USER_MISMATCH",
+				"suggest_action":    "relogin",
+			})
+			return
+		}
+
+		log.Printf("✅ 找到有效session: id=%s, user=%s, client=%s", session.ID, session.UserID, session.ClientID)
+
+		// 生成新的 refresh_token
+		newRefreshToken, err := GenerateRefreshTokenWithRS256(userID, clientID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":             "server_error",
+				"error_description": "Failed to generate refresh token",
+			})
+			return
+		}
+
+		// 更新 session 中的 refresh_token_hash
+		newRefreshTokenHash := calculateTokenHash(newRefreshToken)
+		session.RefreshTokenHash = newRefreshTokenHash
+		if err := db.Save(&session).Error; err != nil {
+			log.Printf("❌ 更新session的refresh_token_hash失败: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":             "server_error",
+				"error_description": "Failed to update session",
+			})
+			return
+		}
+
+		log.Printf("✅ 已轮换refresh_token并更新session: id=%s, new_hash=%s", session.ID, newRefreshTokenHash[:16]+"...")
+
+		// 使用新的 refresh_token
+		refreshToken = newRefreshToken
+
+	}
+
+	// // 返回OAuth 2.0标准响应
 	response := gin.H{
-		"access_token": accessToken,
-		"token_type":   "Bearer",
-		"expires_in":   3600,
-		"scope":        claims["scope"],
+		"access_token":  accessToken,
+		"id_token":      accessToken,
+		"refresh_token": refreshToken,
+		"token_type":    "Bearer",
+		"expires_in":    3600,
+		"scope":         "openid profile email phone",
+		"user":          user.ToResponse(),
+		"provider":      "centralized",
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -1265,16 +1508,22 @@ func handlePasswordGrant(c *gin.Context, db *gorm.DB, username, password, client
 	if err := db.Create(&loginLog).Error; err != nil {
 		fmt.Printf("Failed to record login log: %v\n", err)
 	}
-
+	// 验证刷新令牌
+	var req OAuthTokenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "Request body must be valid JSON"})
+		return
+	}
+	allJWTDatas := &RS256TokenClaims{}
 	// 生成访问令牌
-	accessToken, err := generateAccessTokenWithRS256(&RS256TokenClaims{})
+	accessToken, err := GenerateAccessTokenWithRS256(allJWTDatas)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to generate access token"})
 		return
 	}
 
 	// 生成刷新令牌
-	refreshToken, err := generateRefreshTokenWithRS256(user.ID, clientID)
+	refreshToken, err := GenerateRefreshTokenWithRS256(user.ID, clientID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to generate refresh token"})
 		return
@@ -1302,7 +1551,7 @@ func handleClientCredentialsGrant(c *gin.Context, db *gorm.DB, clientID, clientS
 	}
 
 	// 生成访问令牌（客户端凭据模式通常不需要刷新令牌）
-	accessToken, err := generateAccessTokenWithRS256(&RS256TokenClaims{})
+	accessToken, err := GenerateAccessTokenWithRS256(&RS256TokenClaims{})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to generate access token"})
 		return
@@ -1629,14 +1878,14 @@ func handleCodeVerifierGrant(c *gin.Context, db *gorm.DB, code, clientID, client
 	}
 
 	// 生成访问令牌
-	accessToken, err := generateAccessTokenWithRS256(&RS256TokenClaims{})
+	accessToken, err := GenerateAccessTokenWithRS256(&RS256TokenClaims{})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to generate access token"})
 		return
 	}
 
 	// 生成刷新令牌
-	refreshToken, err := generateRefreshTokenWithRS256(user.ID, clientID)
+	refreshToken, err := GenerateRefreshTokenWithRS256(user.ID, clientID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to generate refresh token"})
 		return

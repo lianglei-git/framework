@@ -50,7 +50,6 @@ const setSubAppInfoForSessionStorage = () => {
       console.log("无法识别内容")
       return;
     }
-    debugger
     localStorage.setItem("origin_app_uri", window.location.search.slice(index + fixedLen))
     return
   }
