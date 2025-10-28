@@ -20,6 +20,7 @@ type UnifiedOAuthLoginRequest struct {
 	InternalAuth       string `json:"internal_auth,omitempty"`
 	DoubleVerification string `json:"double_verification,omitempty"`
 	ClientID           string `json:"client_id,omitempty"`
+	DeviceID           string `json:"device_id,omitempty"` // 设备唯一标识（前端生成）
 
 	// 本地登录参数
 	Username string `json:"username,omitempty"`

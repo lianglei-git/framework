@@ -84,7 +84,10 @@ export class SSOService extends ApiService {
      */
     private detectCurrentAppId(): void {
         const urlParams = new URLSearchParams(window.location.search)
-        const appId = urlParams.get('appid') || urlParams.get('app_id') || 'default'
+        let appId = urlParams.get('appid') || urlParams.get('app_id');
+        if (!appId) {
+            appId = this.config.id;
+        }
 
         // 存储应用ID用于后续使用
         this.config.appId = appId
@@ -201,8 +204,6 @@ export class SSOService extends ApiService {
 
             // 检查session cookies并尝试自动登录
 
-            console.log(this.isInCallbackMode(),"this.isInCallbackMode()")
-            debugger
             // 处理SSO回调（如果有）
             if (this.isInCallbackMode()) {
                 console.log('检测到SSO回调，自动处理...')
@@ -372,7 +373,6 @@ export class SSOService extends ApiService {
         // if (providerId == 'sub_job') {
         //     return { auth_url: `${this.config.ssoServerUrl}/api/v1/auth/oauth/authorize?${new URLSearchParams(options).toString()}` }
         // }
-        debugger
         const response = await this.get<SSOOAuthUrlParams>(`/api/v1/auth/oauth/${providerId}/url`, options)
 
         console.log('✅ 获取OAuth URL成功:', response.data)
@@ -884,6 +884,12 @@ export class SSOService extends ApiService {
      * @param appId 应用ID
      */
     private setSessionCookie(sessionId: string, appId: string): void {
+        console.log("setSessionCookie", sessionId, appId)
+        if(appId !== 'centralized') {
+            // 如果不是centralized，则不设置cookie
+            console.log("不是centralized，不设置cookie")
+            return;
+        }
         try {
             // 设置session_id cookie，有效期为会话期间
             document.cookie = `sso_session_id=${sessionId}; path=/; SameSite=Lax; Secure=${window.location.protocol === 'https:'}`
@@ -1131,7 +1137,7 @@ export class SSOService extends ApiService {
         if (response.session_info) {
             session = await this.sessionManager.createSession(response.session_info)
             // 将session_id设置到cookie中，用于后续会话保持和自动登录
-            this.setSessionCookie(response.session_info.session_id, 'centeral')
+            this.setSessionCookie(response.session_info.session_id, this.config.appId)
         }
 
         // 获取用户信息
@@ -1296,7 +1302,6 @@ export class SSOService extends ApiService {
                 post_logout_redirect_uri,
                 state
             })
-            debugger
             const uri = `${this.baseURL}/api/v1/auth/oauth/logout?${querys.toString()}`
             window.location.href = uri;
             return;
@@ -1372,7 +1377,6 @@ export class SSOService extends ApiService {
      * 支持后端的refresh_token轮换机制
      */
     async refreshToken(refreshToken?: string): Promise<SSORefreshTokenResponse> {
-        debugger
         try {
             // 步骤1: 获取refresh_token
             const token = refreshToken || this.tokenManager.getRefreshToken()
@@ -1414,7 +1418,7 @@ export class SSOService extends ApiService {
                 await this.sessionManager.createSession(response.session_info)
                 
                 // 更新session cookie
-                this.setSessionCookie(response.session_info.session_id, (this.config as any).appId || 'centeral')
+                this.setSessionCookie(response.session_info.session_id, (this.config as any).appId)
             }
 
             // 步骤6: 更新本地存储的认证信息
@@ -1995,6 +1999,8 @@ export function createDefaultSSOConfig(): SSOConfig {
         redirectUri: "http://localhost:3033",
         scope: ['openid', 'profile', 'email'],
         responseType: 'code',
+        // 默认应用ID
+        id: 'centralized',
         grantType: 'authorization_code',
         sessionTimeout: 3600,
         autoRefresh: true,

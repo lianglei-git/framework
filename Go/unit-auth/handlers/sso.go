@@ -490,36 +490,79 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 		// 用户已登录，生成授权码
 		authorizationCode := generateAuthorizationCode(clientID, userID, redirectURI, scope, codeChallenge, codeChallengeMethod)
 
-		// 保存授权码到数据库
-		sessionID = uuid.New().String()
+		// 保存授权码到数据库（支持设备去重）
 		expiresAt := time.Now().Add(10 * time.Minute) // 10分钟过期，与授权码一致
 		ip := c.ClientIP()
 		userAgent := c.GetHeader("User-Agent")
 
-		// 更新现有的 ssoSession 记录
-		ssoSession.ID = sessionID
-		ssoSession.AuthorizationCode = authorizationCode
-		ssoSession.CodeChallenge = codeChallenge
-		ssoSession.CodeChallengeMethod = codeChallengeMethod
-		ssoSession.RedirectURI = redirectURI
-		ssoSession.Scope = scope
-		ssoSession.State = state
-		ssoSession.ClientID = clientID
-		ssoSession.Used = false
-		ssoSession.Status = "active"
-		ssoSession.ExpiresAt = expiresAt
-		ssoSession.LastActivity = time.Now()
-		ssoSession.UserAgent = userAgent
-		ssoSession.IPAddress = ip
+		// 生成设备指纹（没有前端传递的 DeviceID，使用 User-Agent）
+		deviceFingerprint := generateDeviceFingerprint(userAgent, ip, "")
 
-		// 保存到数据库
-		if err := models.CreateSSOSession(db, &ssoSession); err != nil {
-			fmt.Printf("Failed to save authorization code to database: %v\n", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to save authorization code"})
+		// 查找是否已存在该设备+子应用的 session
+		var appSession models.SSOSession
+		err := db.Where("user_id = ? AND client_id = ? AND device_fingerprint = ? AND status = ?",
+			userID, clientID, deviceFingerprint, "active").
+			First(&appSession).Error
+
+		if err == gorm.ErrRecordNotFound {
+			// 子应用还没有 session，创建一个
+			sessionID = uuid.New().String()
+			appSession = models.SSOSession{
+				ID:                  sessionID,
+				UserID:              userID,
+				ClientID:            clientID,
+				DeviceFingerprint:   deviceFingerprint,
+				AuthorizationCode:   authorizationCode,
+				CodeChallenge:       codeChallenge,
+				CodeChallengeMethod: codeChallengeMethod,
+				RedirectURI:         redirectURI,
+				Scope:               scope,
+				State:               state,
+				Used:                false,
+				Status:              "active",
+				ExpiresAt:           expiresAt,
+				LastActivity:        time.Now(),
+				UserAgent:           userAgent,
+				IPAddress:           ip,
+				CurrentAppID:        appId,
+			}
+
+			if err := models.CreateSSOSession(db, &appSession); err != nil {
+				fmt.Printf("❌ Failed to create app session: %v\n", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to save authorization code"})
+				return
+			}
+
+			fmt.Printf("✅ 为子应用创建session: %s (device=%s)\n", sessionID, deviceFingerprint[:8]+"...")
+		} else if err != nil {
+			// 数据库错误
+			fmt.Printf("❌ 查询已有session失败: %v\n", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to query session"})
 			return
-		}
+		} else {
+			// 已存在，更新授权码信息
+			sessionID = appSession.ID
+			appSession.AuthorizationCode = authorizationCode
+			appSession.CodeChallenge = codeChallenge
+			appSession.CodeChallengeMethod = codeChallengeMethod
+			appSession.RedirectURI = redirectURI
+			appSession.Scope = scope
+			appSession.State = state
+			appSession.Used = false
+			appSession.ExpiresAt = expiresAt
+			appSession.LastActivity = time.Now()
+			appSession.CurrentAppID = appId
+			appSession.IPAddress = ip
+			appSession.UserAgent = userAgent
 
-		fmt.Printf("✅ 授权码已保存到数据库，Session ID: %s, Code: %s\n", sessionID, authorizationCode[:20]+"...")
+			if err := db.Save(&appSession).Error; err != nil {
+				fmt.Printf("❌ Failed to update app session: %v\n", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to update authorization code"})
+				return
+			}
+
+			fmt.Printf("✅ 更新子应用session: %s (device=%s)\n", sessionID, deviceFingerprint[:8]+"...")
+		}
 
 		// 重定向回客户端
 		redirectURL, _ := url.Parse(redirectURI)
@@ -1308,10 +1351,11 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 
 	log.Println("claims: ", claims)
 
-	isUpdateRefreshToken := true
+	isUpdateRefreshToken := false
 	// 如果小于100分钟到期的情况下，则需要重新刷新refreshToken
 	if int64(claims["exp"].(float64)) < time.Now().Unix()+6000 {
 		isUpdateRefreshToken = true
+		log.Panicln("Debug: 更新RefreshToken")
 	}
 	userID := claims["sub"].(string)
 

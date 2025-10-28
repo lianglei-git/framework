@@ -37,6 +37,20 @@ func NewUnifiedAuthHandler(db *gorm.DB, pluginManager *plugins.PluginManager) *U
 	}
 }
 
+// generateDeviceFingerprint 生成设备指纹
+// 优先使用前端传来的设备ID，否则基于 User-Agent 生成
+func generateDeviceFingerprint(userAgent, ip string, deviceID string) string {
+	// 优先使用前端传来的设备ID（如果有）
+	if deviceID != "" {
+		return deviceID
+	}
+
+	// 否则基于 User-Agent 生成
+	// 注意：不包含IP，因为移动设备IP经常变化
+	hash := sha256.Sum256([]byte(userAgent))
+	return hex.EncodeToString(hash[:16]) // 取前16字节（32个字符）
+}
+
 // calculateTokenHash 计算Token哈希
 // CalculateTokenHash 计算token的SHA256哈希值（导出供其他包使用）
 func CalculateTokenHash(token string) string {
@@ -526,32 +540,90 @@ func generateAndReturnTokensCore(db *gorm.DB, c *gin.Context, user *models.User,
 		return
 	}
 
-	// 创建SSO会话
-	sessionID := uuid.New().String()
+	// 创建或更新SSO会话（支持设备去重）
 	accessTokenHash := calculateTokenHash(accessToken)
 	refreshTokenHash := calculateTokenHash(refreshToken)
-
-	// 设置会话过期时间（与刷新token一致）
 	sessionExpiresAt := time.Now().Add(24 * time.Hour)
 
-	ssoSession := &models.SSOSession{
-		ID:                     sessionID,
-		UserID:                 user.ID,
-		ClientID:               clientID,
-		CurrentAccessTokenHash: accessTokenHash,
-		RefreshTokenHash:       refreshTokenHash,
-		Status:                 "active",
-		ExpiresAt:              sessionExpiresAt,
-		LastActivity:           time.Now(),
-		UserAgent:              userAgent,
-		IPAddress:              ip,
-		CurrentAppID:           req.AppID,
-	}
+	// 生成设备指纹
+	deviceFingerprint := generateDeviceFingerprint(userAgent, ip, req.DeviceID)
 
-	// 创建会话记录
-	if err := models.CreateSSOSession(db, ssoSession); err != nil {
-		fmt.Printf("Failed to create SSO session: %v\n", err)
-		// 即使会话创建失败，也继续返回token
+	// 查找是否已存在该设备+应用的 session
+	var existingSession models.SSOSession
+	err = db.Where("user_id = ? AND client_id = ? AND device_fingerprint = ? AND status = ?",
+		user.ID, clientID, deviceFingerprint, "active").
+		Order("last_activity DESC").
+		First(&existingSession).Error
+
+	var sessionID string
+	var lastActivity time.Time
+
+	if err == gorm.ErrRecordNotFound {
+		// 不存在，创建新 session
+		sessionID = uuid.New().String()
+		lastActivity = time.Now()
+		ssoSession := &models.SSOSession{
+			ID:                     sessionID,
+			UserID:                 user.ID,
+			ClientID:               clientID,
+			DeviceFingerprint:      deviceFingerprint,
+			CurrentAccessTokenHash: accessTokenHash,
+			RefreshTokenHash:       refreshTokenHash,
+			Status:                 "active",
+			ExpiresAt:              sessionExpiresAt,
+			LastActivity:           time.Now(),
+			UserAgent:              userAgent,
+			IPAddress:              ip,
+			CurrentAppID:           req.AppID,
+		}
+
+		if err := models.CreateSSOSession(db, ssoSession); err != nil {
+			fmt.Printf("❌ Failed to create SSO session: %v\n", err)
+		} else {
+			fmt.Printf("✅ 创建新session: %s (user=%s, client=%s, device=%s)\n",
+				sessionID, user.ID, clientID, deviceFingerprint[:8]+"...")
+		}
+	} else if err != nil {
+		// 数据库错误，降级：创建新 session
+		fmt.Printf("⚠️ 查询已有session失败，降级创建新session: %v\n", err)
+		sessionID = uuid.New().String()
+		lastActivity = time.Now()
+		ssoSession := &models.SSOSession{
+			ID:                     sessionID,
+			UserID:                 user.ID,
+			ClientID:               clientID,
+			DeviceFingerprint:      deviceFingerprint,
+			CurrentAccessTokenHash: accessTokenHash,
+			RefreshTokenHash:       refreshTokenHash,
+			Status:                 "active",
+			ExpiresAt:              sessionExpiresAt,
+			LastActivity:           time.Now(),
+			UserAgent:              userAgent,
+			IPAddress:              ip,
+			CurrentAppID:           req.AppID,
+		}
+
+		if err := models.CreateSSOSession(db, ssoSession); err != nil {
+			fmt.Printf("❌ Failed to create SSO session: %v\n", err)
+		}
+	} else {
+		// 已存在，更新 session
+		sessionID = existingSession.ID
+		lastActivity = time.Now()
+		existingSession.CurrentAccessTokenHash = accessTokenHash
+		existingSession.RefreshTokenHash = refreshTokenHash
+		existingSession.ExpiresAt = sessionExpiresAt
+		existingSession.LastActivity = lastActivity
+		existingSession.CurrentAppID = req.AppID
+		existingSession.IPAddress = ip        // 更新IP（可能变化）
+		existingSession.UserAgent = userAgent // 更新UA
+
+		if err := db.Save(&existingSession).Error; err != nil {
+			fmt.Printf("❌ Failed to update existing session: %v\n", err)
+		} else {
+			fmt.Printf("✅ 复用已有session: %s (user=%s, client=%s, device=%s)\n",
+				sessionID, user.ID, clientID, deviceFingerprint[:8]+"...")
+		}
 	}
 
 	// 构建响应
@@ -568,7 +640,7 @@ func generateAndReturnTokensCore(db *gorm.DB, c *gin.Context, user *models.User,
 		"session_info": gin.H{
 			"session_id":     sessionID,
 			"start_time":     time.Now(),
-			"last_activity":  ssoSession.LastActivity,
+			"last_activity":  lastActivity,
 			"expires_at":     sessionExpiresAt,
 			"current_app_id": req.AppID,
 			"events":         []string{"login"},
@@ -932,31 +1004,84 @@ func (h *UnifiedAuthHandler) UnifiedPhoneLogin() gin.HandlerFunc {
 			return
 		}
 
-		// 创建SSO会话
-		sessionID := uuid.New().String()
+		// 创建或更新SSO会话（支持设备去重）
 		accessTokenHash := calculateTokenHash(accessToken)
 		refreshTokenHash := calculateTokenHash(refreshToken)
-
-		// 设置会话过期时间（与刷新token一致）
 		sessionExpiresAt := time.Now().Add(24 * time.Hour)
 
-		ssoSession := &models.SSOSession{
-			ID:                     sessionID,
-			UserID:                 user.ID,
-			ClientID:               clientID,
-			CurrentAccessTokenHash: accessTokenHash,
-			RefreshTokenHash:       refreshTokenHash,
-			Status:                 "active",
-			ExpiresAt:              sessionExpiresAt,
-			LastActivity:           time.Now(),
-			UserAgent:              userAgent,
-			IPAddress:              ip,
-			CurrentAppID:           req.AppID,
-		}
+		// 生成设备指纹
+		deviceFingerprint := generateDeviceFingerprint(userAgent, ip, req.DeviceID)
 
-		// 创建会话记录
-		if err := models.CreateSSOSession(h.db, ssoSession); err != nil {
-			fmt.Printf("Failed to create SSO session: %v\n", err)
+		// 查找是否已存在该设备+应用的 session
+		var existingSession models.SSOSession
+		err = h.db.Where("user_id = ? AND client_id = ? AND device_fingerprint = ? AND status = ?",
+			user.ID, clientID, deviceFingerprint, "active").
+			Order("last_activity DESC").
+			First(&existingSession).Error
+
+		var sessionID string
+
+		if err == gorm.ErrRecordNotFound {
+			// 不存在，创建新 session
+			sessionID = uuid.New().String()
+			ssoSession := &models.SSOSession{
+				ID:                     sessionID,
+				UserID:                 user.ID,
+				ClientID:               clientID,
+				DeviceFingerprint:      deviceFingerprint,
+				CurrentAccessTokenHash: accessTokenHash,
+				RefreshTokenHash:       refreshTokenHash,
+				Status:                 "active",
+				ExpiresAt:              sessionExpiresAt,
+				LastActivity:           time.Now(),
+				UserAgent:              userAgent,
+				IPAddress:              ip,
+				CurrentAppID:           req.AppID,
+			}
+
+			if err := models.CreateSSOSession(h.db, ssoSession); err != nil {
+				fmt.Printf("❌ Failed to create SSO session: %v\n", err)
+			} else {
+				fmt.Printf("✅ 创建新session(phone): %s (device=%s)\n", sessionID, deviceFingerprint[:8]+"...")
+			}
+		} else if err != nil {
+			// 数据库错误，降级：创建新 session
+			fmt.Printf("⚠️ 查询已有session失败，降级创建新session: %v\n", err)
+			sessionID = uuid.New().String()
+			ssoSession := &models.SSOSession{
+				ID:                     sessionID,
+				UserID:                 user.ID,
+				ClientID:               clientID,
+				DeviceFingerprint:      deviceFingerprint,
+				CurrentAccessTokenHash: accessTokenHash,
+				RefreshTokenHash:       refreshTokenHash,
+				Status:                 "active",
+				ExpiresAt:              sessionExpiresAt,
+				LastActivity:           time.Now(),
+				UserAgent:              userAgent,
+				IPAddress:              ip,
+				CurrentAppID:           req.AppID,
+			}
+
+			if err := models.CreateSSOSession(h.db, ssoSession); err != nil {
+				fmt.Printf("❌ Failed to create SSO session: %v\n", err)
+			}
+		} else {
+			// 已存在，更新 session
+			sessionID = existingSession.ID
+			existingSession.CurrentAccessTokenHash = accessTokenHash
+			existingSession.RefreshTokenHash = refreshTokenHash
+			existingSession.ExpiresAt = sessionExpiresAt
+			existingSession.LastActivity = time.Now()
+			existingSession.CurrentAppID = req.AppID
+			existingSession.IPAddress = ip
+			existingSession.UserAgent = userAgent
+
+			if err := h.db.Save(&existingSession).Error; err != nil {
+				fmt.Printf("❌ Failed to update existing session: %v\n", err)
+			} else {
+				fmt.Printf("✅ 复用已有session(phone): %s (device=%s)\n", sessionID, deviceFingerprint[:8]+"...")
+			}
 		}
 
 		// 构建响应
@@ -1141,31 +1266,84 @@ func (h *UnifiedAuthHandler) UnifiedDoubleVerification() gin.HandlerFunc {
 				return
 			}
 
-			// 创建SSO会话
-			sessionID := uuid.New().String()
+			// 创建或更新SSO会话（支持设备去重）
 			accessTokenHash := calculateTokenHash(accessToken)
 			refreshTokenHash := calculateTokenHash(refreshToken)
-
-			// 设置会话过期时间（与刷新token一致）
 			sessionExpiresAt := time.Now().Add(24 * time.Hour)
 
-			ssoSession := &models.SSOSession{
-				ID:                     sessionID,
-				UserID:                 user.ID,
-				ClientID:               clientID,
-				CurrentAccessTokenHash: accessTokenHash,
-				RefreshTokenHash:       refreshTokenHash,
-				Status:                 "active",
-				ExpiresAt:              sessionExpiresAt,
-				LastActivity:           time.Now(),
-				UserAgent:              userAgent,
-				IPAddress:              ip,
-				CurrentAppID:           appID,
-			}
+			// 生成设备指纹
+			deviceFingerprint := generateDeviceFingerprint(userAgent, ip, req.DeviceID)
 
-			// 创建会话记录
-			if err := models.CreateSSOSession(h.db, ssoSession); err != nil {
-				fmt.Printf("Failed to create SSO session: %v\n", err)
+			// 查找是否已存在该设备+应用的 session
+			var existingSession models.SSOSession
+			err = h.db.Where("user_id = ? AND client_id = ? AND device_fingerprint = ? AND status = ?",
+				user.ID, clientID, deviceFingerprint, "active").
+				Order("last_activity DESC").
+				First(&existingSession).Error
+
+			var sessionID string
+
+			if err == gorm.ErrRecordNotFound {
+				// 不存在，创建新 session
+				sessionID = uuid.New().String()
+				ssoSession := &models.SSOSession{
+					ID:                     sessionID,
+					UserID:                 user.ID,
+					ClientID:               clientID,
+					DeviceFingerprint:      deviceFingerprint,
+					CurrentAccessTokenHash: accessTokenHash,
+					RefreshTokenHash:       refreshTokenHash,
+					Status:                 "active",
+					ExpiresAt:              sessionExpiresAt,
+					LastActivity:           time.Now(),
+					UserAgent:              userAgent,
+					IPAddress:              ip,
+					CurrentAppID:           appID,
+				}
+
+				if err := models.CreateSSOSession(h.db, ssoSession); err != nil {
+					fmt.Printf("❌ Failed to create SSO session: %v\n", err)
+				} else {
+					fmt.Printf("✅ 创建新session(double_verification): %s (device=%s)\n", sessionID, deviceFingerprint[:8]+"...")
+				}
+			} else if err != nil {
+				// 数据库错误，降级：创建新 session
+				fmt.Printf("⚠️ 查询已有session失败，降级创建新session: %v\n", err)
+				sessionID = uuid.New().String()
+				ssoSession := &models.SSOSession{
+					ID:                     sessionID,
+					UserID:                 user.ID,
+					ClientID:               clientID,
+					DeviceFingerprint:      deviceFingerprint,
+					CurrentAccessTokenHash: accessTokenHash,
+					RefreshTokenHash:       refreshTokenHash,
+					Status:                 "active",
+					ExpiresAt:              sessionExpiresAt,
+					LastActivity:           time.Now(),
+					UserAgent:              userAgent,
+					IPAddress:              ip,
+					CurrentAppID:           appID,
+				}
+
+				if err := models.CreateSSOSession(h.db, ssoSession); err != nil {
+					fmt.Printf("❌ Failed to create SSO session: %v\n", err)
+				}
+			} else {
+				// 已存在，更新 session
+				sessionID = existingSession.ID
+				existingSession.CurrentAccessTokenHash = accessTokenHash
+				existingSession.RefreshTokenHash = refreshTokenHash
+				existingSession.ExpiresAt = sessionExpiresAt
+				existingSession.LastActivity = time.Now()
+				existingSession.CurrentAppID = appID
+				existingSession.IPAddress = ip
+				existingSession.UserAgent = userAgent
+
+				if err := h.db.Save(&existingSession).Error; err != nil {
+					fmt.Printf("❌ Failed to update existing session: %v\n", err)
+				} else {
+					fmt.Printf("✅ 复用已有session(double_verification): %s (device=%s)\n", sessionID, deviceFingerprint[:8]+"...")
+				}
 			}
 
 			// 构建响应

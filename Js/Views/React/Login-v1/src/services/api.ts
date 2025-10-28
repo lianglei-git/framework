@@ -67,8 +67,6 @@ export class ApiService {
     ): Promise<T> {
         const token = storage.getToken()
         const access_token = token?.access_token
-        console.log(access_token,"access_token")
-        debugger
         const headers = {
             ...this.defaultHeaders,
             ...options.headers,
@@ -307,13 +305,18 @@ export class AuthApiService extends ApiService {
      * 本地SSO登录（兼容原有登录方式）
      */
     private async localSSOLogin(username: string, password: string): Promise<SSOLoginResponse> {
+        // 导入设备指纹工具
+        const { getDeviceFingerprint } = await import('../utils/deviceFingerprint')
+        const deviceId = getDeviceFingerprint()
+
         const tokenData = {
             grant_type: 'password',
             client_id: this.ssoConfig!.clientId,
             client_secret: this.ssoConfig!.clientSecret,
             username: username,
             password: password,
-            scope: this.ssoConfig!.scope?.join(' ')
+            scope: this.ssoConfig!.scope?.join(' '),
+            device_id: deviceId  // 添加设备ID
         }
 
         const response = await this.post<SSOToken>(`${this.ssoConfig!.ssoServerUrl}/oauth/token`, tokenData, {
