@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 	"time"
-	"unit-auth/config"
 	"unit-auth/models"
 
 	"github.com/gin-gonic/gin"
@@ -91,7 +90,7 @@ func CheckSessionAndGetToken(db *gorm.DB) gin.HandlerFunc {
 			Lid:         localID,
 			User:        &user,
 			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
+				ExpiresAt: jwt.NewNumericDate(now.Add(AccessTokenExpiration)), // 1小时
 				IssuedAt:  jwt.NewNumericDate(now),
 				NotBefore: jwt.NewNumericDate(now),
 				Issuer:    os.Getenv("JWT_ISS"),

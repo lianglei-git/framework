@@ -13,6 +13,8 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"reflect"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -419,20 +421,20 @@ func SetupRoutes() {
 }
 
 func main() {
-	// tokenString := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhcHBfaWQiOiJkZWZhdWx0IiwiYXVkIjoiOGMxZGQ2NWQtN2QyYS00YmE0LWFmZjEtNjEwOTYwYTI5NWU3IiwiZXhwIjoxNzYwNTEwNTc3LCJpYXQiOjE3NjA1MDY5NzcsImlzcyI6Ind3dy55YW5icmlkZ2UuY29tIiwianRpIjoiNGNiNzdmZDgtMjk4NC00OTc0LTliMzctZWMxMjE2Y2UwY2MzIiwibGlkIjoiIiwibG9jYWxfdXNlcl9pZCI6IiIsInJvbGUiOiJ1c2VyIiwic3ViIjoiMjAyYjMzODktZDQwZC00NjM5LWE3ZTctZDZmMzk4OWZlNWI2In0.kVb2lk3w7jBP5XktyxXZWhvXL-3urehz_nrGbOZVTMdZVan0lkpw1JAx0ICg8fjZTAIPZOgXjyjIT32op6gZ96a2F3wUwN-mCgYA-tVB_5coqM8deH-nl3N7sasAr64I5D5fcpmzrj1yT0weeLk3kYDSfJly0-X81knpZwUHBd51ENqOg8ZOhspyghd4281yjg09PAGwAva6FDRHSgwt9m94QXBJLitA-cKcpDnwxjNWNkii4saLWUvp6Zhr1O5TKXKS5x5807hzqULUF_T8YkNheF4-IWJXXVq0NxldONjIEhO9D9z5UuaQybcNBy0JwbX-TwbQ2HMbrHfDt4R2Mw"
+	tokenString := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiI4YzFkZDY1ZC03ZDJhLTRiYTQtYWZmMS02MTA5NjBhMjk1ZTciLCJleHAiOjE3NjQyNDAxNjIsImlhdCI6MTc2MTY0ODE2MiwiaXNzIjoid3d3LnlhbmJyaWRnZS5jb20iLCJqdGkiOiI5YjQyOGMzMS0xNWNhLTQ1MDktYjZhZS1jYTVjZTc5ZTQzZWYiLCJzdWIiOiIyMDJiMzM4OS1kNDBkLTQ2MzktYTdlNy1kNmYzOTg5ZmU1YjYifQ.JcCoGIHttzbslfE8kgaBqPfEPChfYEFgctyU-puapV2R28RYuHhznIHxirKXoVGGH4HQU1R87okp-8todWZ1Cfwbswgy_9mc5GYHRTwl4dxlKDwyIQJfjwWLM1R_GEyUg59vUyKZ2G-IaT_0KShKD7sBs6A4mH_gt9r43iKcXNJfa69OvdwPO5oB6YKS7rphJA2ogPYpEMY3WHZxfCe3xRCRCXZtUfnewIBUNnfbYL3qQgouYTHDofIDCk8WTfS0Rz-uUu1b_j2dcXGP_oqGAXI_OCQ1CZfzu68Mi6neq3s33gW-XaMNtTcI3PczToRWAFtn7sX32hTPyKNx3N26AA"
 	// refreshToken := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiI4YzFkZDY1ZC03ZDJhLTRiYTQtYWZmMS02MTA5NjBhMjk1ZTciLCJleHAiOjE3NjE2NDEzNzEsImlhdCI6MTc2MTU1NDk3MSwiaXNzIjoid3d3LnlhbmJyaWRnZS5jb20iLCJqdGkiOiJkNmQ4YWMyMi1jMGFlLTQ5ZTgtYTI4My05ZDMxZGE0M2I4NDQiLCJzdWIiOiIyMDJiMzM4OS1kNDBkLTQ2MzktYTdlNy1kNmYzOTg5ZmU1YjYifQ.i-NLW_A5-V2HVDMy_Jd1I9iBz5ZUVDtNm4WrUAQ6x0YhvjysfLsWkEkKHp_SIVQBO0XfYXnH6WmkoR_yU3oe5J8rQpHOYsL4F_OSwqBxhBhZcaaaTdlsOKyQIndGiBMJch4l6_e793dUiFQfy-KM9nW2gnP72tzJPs285EZts_a1JvvFFtjXkEhifm8SJNUiHewyWIhd8vUkpjoSOIeFFu1iJvtTgsMzwb9dBY5W3XV_2SQ_1kw64SW5cLqvYpUn266F4cDA3e5i4-qs-PZssth37pobrzWfG5FvXJl2aFUAeDXCqVegQzeR1eiz3Y0L1IJ9aZAdwFI0Ug6mDq8zHw"
-	// claims, err := validateAccessToken(refreshToken)
-	// if err != nil {
-	// 	log.Fatalf("failed to validate access token: %v", err)
-	// }
-	// prettyJSON, err := json.MarshalIndent(claims, "", "  ")
-	// fmt.Printf("claims: %+v\n", string(prettyJSON))
+	claims, err := validateAccessToken(tokenString)
+	if err != nil {
+		// log.Fatalf("failed to validate access token: %v", err)
+	}
+	prettyJSON, err := json.MarshalIndent(claims, "", "  ")
+	fmt.Printf("claims: %+v\n", string(prettyJSON))
 
-	// fmt.Println(reflect.TypeOf(claims["exp"]), int64(claims["exp"].(float64)))
-	// fmt.Println("过期时间:", time.Unix(int64(claims["exp"].(float64)), 0))
-	// fmt.Println("颁发时间:", time.Unix(int64(claims["iat"].(float64)), 0))
-	// fmt.Println("JWT ID:", claims["jti"])
-	// fmt.Println("客户端ID:", claims["aud"])
-	// fmt.Println("用户ID:", claims["sub"])
-	SetupRoutes()
+	fmt.Println(reflect.TypeOf(claims["exp"]), int64(claims["exp"].(float64)))
+	fmt.Println("过期时间:", time.Unix(int64(claims["exp"].(float64)), 0))
+	fmt.Println("颁发时间:", time.Unix(int64(claims["iat"].(float64)), 0))
+	fmt.Println("JWT ID:", claims["jti"])
+	fmt.Println("客户端ID:", claims["aud"])
+	fmt.Println("用户ID:", claims["sub"])
+	// SetupRoutes()
 }

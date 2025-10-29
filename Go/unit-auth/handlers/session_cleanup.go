@@ -8,17 +8,19 @@ import (
 	"gorm.io/gorm"
 )
 
-// CleanupExpiredSessions 清理过期和已登出的session记录
+// CleanupExpiredSessions 清理过期、已登出和长期不活跃的session记录
 func CleanupExpiredSessions(db *gorm.DB) error {
 	now := time.Now()
+	var totalCleaned int64
 
-	// 1. 删除已过期的session
+	// 1. 删除已过期的session（expires_at < now）
 	result := db.Where("expires_at < ?", now).Delete(&models.SSOSession{})
 	if result.Error != nil {
 		log.Printf("❌ 清理过期session失败: %v", result.Error)
 		return result.Error
 	}
 	log.Printf("✅ 已清理 %d 个过期session", result.RowsAffected)
+	totalCleaned += result.RowsAffected
 
 	// 2. 删除已登出超过7天的session
 	sevenDaysAgo := now.Add(-7 * 24 * time.Hour)
@@ -29,6 +31,21 @@ func CleanupExpiredSessions(db *gorm.DB) error {
 		return result.Error
 	}
 	log.Printf("✅ 已清理 %d 个已登出session（超过7天）", result.RowsAffected)
+	totalCleaned += result.RowsAffected
+
+	// 3. 删除长期不活跃的active session（last_activity < 90天前）
+	inactiveThreshold := now.Add(-MaxInactiveTime)
+	result = db.Where("status = ? AND last_activity < ?", "active", inactiveThreshold).
+		Delete(&models.SSOSession{})
+	if result.Error != nil {
+		log.Printf("❌ 清理不活跃session失败: %v", result.Error)
+		return result.Error
+	}
+	log.Printf("✅ 已清理 %d 个不活跃session（超过90天）", result.RowsAffected)
+	totalCleaned += result.RowsAffected
+
+	// 4. 汇总日志
+	log.Printf("🎉 本次清理总计: %d 条session记录", totalCleaned)
 
 	return nil
 }

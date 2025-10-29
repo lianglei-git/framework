@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 	"time"
-	"unit-auth/config"
 	"unit-auth/middleware"
 	"unit-auth/models"
 	"unit-auth/plugins"
@@ -506,7 +505,7 @@ func generateAndReturnTokensCore(db *gorm.DB, c *gin.Context, user *models.User,
 
 		User: user,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(AccessTokenExpiration)), // 1小时
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 			Issuer:    os.Getenv("JWT_ISS"),
@@ -543,7 +542,7 @@ func generateAndReturnTokensCore(db *gorm.DB, c *gin.Context, user *models.User,
 	// 创建或更新SSO会话（支持设备去重）
 	accessTokenHash := calculateTokenHash(accessToken)
 	refreshTokenHash := calculateTokenHash(refreshToken)
-	sessionExpiresAt := time.Now().Add(24 * time.Hour)
+	sessionExpiresAt := time.Now().Add(SSOSessionExpiration) // 1年
 
 	// 生成设备指纹
 	deviceFingerprint := generateDeviceFingerprint(userAgent, ip, req.DeviceID)
@@ -796,7 +795,7 @@ func (h *UnifiedAuthHandler) UnifiedGetOAuthURL() gin.HandlerFunc {
 // 			Req:         emailReq,
 // 			User:        &user,
 // 			RegisteredClaims: jwt.RegisteredClaims{
-// 				ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
+// 				ExpiresAt: jwt.NewNumericDate(now.Add(AccessTokenExpiration)), // 1小时
 // 				IssuedAt:  jwt.NewNumericDate(now),
 // 				NotBefore: jwt.NewNumericDate(now),
 // 				Issuer:    os.Getenv("JWT_ISS"),
@@ -973,7 +972,7 @@ func (h *UnifiedAuthHandler) UnifiedPhoneLogin() gin.HandlerFunc {
 			// Req:         req,
 			User: &user,
 			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
+				ExpiresAt: jwt.NewNumericDate(now.Add(AccessTokenExpiration)), // 1小时
 				IssuedAt:  jwt.NewNumericDate(now),
 				NotBefore: jwt.NewNumericDate(now),
 				Issuer:    os.Getenv("JWT_ISS"),
@@ -1007,7 +1006,7 @@ func (h *UnifiedAuthHandler) UnifiedPhoneLogin() gin.HandlerFunc {
 		// 创建或更新SSO会话（支持设备去重）
 		accessTokenHash := calculateTokenHash(accessToken)
 		refreshTokenHash := calculateTokenHash(refreshToken)
-		sessionExpiresAt := time.Now().Add(24 * time.Hour)
+		sessionExpiresAt := time.Now().Add(SSOSessionExpiration) // 1年
 
 		// 生成设备指纹
 		deviceFingerprint := generateDeviceFingerprint(userAgent, ip, req.DeviceID)
@@ -1235,7 +1234,7 @@ func (h *UnifiedAuthHandler) UnifiedDoubleVerification() gin.HandlerFunc {
 				// Req:         req,
 				User: user,
 				RegisteredClaims: jwt.RegisteredClaims{
-					ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
+					ExpiresAt: jwt.NewNumericDate(now.Add(AccessTokenExpiration)), // 1小时
 					IssuedAt:  jwt.NewNumericDate(now),
 					NotBefore: jwt.NewNumericDate(now),
 					Issuer:    os.Getenv("JWT_ISS"),
@@ -1269,7 +1268,7 @@ func (h *UnifiedAuthHandler) UnifiedDoubleVerification() gin.HandlerFunc {
 			// 创建或更新SSO会话（支持设备去重）
 			accessTokenHash := calculateTokenHash(accessToken)
 			refreshTokenHash := calculateTokenHash(refreshToken)
-			sessionExpiresAt := time.Now().Add(24 * time.Hour)
+			sessionExpiresAt := time.Now().Add(SSOSessionExpiration) // 1年
 
 			// 生成设备指纹
 			deviceFingerprint := generateDeviceFingerprint(userAgent, ip, req.DeviceID)

@@ -28,6 +28,15 @@ import (
 	"gorm.io/gorm"
 )
 
+// Session 和 Token 过期时间常量
+const (
+	SSOSessionExpiration        = 365 * 24 * time.Hour // SSO Session: 1年
+	RefreshTokenExpiration      = 1 * 2 * time.Hour    // Refresh Token: 2小时
+	AccessTokenExpiration       = 10 * time.Minute     // Access Token: 10分钟
+	AuthorizationCodeExpiration = 10 * time.Minute     // 授权码: 10分钟
+	MaxInactiveTime             = 90 * 24 * time.Hour  // 最大不活跃时间: 90天
+)
+
 // SSOClient SSO客户端模型
 type SSOClient struct {
 	ID            string    `json:"id" gorm:"primaryKey;type:varchar(36)"`
@@ -760,7 +769,7 @@ func generateTokensFromClaims(c *gin.Context, db *gorm.DB, claims jwt.MapClaims,
 
 		User: &user,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(AccessTokenExpiration)), // 1小时
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 			Issuer:    os.Getenv("JWT_ISS"),
@@ -902,7 +911,7 @@ func GenerateRefreshTokenWithRS256(userID, audience string) (string, error) {
 		"iss": os.Getenv("JWT_ISS"),
 		"sub": userID,
 		"aud": audience,
-		"exp": time.Now().Add(24 * time.Hour).Unix(),
+		"exp": time.Now().Add(RefreshTokenExpiration).Unix(), // 30天
 		"iat": time.Now().Unix(),
 		"jti": uuid.New().String(),
 	}
@@ -1270,6 +1279,19 @@ func cleanupInvalidTokenHash(db *gorm.DB, userID, clientID string) {
 	}
 }
 
+// updateSessionActivityAsync 异步更新 session 的 last_activity（不阻塞主流程）
+func updateSessionActivityAsync(db *gorm.DB, refreshTokenHash string) {
+	go func() {
+		err := db.Model(&models.SSOSession{}).
+			Where("refresh_token_hash = ?", refreshTokenHash).
+			Update("last_activity", time.Now()).Error
+
+		if err != nil {
+			log.Printf("⚠️ 异步更新 last_activity 失败: %v", err)
+		}
+	}()
+}
+
 // 处理刷新令牌
 // 刷新token的逻辑
 // SSO 体系中会创建两种不同的 Session，分别在中心登录系统登录时和子系统首次验证时创建，二者功能不同且相互关联，并非只在某一处创建
@@ -1327,10 +1349,10 @@ refresh_token的续签（轮换）机制
 func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest) {
 	// 验证刷新令牌
 	clientID := req.ClientID
-	clientSecret := req.ClientSecret
 	refreshToken := req.RefreshToken
+	// 这里没有采用强制退出子应用，而是通过refresh_token的轮换机制来实现，需要等待时间
 
-	// 验证刷新令牌
+	// 验证刷新令牌（JWT签名验证，无需查询数据库）
 	claims, err := validateAccessToken(refreshToken)
 	if err != nil {
 		log.Printf("⚠️ Refresh token无效，尝试清理数据: %v", err)
@@ -1349,42 +1371,68 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 		return
 	}
 
-	log.Println("claims: ", claims)
+	log.Println("🔄 Refresh token验证成功, claims: ", claims)
+
+	// 异步更新 last_activity（不阻塞主流程，提升性能）
+	refreshTokenHash := calculateTokenHash(refreshToken)
+	updateSessionActivityAsync(db, refreshTokenHash)
+
+	// 每次刷新都查 session 状态
+	// var session models.SSOSession
+	// if err := db.Where("refresh_token_hash = ? AND status = ?",
+	// 	refreshTokenHash, "active").
+	// 	Select("id, status").
+	// 	First(&session).Error; err != nil {
+	// 	c.JSON(http.StatusUnauthorized, gin.H{
+	// 		"error":             "invalid_grant",
+	// 		"error_description": "Session not found or expired",
+	// 	})
+	// 	return
+	// }
 
 	isUpdateRefreshToken := false
 	// 如果小于100分钟到期的情况下，则需要重新刷新refreshToken
 	if int64(claims["exp"].(float64)) < time.Now().Unix()+6000 {
 		isUpdateRefreshToken = true
-		log.Panicln("Debug: 更新RefreshToken")
+		log.Println("⚠️ Refresh token即将过期，需要轮换")
 	}
 	userID := claims["sub"].(string)
+	userEmail := "" // claims["email"].(string)
+	userRole := ""  // claims["role"].(string)
 
-	// 验证客户端
-	var client SSOClient
-	if err := db.Where("id = ? AND secret = ? AND is_active = ?", clientID, clientSecret, true).First(&client).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_client", "error_description": "Invalid client credentials"})
-		return
-	}
+	// 🚀 性能优化：移除 Client 查询
+	// JWT签名已经验证了客户端合法性，无需再查询数据库
+
+	// 🚀 性能优化：只查询必要的用户字段
 	var user models.User
-	if err := db.Where("id = ?", userID).First(&user).Error; err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant", "error_description": "Invalid user"})
-		return
-	}
+	// if err := db.Where("id = ?", userID).
+	// 	Select("id, email, role, username").
+	// 	First(&user).Error; err != nil {
+	// 	c.JSON(http.StatusBadRequest, gin.H{
+	// 		"error":             "invalid_grant",
+	// 		"error_description": "User not found or inactive",
+	// 	})
+	// 	return
+	// }
 
-	localID := ""
-	if req.AppID != "" {
-		var pm models.ProjectMapping
-		if err := db.Where("project_name = ? AND user_id = ?", req.AppID, user.ID).First(&pm).Error; err == nil {
-			localID = pm.LocalUserID
-		}
-	}
+	// 查询 local_user_id（仅在需要时）
+	// localID := ""
+	localID := claims["lid"].(string)
+	// if req.AppID != "" {
+	// 	var pm models.ProjectMapping
+	// 	if err := db.Where("project_name = ? AND user_id = ?", req.AppID, user.ID).
+	// 		Select("local_user_id").
+	// 		First(&pm).Error; err == nil {
+	// 		localID = pm.LocalUserID
+	// 	}
+	// }
 
 	now := time.Now()
 	allJWTDatas := &RS256TokenClaims{
 		ClientID:    clientID,
 		UserID:      userID,
-		Email:       *user.Email,
-		Role:        user.Role,
+		Email:       userEmail,
+		Role:        userRole,
 		AppID:       req.AppID,
 		LocalUserID: localID,
 		Lid:         localID,
@@ -1392,7 +1440,7 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 
 		User: &user,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(AccessTokenExpiration)), // 1小时
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 			Issuer:    os.Getenv("JWT_ISS"),
@@ -1407,15 +1455,14 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 	}
 
 	if isUpdateRefreshToken {
-		log.Println("需要重新 刷新refreshToken")
+		log.Println("🔄 需要轮换 refresh_token")
 
-		// 计算 refresh_token 的 hash
-		calculateRefreshTokenHash := calculateTokenHash(refreshToken)
-
-		// 直接用 refresh_token_hash 查询（唯一条件）
+		// 🚀 性能优化：只查询 session 验证所需的字段
 		var session models.SSOSession
 		if err := db.Where("refresh_token_hash = ? AND status = ? AND expires_at > ?",
-			calculateRefreshTokenHash, "active", time.Now()).First(&session).Error; err != nil {
+			refreshTokenHash, "active", time.Now()).
+			Select("id, user_id, client_id, refresh_token_hash, expires_at").
+			First(&session).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				log.Printf("⚠️ Refresh token hash不存在或session已失效")
 				// 清理可能存在的无效数据

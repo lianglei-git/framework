@@ -897,9 +897,9 @@ export class SSOService extends ApiService {
             // 设置应用ID cookie，有效期为会话期间
             document.cookie = `sso_app_id=${appId}; path=/; SameSite=Lax; Secure=${window.location.protocol === 'https:'}`
 
-            // 如果需要长期保持登录，可以设置更长的过期时间
+            // 设置Cookie过期时间（与Refresh Token保持一致：30天）
             const expirationDate = new Date()
-            expirationDate.setTime(expirationDate.getTime() + (7 * 24 * 60 * 60 * 1000)) // 7天
+            expirationDate.setTime(expirationDate.getTime() + (30 * 24 * 60 * 60 * 1000)) // 30天
             const expires = `expires=${expirationDate.toUTCString()}`
 
             // 设置长期有效的session cookie（用于自动登录）
