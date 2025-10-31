@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -20,14 +21,16 @@ import (
 )
 
 var GlobalAuthConfig map[string]interface{} = map[string]interface{}{
+	// 中心服务器的地址
 	"ssoServerUrl": "http://localhost:8080",
 	"clientSecret": "client_secret_22e58ccf-c367-4ead-b517-3be17f796211",
 
-	"tokenEndpoint": "/api/v1/auth/oauth/token",
-	"authorize":     "/api/v1/auth/oauth/authorize",
-	"logoutUrl":     "/api/v1/auth/oauth/logout",
-	"userInfoUrl":   "/api/v1/auth/oauth/userinfo",
-	"clientId":      "6a7db4e5-1c21-4cf1-92c9-507a0f924e29",
+	"tokenEndpoint":   "/api/v1/auth/oauth/token",
+	"authorize":       "/api/v1/auth/oauth/authorize",
+	"logoutUrl":       "/api/v1/auth/oauth/logout",
+	"userInfoUrl":     "/api/v1/auth/oauth/userinfo",
+	"clientId":        "6a7db4e5-1c21-4cf1-92c9-507a0f924e29",
+	"checkSessionUrl": "/api/v1/auth/oauth/session-check",
 
 	"redirectUri":  "http://localhost:3000/auth/callback",
 	"scope":        "openid profile email phone",
@@ -235,6 +238,38 @@ func ProxyRequest(targetURL string, method string, headers map[string]string, bo
 	return response.StatusCode, bodyBytes, nil
 }
 
+// TokenErrorResponse OAuth 2.0 标准错误响应
+type TokenErrorResponse struct {
+	// OAuth 2.0 标准错误字段
+	Error            string `json:"error"`             // 错误类型
+	ErrorDescription string `json:"error_description"` // 人类可读的错误描述
+
+	// 扩展字段（用于前端智能处理）
+	ErrorCode     string `json:"error_code,omitempty"`     // 详细错误码
+	SuggestAction string `json:"suggest_action,omitempty"` // 建议前端执行的操作
+	ErrorURI      string `json:"error_uri,omitempty"`      // 错误详情文档链接
+}
+
+func ReturnTokenError(c *gin.Context, httpStatus int, err, errDesc string, errCode, suggestAction string) {
+	c.JSON(httpStatus, TokenErrorResponse{
+		Error:            err,
+		ErrorDescription: errDesc,
+		ErrorCode:        errCode,
+		SuggestAction:    suggestAction,
+	})
+}
+
+// Token 错误响应快捷方法
+
+// ReturnRefreshTokenInvalid Refresh token 无效
+func ReturnAccessTokenInvalid(c *gin.Context) {
+	ReturnTokenError(c, http.StatusBadRequest,
+		"invalid_token",
+		"Access token is invalid or expired",
+		"access_token_invalid",
+		"refresh_token")
+}
+
 // ProxyHandler 通用的转发处理函数
 func ProxyHandler(targetURL string, requireAuth bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -242,10 +277,19 @@ func ProxyHandler(targetURL string, requireAuth bool) gin.HandlerFunc {
 		if requireAuth {
 			authHeader := c.GetHeader("Authorization")
 			if authHeader == "" {
-				c.JSON(http.StatusUnauthorized, gin.H{
-					"error":             "invalid_token",
-					"error_description": "Missing or invalid access token",
-				})
+				ReturnTokenError(c, http.StatusBadRequest,
+					"invalid_token",
+					"Missing or invalid access token",
+					"access_token_invalid",
+					"check_session")
+				return
+			}
+			accessToken := strings.TrimPrefix(authHeader, "Bearer ")
+			// 验证刷新令牌（JWT签名验证，无需查询数据库）
+			_, err := validateAccessToken(accessToken)
+			if err != nil {
+				log.Printf("⚠️ Access token无效，尝试清理数据: %v", err)
+				ReturnAccessTokenInvalid(c)
 				return
 			}
 		}
@@ -345,8 +389,12 @@ func SetupRoutes() {
 
 		// 用户信息端点 - 使用代理转发，需要认证
 		userInfoURI := GlobalAuthConfig["ssoServerUrl"].(string) + GlobalAuthConfig["userInfoUrl"].(string)
-		logoutURI := GlobalAuthConfig["ssoServerUrl"].(string) + GlobalAuthConfig["logoutUrl"].(string)
 		auth.GET("/oauth/userinfo", ProxyHandler(userInfoURI, true))
+
+		sessionCheckURI := GlobalAuthConfig["ssoServerUrl"].(string) + GlobalAuthConfig["checkSessionUrl"].(string)
+		auth.POST("/oauth/session-check", ProxyHandler(sessionCheckURI, false))
+
+		logoutURI := GlobalAuthConfig["ssoServerUrl"].(string) + GlobalAuthConfig["logoutUrl"].(string)
 		auth.GET("/oauth/logout", func(c *gin.Context) {
 			logoutParams := map[string]string{
 				"id_token_hint":            c.Query("id_token_hint"),

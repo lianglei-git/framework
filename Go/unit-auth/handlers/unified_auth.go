@@ -13,7 +13,7 @@ import (
 	"unit-auth/models"
 	"unit-auth/plugins"
 	"unit-auth/services"
-	"unit-auth/utils"
+	appUtils "unit-auth/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -75,7 +75,7 @@ func calculateTokenHash(token string) string {
 // - 支持所有登录方式：local, github, google, wechat, email, phone, double_verification
 
 // UnifiedOAuthLogin 统一的OAuth登录（支持多种内部认证模式）
-func (h *UnifiedAuthHandler) UnifiedOAuthLogin(mailer *utils.Mailer) gin.HandlerFunc {
+func (h *UnifiedAuthHandler) UnifiedOAuthLogin(mailer *appUtils.Mailer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 解析JSON请求体
 		var req models.UnifiedOAuthLoginRequest
@@ -185,7 +185,7 @@ func (h *UnifiedAuthHandler) handleLocalLogin(c *gin.Context, req models.Unified
 	h.generateAndReturnTokens(c, &user, "local", ip, userAgent)
 }
 
-func (h *UnifiedAuthHandler) Register(mailer *utils.Mailer) gin.HandlerFunc {
+func (h *UnifiedAuthHandler) Register(mailer *appUtils.Mailer) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req models.RegisterRequest
 		db := h.db
@@ -350,7 +350,7 @@ func (h *UnifiedAuthHandler) handleOAuthLogin(c *gin.Context, req models.Unified
 }
 
 // handleEmailLogin 处理邮箱验证码登录 -- 使用中
-func (h *UnifiedAuthHandler) handleEmailLogin(c *gin.Context, req models.UnifiedOAuthLoginRequest, ip, userAgent string, mailer *utils.Mailer) {
+func (h *UnifiedAuthHandler) handleEmailLogin(c *gin.Context, req models.UnifiedOAuthLoginRequest, ip, userAgent string, mailer *appUtils.Mailer) {
 	// 验证邮箱验证码（简化实现）
 
 	// 查找用户
@@ -626,27 +626,27 @@ func generateAndReturnTokensCore(db *gorm.DB, c *gin.Context, user *models.User,
 	}
 
 	// 构建响应
-	response := gin.H{
-		"access_token":  accessToken,
-		"id_token":      idToken,
-		"refresh_token": refreshToken,
-		"token_type":    "Bearer",
-		"expires_in":    3600,
-		"scope":         "openid profile email phone",
-		"user":          user.ToResponse(),
-		"provider":      provider,
-		"session_id":    sessionID,
-		"session_info": gin.H{
-			"session_id":     sessionID,
-			"start_time":     time.Now(),
-			"last_activity":  lastActivity,
-			"expires_at":     sessionExpiresAt,
-			"current_app_id": req.AppID,
-			"events":         []string{"login"},
+	response := &models.TokenResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		IDToken:      idToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    3600,
+		Scope:        "openid profile email phone",
+		User:         user.ToResponse(),
+		Provider:     provider,
+		SessionID:    sessionID,
+		SessionInfo: &models.SessionInfo{
+			SessionID:    sessionID,
+			StartTime:    time.Now(),
+			LastActivity: lastActivity,
+			ExpiresAt:    sessionExpiresAt,
+			CurrentAppID: req.AppID,
+			Events:       []string{"login"},
 		},
 	}
 
-	c.JSON(http.StatusOK, response)
+	appUtils.ReturnTokenSuccess(c, response)
 }
 
 // generateAndReturnTokens 统一的token生成和响应

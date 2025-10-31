@@ -40,6 +40,7 @@ export interface UseSubProjectSSOResult {
     logout: () => Promise<void>
     refreshToken: () => Promise<void>
     getLoginUrl: (provider?: string) => string
+    getUserInfoFetch: () => Promise<SSOUser>
 
     // 工具方法
     isInCallback: () => boolean
@@ -229,6 +230,14 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         }
     }
 
+    // 登出前回调
+    useAuthEvents('beforeLogout', (details) => {
+        logout()
+    })
+    useAuthEvents('re-authorize-session', (details) => {
+        login({redirect: true})
+    })
+
     // 刷新令牌
     const refreshToken = useCallback(async () => {
         if (!ssoService) {
@@ -294,6 +303,12 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         }
     }, [autoInit, isInitialized, isLoading, initialize])
 
+    const getUserInfoFetch = async () => {
+        const userInfo = await ssoService.getUserInfo(token.access_token)
+        console.log(userInfo,"userInfo")
+        return userInfo
+    }
+
    
     return {
         // 状态
@@ -314,6 +329,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         logout,
         refreshToken,
         getLoginUrl,
+        getUserInfoFetch,
 
         // 工具方法
         isInCallback,

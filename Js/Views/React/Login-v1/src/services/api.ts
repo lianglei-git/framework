@@ -90,16 +90,28 @@ export class ApiService {
 
             // 处理axios错误
             if (axios.isAxiosError(error)) {
-                if (error.response) {
-                    // 服务器返回了错误状态码
-                    throw new Error(`HTTP error! status: ${error.response.status}, message: ${error.response.data?.message || error.message}`)
-                } else if (error.request) {
-                    // 请求发送了但没有收到响应
-                    throw new Error('Network error: No response received')
-                } else {
-                    // 其他错误
-                    throw new Error(`Request error: ${error.message}`)
-                }
+                throw error;
+                // if (error.response) {
+                //     // 服务器返回了错误状态码
+                //     // 优先使用统一错误响应的 error_description，然后是传统的 message
+                //     const errorMsg = error.response.data?.error_description 
+                //         || error.response.data?.message 
+                //         || error.message
+                    
+                //     // 如果有错误码，也包含在错误信息中
+                //     const errorCode = error.response.data?.error_code 
+                //         ? ` (${error.response.data.error_code})` 
+                //         : ''
+                    
+                //     throw new Error(`HTTP error! status: ${error.response.status}, message: ${errorMsg}${errorCode}`)
+                // } 
+                // else if (error.request) {
+                //     // 请求发送了但没有收到响应
+                //     throw new Error('Network error: No response received')
+                // } else {
+                //     // 其他错误
+                //     throw new Error(`Request error: ${error.message}`)
+                // }
             } else {
                 // 非axios错误
                 throw error

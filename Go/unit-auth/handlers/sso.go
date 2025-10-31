@@ -21,6 +21,7 @@ import (
 	"time"
 	"unit-auth/config"
 	"unit-auth/models"
+	"unit-auth/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -30,12 +31,15 @@ import (
 
 // Session 和 Token 过期时间常量
 const (
-	SSOSessionExpiration        = 365 * 24 * time.Hour // SSO Session: 1年
-	RefreshTokenExpiration      = 1 * 2 * time.Hour    // Refresh Token: 2小时
-	AccessTokenExpiration       = 10 * time.Minute     // Access Token: 10分钟
-	AuthorizationCodeExpiration = 10 * time.Minute     // 授权码: 10分钟
-	MaxInactiveTime             = 90 * 24 * time.Hour  // 最大不活跃时间: 90天
+	SSOSessionExpiration = 365 * 24 * time.Hour // SSO Session: 1年
+	// RefreshTokenExpiration      = 1 * 2 * time.Hour    // Refresh Token: 2小时
+	RefreshTokenExpiration      = 5 * time.Minute     // Refresh Token: 2小时
+	AccessTokenExpiration       = 1 * time.Minute     // Access Token: 10分钟
+	AuthorizationCodeExpiration = 10 * time.Minute    // 授权码: 10分钟
+	MaxInactiveTime             = 90 * 24 * time.Hour // 最大不活跃时间: 90天
 )
+
+var WEB_CENTER_URL = os.Getenv("WEB_CENTER_URL")
 
 // SSOClient SSO客户端模型
 type SSOClient struct {
@@ -224,7 +228,6 @@ func initRSAKeys() {
 	if rsaPrivateKey != nil && rsaPublicKey != nil {
 		return
 	}
-	// os.Getenv("RSA_PRIVATE_KEY")
 	// 尝试从环境变量加载私钥
 	if privateKeyPEM := private; privateKeyPEM != "" {
 		block, _ := pem.Decode([]byte(privateKeyPEM))
@@ -426,13 +429,17 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 
 		// 验证必要参数
 		if clientID == "" || redirectURI == "" || responseType == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "Missing required parameters"})
+			utils.ReturnInvalidRequest(c, "Missing required parameters")
 			return
 		}
 
 		// 验证响应类型
 		if responseType != "code" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported_response_type", "error_description": "Only authorization_code is supported"})
+			utils.ReturnTokenError(c, http.StatusBadRequest,
+				models.ErrorUnsupportedGrantType,
+				"Only authorization_code is supported",
+				"UNSUPPORTED_RESPONSE_TYPE",
+				"")
 			return
 		}
 
@@ -442,13 +449,17 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 		// 目前appid=temp1
 		// RedirectURIs
 		if err := db.Where("id = ? AND is_active = ?", clientID, true).First(&client).Error; err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_client", "error_description": "Invalid client"})
+			utils.ReturnClientNotFound(c)
 			return
 		}
 
 		// 验证重定向URI
 		if !isValidRedirectURI(redirectURI, client.RedirectURIs) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "Invalid redirect URI"})
+			utils.ReturnTokenError(c, http.StatusBadRequest,
+				models.ErrorInvalidRequest,
+				"Invalid redirect URI",
+				models.ErrorCodeRedirectURIMismatch,
+				models.SuggestActionContactAdmin)
 			return
 		}
 
@@ -468,7 +479,7 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 			}
 			// 这里应该重定向到登录页面，携带这些参数
 			log.Println("Redirecting to login page with parameters:", sessionData, getFullURL(c, true))
-			c.Redirect(http.StatusFound, "http://localhost:3033?app_origin=true&redirect_uri="+getFullURL(c, true))
+			c.Redirect(http.StatusFound, WEB_CENTER_URL+"/?app_origin=true&redirect_uri="+getFullURL(c, true))
 			return
 		}
 
@@ -479,7 +490,7 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 		if err := db.Where("id = ? AND status = ? AND expires_at > ?",
 			sessionID, "active", time.Now()).First(&ssoSession).Error; err != nil {
 			log.Printf("Session not found or expired: %v", err)
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_session", "error_description": "Session not found or expired"})
+			utils.ReturnSessionNotFound(c)
 			return
 		}
 
@@ -489,7 +500,7 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 		var user models.User
 		if err := db.Where("id = ?", ssoSession.UserID).First(&user).Error; err != nil {
 			log.Printf("User not found: %v", err)
-			c.JSON(http.StatusNotFound, gin.H{"error": "user_not_found", "error_description": "User not found"})
+			utils.ReturnUserNotFound(c)
 			return
 		}
 
@@ -538,7 +549,7 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 
 			if err := models.CreateSSOSession(db, &appSession); err != nil {
 				fmt.Printf("❌ Failed to create app session: %v\n", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to save authorization code"})
+				utils.ReturnDatabaseError(c)
 				return
 			}
 
@@ -546,7 +557,7 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 		} else if err != nil {
 			// 数据库错误
 			fmt.Printf("❌ 查询已有session失败: %v\n", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to query session"})
+			utils.ReturnDatabaseError(c)
 			return
 		} else {
 			// 已存在，更新授权码信息
@@ -566,7 +577,7 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 
 			if err := db.Save(&appSession).Error; err != nil {
 				fmt.Printf("❌ Failed to update app session: %v\n", err)
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to update authorization code"})
+				utils.ReturnDatabaseError(c)
 				return
 			}
 
@@ -665,7 +676,7 @@ func handleAuthorizationCodeGrant(c *gin.Context, db *gorm.DB, code, redirectURI
 	// 验证客户端
 	var client SSOClient
 	if err := db.Where("id = ? AND secret = ? AND is_active = ?", clientID, clientSecret, true).First(&client).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_client", "error_description": "Invalid client credentials"})
+		utils.ReturnClientSecretInvalid(c)
 		return
 	}
 
@@ -675,7 +686,7 @@ func handleAuthorizationCodeGrant(c *gin.Context, db *gorm.DB, code, redirectURI
 		// 这里签发的code又问题。不是jwt格式的code。
 		claims, err := validateAuthorizationCodeWithPKCE(db, code, clientID, redirectURI, codeVerifier, state, appID, internalAuth, doubleVerification)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant", "error_description": err.Error()})
+			utils.ReturnAuthCodeInvalid(c)
 			return
 		}
 		generateTokensFromClaims(c, db, claims, clientID, clientSecret, "double_verification", req)
@@ -683,7 +694,7 @@ func handleAuthorizationCodeGrant(c *gin.Context, db *gorm.DB, code, redirectURI
 		// 标准OIDC模式：验证授权码（从数据库）
 		claims, err := validateAuthorizationCode(db, code, clientID, redirectURI)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant", "error_description": err.Error()})
+			utils.ReturnAuthCodeInvalid(c)
 			return
 		}
 
@@ -711,14 +722,18 @@ func generateTokensFromClaims(c *gin.Context, db *gorm.DB, claims jwt.MapClaims,
 	lastActivity := claims["iat"].(int64)
 
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Invalid user ID in token"})
+		utils.ReturnTokenError(c, http.StatusInternalServerError,
+			models.ErrorServerError,
+			"Invalid user ID in token",
+			"INVALID_USER_ID",
+			models.SuggestActionRetry)
 		return
 	}
 	userID := sub
 
 	var user models.User
 	if err := db.Where("id = ?", userID).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "user_not_found", "error_description": "User not found"})
+		utils.ReturnUserNotFound(c)
 		return
 	}
 
@@ -731,7 +746,7 @@ func generateTokensFromClaims(c *gin.Context, db *gorm.DB, claims jwt.MapClaims,
 
 	// 保存到数据库
 	if err := db.Save(&user).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to update user info"})
+		utils.ReturnDatabaseError(c)
 		return
 	}
 
@@ -780,47 +795,49 @@ func generateTokensFromClaims(c *gin.Context, db *gorm.DB, claims jwt.MapClaims,
 	// // 生成访问令牌
 	accessToken, err := GenerateAccessTokenWithRS256(allJWTDatas)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to generate access token"})
+		utils.ReturnTokenGenerationFailed(c)
 		return
 	}
 
 	// // 生成刷新令牌
 	refreshToken, err := GenerateRefreshTokenWithRS256(user.ID, clientID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to generate refresh token"})
+		utils.ReturnTokenGenerationFailed(c)
 		return
 	}
 
 	calculateAccessTokenHash := calculateTokenHash(accessToken)
 	calculateRefreshTokenHash := calculateTokenHash(refreshToken)
 
-	// 更新session中的tokenhash
-	if err := db.Model(&models.SSOSession{}).Where("id = ?", sessionID).Update("current_access_token_hash", calculateAccessTokenHash).Update("refresh_token_hash", calculateRefreshTokenHash).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to update session token hash"})
+	// 更新session中的tokenhash（使用 Updates + map 避免零值字段问题）
+	if err := db.Model(&models.SSOSession{}).Where("id = ?", sessionID).Updates(map[string]interface{}{
+		"current_access_token_hash": calculateAccessTokenHash,
+		"refresh_token_hash":        calculateRefreshTokenHash,
+	}).Error; err != nil {
+		utils.ReturnDatabaseError(c)
 		return
 	}
-	// // 返回OAuth 2.0标准响应
-	response := gin.H{
-		"access_token":  accessToken,
-		"id_token":      accessToken,
-		"refresh_token": refreshToken,
-		"token_type":    "Bearer",
-		"expires_in":    3600,
-		"scope":         "openid profile email phone",
-		"user":          user.ToResponse(),
-		"provider":      "centralized",
-		"session_id":    sessionID,
-		"session_info": gin.H{
-			"session_id":     sessionID,
-			"start_time":     time.Now(),
-			"last_activity":  lastActivity,
-			"expires_at":     sessionExpiresAt,
-			"current_app_id": req.AppID,
-			"events":         []string{"login"},
-		},
-	}
 
-	c.JSON(http.StatusOK, response)
+	// 返回统一的Token成功响应
+	utils.ReturnTokenSuccess(c, &models.TokenResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		IDToken:      accessToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    3600,
+		Scope:        "openid profile email phone",
+		User:         user.ToResponse(),
+		Provider:     "centralized",
+		SessionID:    sessionID,
+		SessionInfo: &models.SessionInfo{
+			SessionID:    sessionID,
+			StartTime:    time.Now(),
+			LastActivity: time.Unix(lastActivity, 0),
+			ExpiresAt:    time.Unix(sessionExpiresAt, 0),
+			CurrentAppID: req.AppID,
+			Events:       []string{"login"},
+		},
+	})
 }
 
 // validateAuthorizationCode 验证标准OAuth 2.0授权码（从数据库）
@@ -980,7 +997,11 @@ func GetOAuthUserinfo(db *gorm.DB) gin.HandlerFunc {
 		// 获取访问令牌
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_token", "error_description": "Missing or invalid access token"})
+			utils.ReturnTokenError(c, http.StatusUnauthorized,
+				models.ErrorInvalidRequest,
+				"Missing or invalid access token",
+				"INVALID_ACCESS_TOKEN",
+				models.SuggestActionRelogin)
 			return
 		}
 
@@ -999,7 +1020,11 @@ func GetOAuthUserinfo(db *gorm.DB) gin.HandlerFunc {
 		claims, err := validateAccessToken(accessToken)
 		if err != nil {
 			fmt.Printf("❌ 令牌验证失败: %v\n", err)
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_token", "error_description": err.Error()})
+			utils.ReturnTokenError(c, http.StatusUnauthorized,
+				models.ErrorInvalidGrant,
+				"Access token is invalid or expired",
+				"ACCESS_TOKEN_INVALID",
+				models.SuggestActionRelogin)
 			return
 		}
 
@@ -1007,7 +1032,7 @@ func GetOAuthUserinfo(db *gorm.DB) gin.HandlerFunc {
 		// 获取用户信息
 		var user models.User
 		if err := db.Where("id = ?", claims["sub"]).First(&user).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "user_not_found", "error_description": "User not found"})
+			utils.ReturnUserNotFound(c)
 			return
 		}
 
@@ -1362,12 +1387,7 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 				cleanupInvalidTokenHash(db, userID, clientID)
 			}
 		}
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":             "invalid_grant",
-			"error_description": "Refresh token is invalid or expired",
-			"error_code":        "REFRESH_TOKEN_INVALID",
-			"suggest_action":    "check_session",
-		})
+		utils.ReturnRefreshTokenInvalid(c)
 		return
 	}
 
@@ -1408,16 +1428,19 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 	// if err := db.Where("id = ?", userID).
 	// 	Select("id, email, role, username").
 	// 	First(&user).Error; err != nil {
-	// 	c.JSON(http.StatusBadRequest, gin.H{
-	// 		"error":             "invalid_grant",
-	// 		"error_description": "User not found or inactive",
-	// 	})
+	// 	utils.ReturnUserNotFound(c)
 	// 	return
 	// }
 
 	// 查询 local_user_id（仅在需要时）
 	// localID := ""
-	localID := claims["lid"].(string)
+	var localID string
+	if v, ok := claims["lid"].(string); ok {
+		localID = v
+	} else {
+		localID = ""
+	}
+
 	// if req.AppID != "" {
 	// 	var pm models.ProjectMapping
 	// 	if err := db.Where("project_name = ? AND user_id = ?", req.AppID, user.ID).
@@ -1450,7 +1473,7 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 	// 生成新的访问令牌
 	accessToken, err := GenerateAccessTokenWithRS256(allJWTDatas)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to generate access token"})
+		utils.ReturnTokenGenerationFailed(c)
 		return
 	}
 
@@ -1467,31 +1490,18 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 				log.Printf("⚠️ Refresh token hash不存在或session已失效")
 				// 清理可能存在的无效数据
 				cleanupInvalidTokenHash(db, userID, clientID)
-				c.JSON(http.StatusBadRequest, gin.H{
-					"error":             "invalid_grant",
-					"error_description": "Refresh token not found or session expired",
-					"error_code":        "TOKEN_HASH_MISMATCH",
-					"suggest_action":    "check_session",
-				})
+				utils.ReturnTokenHashMismatch(c)
 				return
 			}
 			log.Printf("❌ 查询session失败: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":             "server_error",
-				"error_description": "Failed to get session",
-			})
+			utils.ReturnDatabaseError(c)
 			return
 		}
 
 		// 验证 session 是否属于当前用户（安全检查）
 		if session.UserID != userID {
 			log.Printf("⚠️ Refresh token的用户ID与session不匹配: token_user=%s, session_user=%s", userID, session.UserID)
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":             "invalid_grant",
-				"error_description": "Token user mismatch",
-				"error_code":        "TOKEN_USER_MISMATCH",
-				"suggest_action":    "relogin",
-			})
+			utils.ReturnTokenUserMismatch(c)
 			return
 		}
 
@@ -1500,22 +1510,17 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 		// 生成新的 refresh_token
 		newRefreshToken, err := GenerateRefreshTokenWithRS256(userID, clientID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":             "server_error",
-				"error_description": "Failed to generate refresh token",
-			})
+			utils.ReturnTokenGenerationFailed(c)
 			return
 		}
 
-		// 更新 session 中的 refresh_token_hash
+		// 更新 session 中的 refresh_token_hash（只更新这一个字段，避免零值字段问题）
 		newRefreshTokenHash := calculateTokenHash(newRefreshToken)
-		session.RefreshTokenHash = newRefreshTokenHash
-		if err := db.Save(&session).Error; err != nil {
+		if err := db.Model(&models.SSOSession{}).
+			Where("id = ?", session.ID).
+			Update("refresh_token_hash", newRefreshTokenHash).Error; err != nil {
 			log.Printf("❌ 更新session的refresh_token_hash失败: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":             "server_error",
-				"error_description": "Failed to update session",
-			})
+			utils.ReturnDatabaseError(c)
 			return
 		}
 
@@ -1526,19 +1531,19 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 
 	}
 
-	// // 返回OAuth 2.0标准响应
-	response := gin.H{
-		"access_token":  accessToken,
-		"id_token":      accessToken,
-		"refresh_token": refreshToken,
-		"token_type":    "Bearer",
-		"expires_in":    3600,
-		"scope":         "openid profile email phone",
-		"user":          user.ToResponse(),
-		"provider":      "centralized",
+	// 返回OAuth 2.0标准响应
+	response := &models.TokenResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		IDToken:      accessToken,
+		TokenType:    "Bearer",
+		ExpiresIn:    3600,
+		Scope:        "openid profile email phone",
+		User:         user.ToResponse(),
+		Provider:     "centralized",
 	}
 
-	c.JSON(http.StatusOK, response)
+	utils.ReturnTokenSuccess(c, response)
 }
 
 // 处理密码授权
@@ -1920,28 +1925,32 @@ func handleCodeVerifierGrant(c *gin.Context, db *gorm.DB, code, clientID, client
 	// 验证客户端
 	var client SSOClient
 	if err := db.Where("id = ? AND secret = ? AND is_active = ?", clientID, clientSecret, true).First(&client).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_client", "error_description": "Invalid client credentials"})
+		utils.ReturnClientSecretInvalid(c)
 		return
 	}
 
 	// 使用PKCE双重验证
 	claims, err := validateAuthorizationCodeWithPKCE(db, code, clientID, redirectURI, codeVerifier, state, appID, internalAuth, doubleVerification)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_grant", "error_description": err.Error()})
+		utils.ReturnAuthCodeInvalid(c)
 		return
 	}
 
 	// 获取用户信息
 	sub, ok := claims["sub"].(string)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Invalid user ID in token"})
+		utils.ReturnTokenError(c, http.StatusInternalServerError,
+			models.ErrorServerError,
+			"Invalid user ID in token",
+			"INVALID_USER_ID",
+			models.SuggestActionRetry)
 		return
 	}
 	userID := sub
 
 	var user models.User
 	if err := db.Where("id = ?", userID).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "user_not_found", "error_description": "User not found"})
+		utils.ReturnUserNotFound(c)
 		return
 	}
 
@@ -1951,7 +1960,7 @@ func handleCodeVerifierGrant(c *gin.Context, db *gorm.DB, code, clientID, client
 	user.UpdateLoginInfo(ip, userAgent)
 
 	if err := db.Save(&user).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to update user info"})
+		utils.ReturnDatabaseError(c)
 		return
 	}
 
@@ -1971,14 +1980,14 @@ func handleCodeVerifierGrant(c *gin.Context, db *gorm.DB, code, clientID, client
 	// 生成访问令牌
 	accessToken, err := GenerateAccessTokenWithRS256(&RS256TokenClaims{})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to generate access token"})
+		utils.ReturnTokenGenerationFailed(c)
 		return
 	}
 
 	// 生成刷新令牌
 	refreshToken, err := GenerateRefreshTokenWithRS256(user.ID, clientID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error", "error_description": "Failed to generate refresh token"})
+		utils.ReturnTokenGenerationFailed(c)
 		return
 	}
 

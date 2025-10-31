@@ -134,7 +134,7 @@ export const useAuth = () => {
             // 用户与SSO的token不相干
             if (authData) {
                 setAuthInfo(authData)
-                setUser(authData.user)
+                setUser(authData.token.user)
                 setToken(authData.token)
             }
 
@@ -168,7 +168,7 @@ export const useAuth = () => {
         setLoadingInfos("stop")
 
         setAuthInfo(details)
-        setUser(details.user)
+        setUser(details.token.user)
         setToken(details.token)
     })
 
@@ -252,7 +252,7 @@ export const useAuth = () => {
             }
 
             storage.saveAuth(authData)
-            setUser(response.user)
+            setUser(response.token.user)
             setToken(response.token)
 
             window.dispatchEvent(new CustomEvent('auth:login', { detail: response }))
@@ -330,8 +330,6 @@ export const useAuth = () => {
         try {
             ssoService.ssoLogout({
                 id_token_hint: token.id_token,
-                post_logout_redirect_uri: "http://localhost:3033",
-                state: "123",
                 ...params,
             })
         } catch (err) {

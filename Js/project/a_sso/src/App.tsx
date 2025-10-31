@@ -5,12 +5,15 @@ const customConfig = {
   id: 'sso_test_a',
   name: 'ssoa ',
   description: '这是测试应用',
+  // 这个是本地服务的地址
   ssoServerUrl: 'http://localhost:5555',
+  // 这个是中心登录的web地址
   ssoHomeUrl: 'http://localhost:3033',
   homepageUrl: 'https://demo.example.com',
   clientId: '8c1dd65d-7d2a-4ba4-aff1-610960a295e7',
   // clientSecret: 'client_secret_a4121ad0-bc7e-4b59-8ab1-e29544060fc4',
  // redirectUris: ['https://demo.example.com/auth/callback'],
+ // 这个是本地服务的回调地址
   redirectUri: "http://localhost:5173",
   logoutEndpoint: "",
   tokenEndpoint: "/api/v1/auth/oauth/token",

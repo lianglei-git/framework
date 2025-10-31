@@ -3,13 +3,11 @@ package handlers
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 	"unit-auth/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -57,14 +55,14 @@ func CheckSessionAndGetToken(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		// 验证应用ID（如果提供）
-		if req.AppID != "" && ssoSession.CurrentAppID != req.AppID {
-			c.JSON(http.StatusOK, gin.H{
-				"code":             200,
-				"message":          "Session not valid for this application",
-				"is_authenticated": false,
-			})
-			return
-		}
+		// if req.AppID != "" && ssoSession.CurrentAppID != req.AppID {
+		// 	c.JSON(http.StatusOK, gin.H{
+		// 		"code":             200,
+		// 		"message":          "Session not valid for this application",
+		// 		"is_authenticated": false,
+		// 	})
+		// 	return
+		// }
 
 		// 更新最后活动时间
 		now := time.Now()
@@ -73,93 +71,15 @@ func CheckSessionAndGetToken(db *gorm.DB) gin.HandlerFunc {
 			fmt.Printf("Failed to update session activity: %v\n", err)
 		}
 
-		// 生成真正的token
-		localID := ""
-		var pm models.ProjectMapping
-		if err := db.Where("project_name = ? AND user_id = ?", req.AppID, user.ID).First(&pm).Error; err == nil {
-			localID = pm.LocalUserID
+		// 复用 sso.go 中的 generateTokensFromClaims 统一返回结构
+		claims := jwt.MapClaims{
+			"sub": user.ID,                     // 用户ID
+			"jti": ssoSession.ID,               // 使用当前session作为ID
+			"exp": ssoSession.ExpiresAt.Unix(), // 会话过期时间（秒）
+			"iat": time.Now().Unix(),           // 签发时间
 		}
 
-		allJWTDatas := &RS256TokenClaims{
-			ClientID:    "centralized",
-			UserID:      user.ID,
-			Email:       *user.Email,
-			Role:        user.Role,
-			AppID:       req.AppID,
-			LocalUserID: localID,
-			Lid:         localID,
-			User:        &user,
-			RegisteredClaims: jwt.RegisteredClaims{
-				ExpiresAt: jwt.NewNumericDate(now.Add(AccessTokenExpiration)), // 1小时
-				IssuedAt:  jwt.NewNumericDate(now),
-				NotBefore: jwt.NewNumericDate(now),
-				Issuer:    os.Getenv("JWT_ISS"),
-				ID:        uuid.New().String(),
-			},
-		}
-
-		accessToken, err := GenerateAccessTokenWithRS256(allJWTDatas)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code":             500,
-				"message":          "Failed to generate access token",
-				"is_authenticated": false,
-			})
-			return
-		}
-
-		refreshToken, err := GenerateRefreshTokenWithRS256(user.ID, "centralized")
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code":             500,
-				"message":          "Failed to generate refresh token",
-				"is_authenticated": false,
-			})
-			return
-		}
-
-		// 更新session中的token hash
-		calculateAccessTokenHash := CalculateTokenHash(accessToken)
-		calculateRefreshTokenHash := CalculateTokenHash(refreshToken)
-		if err := db.Model(&models.SSOSession{}).Where("id = ?", ssoSession.ID).
-			Update("current_access_token_hash", calculateAccessTokenHash).
-			Update("refresh_token_hash", calculateRefreshTokenHash).Error; err != nil {
-			fmt.Printf("Failed to update session token hash: %v\n", err)
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"code":             200,
-			"message":          "Session is valid",
-			"is_authenticated": true,
-			"user": gin.H{
-				"sub":                user.ID,
-				"name":               user.Username,
-				"preferred_username": user.Username,
-				"email":              *user.Email,
-				"email_verified":     user.EmailVerified,
-				"phone":              user.Phone,
-				"phone_verified":     user.PhoneVerified,
-				"picture":            user.GetAvatar(),
-				"role":               user.Role,
-				"last_login":         user.LastLoginAt,
-				"ip_address":         user.LastLoginIP,
-			},
-			"session": gin.H{
-				"session_id":       ssoSession.ID,
-				"user_id":          ssoSession.UserID,
-				"client_id":        ssoSession.ClientID,
-				"authenticated_at": ssoSession.CreatedAt,
-				"expires_at":       ssoSession.ExpiresAt,
-				"last_activity":    ssoSession.LastActivity,
-				"is_active":        ssoSession.Status == "active",
-				"current_app_id":   ssoSession.CurrentAppID,
-			},
-			"token": gin.H{
-				"access_token":  accessToken,
-				"refresh_token": refreshToken,
-				"token_type":    "Bearer",
-				"expires_in":    3600,
-			},
-		})
+		generateTokensFromClaims(c, db, claims, "centralized", "", "session_recovery", OAuthTokenRequest{AppID: req.AppID})
+		return
 	}
 }

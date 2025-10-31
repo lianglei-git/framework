@@ -22,6 +22,8 @@ import {
     SSOProviderConfig,
     StorageType
 } from '../types'
+import { TokenErrorResponse } from '../types/token'
+import { handleTokenError, createDefaultTokenErrorHandlers } from '../utils/tokenErrorHandler'
 import { ApiService } from './api'
 import { storage, storageManager } from '../utils/storage'
 import { globalUserStore } from '../stores/UserStore'
@@ -212,7 +214,7 @@ export class SSOService extends ApiService {
                     promise.then(result => {
                         if (result) {
                             console.log('SSO回调处理成功:', result)
-                            handleSSOCallbackResult(result, this)
+                            handleSSOCallbackResult(result)
                         }
                     })
 
@@ -220,7 +222,7 @@ export class SSOService extends ApiService {
                     console.error('SSO回调处理失败:', error)
                     alert(`登录失败: ${error.message}`)
                 }
-            }else {
+            } else {
                 // 如果登录有效
                 const { sessionId, appId } = this.getSessionFromCookies()
                 if (sessionId && appId) {
@@ -885,7 +887,7 @@ export class SSOService extends ApiService {
      */
     private setSessionCookie(sessionId: string, appId: string): void {
         console.log("setSessionCookie", sessionId, appId)
-        if(appId !== 'centralized') {
+        if (appId !== 'centralized') {
             // 如果不是centralized，则不设置cookie
             console.log("不是centralized，不设置cookie")
             return;
@@ -991,7 +993,8 @@ export class SSOService extends ApiService {
             console.log('🔍 发现有效的session cookies，尝试自动登录:', { sessionId, appId })
 
             // 调用后端API验证session并获取用户信息
-            const sessionCheckResponse = await this.post<SSOSessionCheckResponse>('/api/v1/auth/oauth/session-check', {
+
+            const sessionCheckResponse = await this.post<SSOSessionCheckResponse>(`${this.config.ssoServerUrl}/api/v1/auth/oauth/session-check`, {
                 session_id: sessionId,
                 app_id: appId
             })
@@ -1107,7 +1110,7 @@ export class SSOService extends ApiService {
 
             // 使用统一的API服务进行token交换
             const response = await this.post<SSOToken>(tokenEndpoint, tokenRequestData)
-            
+
 
 
             return this.unifiedSaveLoginInfos(response) as any;
@@ -1141,10 +1144,10 @@ export class SSOService extends ApiService {
         }
 
         // 获取用户信息
-        const userInfo = await this.getUserInfo(response.access_token)
+        // const userInfo = await this.getUserInfo(response.access_token)
 
         const auth = {
-            user: userInfo,
+            // user: userInfo,
             token: response,
             session: session
         }
@@ -1160,7 +1163,7 @@ export class SSOService extends ApiService {
         localStorage.removeItem('pkce_code_verifier')
 
         console.log('✅ 双重验证模式token交换成功:', {
-            user_id: userInfo.sub,
+            // user_id: userInfo.sub,
             token_type: response.token_type,
             expires_in: response.expires_in
         })
@@ -1296,6 +1299,10 @@ export class SSOService extends ApiService {
         post_logout_redirect_uri: string;
         state: string;
     }, requestType = 'href') {
+        await this.tokenManager.clearTokens()
+        await this.sessionManager.destroySession()
+        storage.clearAuth()
+        this.clearSessionCookies()
         if (requestType == 'href') {
             const querys = new URLSearchParams({
                 id_token_hint,
@@ -1377,6 +1384,7 @@ export class SSOService extends ApiService {
      * 支持后端的refresh_token轮换机制
      */
     async refreshToken(refreshToken?: string): Promise<SSORefreshTokenResponse> {
+
         try {
             // 步骤1: 获取refresh_token
             const token = refreshToken || this.tokenManager.getRefreshToken()
@@ -1416,7 +1424,7 @@ export class SSOService extends ApiService {
             if (response.session_info) {
                 console.log('📝 更新session信息')
                 await this.sessionManager.createSession(response.session_info)
-                
+
                 // 更新session cookie
                 this.setSessionCookie(response.session_info.session_id, (this.config as any).appId)
             }
@@ -1440,7 +1448,7 @@ export class SSOService extends ApiService {
             })
 
             // 步骤8: 触发token刷新事件，通知应用
-            window.dispatchEvent(new CustomEvent('auth:token-refreshed', { 
+            window.dispatchEvent(new CustomEvent('auth:token-refreshed', {
                 detail: {
                     access_token: response.access_token,
                     refresh_token: response.refresh_token,
@@ -1454,43 +1462,82 @@ export class SSOService extends ApiService {
             return response as SSORefreshTokenResponse
         } catch (error: any) {
             console.error('❌ Token刷新失败:', error)
-            
-            const errorCode = error.response?.data?.error_code
-            const suggestAction = error.response?.data?.suggest_action
-            
-            // 处理可以通过session恢复的错误
-            if (errorCode === 'REFRESH_TOKEN_INVALID' || 
-                errorCode === 'TOKEN_HASH_MISMATCH' ||
-                errorCode === 'SESSION_NOT_FOUND') {
-                
-                console.log('⚠️ Refresh token无效，尝试使用session恢复登录...')
-                
-                const { sessionId } = this.getSessionFromCookies()
-                
-                if (sessionId && suggestAction === 'check_session') {
-                    try {
-                        const recovered = await this.recoverFromSession(sessionId)
-                        
-                        if (recovered) {
-                            console.log('✅ 通过session成功恢复登录')
-                            return recovered
+
+            // 正确获取错误响应数据
+            // Axios错误结构: error.response.data 是后端返回的数据
+            let errorResponse: TokenErrorResponse | null = null
+
+            if (error.response && error.response.data) {
+                // 后端返回了错误响应
+                errorResponse = error.response.data as TokenErrorResponse
+                console.log('📄 后端错误响应:', errorResponse)
+            } else if (error.data) {
+                // 某些情况下错误直接在 error.data 中
+                errorResponse = error.data as TokenErrorResponse
+            }
+
+            // 如果有标准的错误响应，使用统一的错误处理器
+            if (errorResponse && errorResponse.error_code) {
+                console.log('🔍 检测到标准错误响应，执行智能处理:', {
+                    error_code: errorResponse.error_code,
+                    suggest_action: errorResponse.suggest_action
+                })
+
+                // 处理后端返回的标准错误
+                const handled = await handleTokenError(errorResponse, {
+                    onCheckSession: async () => {
+                        // 尝试用 session_id 恢复
+                        const { sessionId } = this.getSessionFromCookies()
+                        if (!sessionId) {
+                            console.log('⚠️ 未找到 session_id，无法恢复')
+                            throw new Error('登录失效，请重新登录！No session_id found')
                         }
-                    } catch (recoverError) {
-                        console.warn('❌ Session恢复失败:', recoverError)
+                        // 通过该方式可以触发beforeLogin事件，从而在beforeLogin事件中进行登录，走的登录流程，无跨域限制。
+                        window.dispatchEvent(new Event('auth:re-authorize-session'))
+
+
+                        console.log('🔄 尝试通过 session_id 恢复:', sessionId)
+                        // 这个应该是中心登录系统去调用，而不是前端子应用去调用
+                        // 通过该方式可直接获取到token，有跨域限制。
+                        // const recovered = await this.recoverFromSession(sessionId)
+                        // if (!recovered) {
+                        //     throw new Error('登录失效，请重新登录！Session recovery failed')
+                        // }
+
+                        console.log('✅/ Session 恢复成功')
+                        // 恢复成功，返回新的 token
+                        // return recovered
+                    },
+
+                    onRelogin: () => {
+                        // 完整登出并跳转
+                        console.log('🚪 执行完整登出流程')
+                        // this.handleCompleteLogout(errorResponse!.error_code || 'token_error')
+                        throw new Error(errorResponse!.error_description || 'Please login again')
+                    },
+
+                    onShowError: (message, severity) => {
+                        const t = severity || 'error';
+                        console[t as 'error' | 'warn' | 'info' | 'debug'](`Token错误: ${message}`)
                     }
+                })
+
+                // 如果成功处理且有恢复的 token，返回它
+                if (handled) {
+                    console.log('✅ 错误已被成功处理，返回恢复的token')
+                    return handled as SSORefreshTokenResponse
                 }
-                
-                console.log('⚠️ 无法通过session恢复，需要重新登录')
-                await this.handleCompleteLogout('refresh_token_invalid_and_session_failed')
-                throw new Error('Unable to recover session, please login again')
+
+            } else {
+                // 非标准错误响应（网络错误、超时等）
+                console.log('⚠️ 非标准错误响应，可能是网络问题:', {
+                    has_response: !!error.response,
+                    status: error.response?.status,
+                    message: error.message
+                })
             }
-            
-            // Session已失效，直接登出
-            if (errorCode === 'SESSION_INACTIVE') {
-                await this.handleCompleteLogout('session_inactive')
-                throw new Error('Session is not active, please login again')
-            }
-            
+
+            // 抛出原始错误
             throw error
         }
     }
@@ -1501,18 +1548,18 @@ export class SSOService extends ApiService {
     private async recoverFromSession(sessionId: string): Promise<any | null> {
         try {
             console.log('🔄 尝试通过session ID恢复登录:', sessionId)
-            
-            const sessionCheck = await this.post<any>('/api/v1/auth/oauth/session-check', {
+
+            const sessionCheck = await this.post<any>(`${this.config.ssoServerUrl}/api/v1/auth/oauth/session-check`, {
                 session_id: sessionId,
-                app_id: (this.config as any).appId || 'default'
+                app_id: (this.config as any).appId
             })
-            
+
             if (sessionCheck.is_authenticated && sessionCheck.token) {
                 console.log('✅ Session有效，已获取新token')
-                await this.unifiedSaveLoginInfos(sessionCheck.token)
-                return sessionCheck.token
+                await this.unifiedSaveLoginInfos(sessionCheck)
+                return sessionCheck
             }
-            
+
             return null
         } catch (error) {
             console.error('❌ Session恢复失败:', error)
@@ -1525,13 +1572,9 @@ export class SSOService extends ApiService {
      */
     private async handleCompleteLogout(reason: string): Promise<void> {
         console.log(`🚪 执行完整登出，原因: ${reason}`)
-        
-        await this.tokenManager.clearTokens()
-        await this.sessionManager.destroySession()
-        storage.clearAuth()
-        this.clearSessionCookies()
-        
-        window.dispatchEvent(new CustomEvent('auth:logout', { 
+
+
+        window.dispatchEvent(new CustomEvent('auth:beforeLogout', {
             detail: { reason, message: 'Please login again' }
         }))
     }
@@ -1896,18 +1939,18 @@ export class SSOSessionManager {
      * 销毁会话
      */
     async destroySession(): Promise<void> {
-        const session = this.getCurrentSession()
-        if (session) {
-            // 通知服务端会话销毁
-            try {
-                // 使用统一的API服务调用会话销毁API
-                await this.post('/api/v1/sso/session/destroy', {
-                    session_id: session.session_id
-                })
-            } catch (error) {
-                console.warn('Failed to destroy server session:', error)
-            }
-        }
+        // const session = this.getCurrentSession()
+        // if (session) {
+        //     // 通知服务端会话销毁
+        //     try {
+        //         // 使用统一的API服务调用会话销毁API
+        //         await this.post('/api/v1/sso/session/destroy', {
+        //             session_id: session.session_id
+        //         })
+        //     } catch (error) {
+        //         console.warn('Failed to destroy server session:', error)
+        //     }
+        // }
 
         storageManager.clearSSOSession()
     }
@@ -1992,11 +2035,11 @@ export class SSOError extends Error {
  */
 export function createDefaultSSOConfig(): SSOConfig {
     return {
-        ssoServerUrl: 'http://localhost:8080',
+        ssoServerUrl: import.meta.env.VITE_SSO_SERVER_URL,
         // clientId: 'your-client-id',
         // clientSecret: 'your-client-secret',
         // redirectUri: window.location.origin + '/auth/callback',
-        redirectUri: "http://localhost:3033",
+        redirectUri: import.meta.env.VITE_SSO_REDIRECT_URI,
         scope: ['openid', 'profile', 'email'],
         responseType: 'code',
         // 默认应用ID
