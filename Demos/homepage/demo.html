@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>学习首页 Demo</title>
+  <style>
+    :root {
+      --primary: #4A7BFF;
+      --primary-dark: #3A6BE0;
+      --title: #1E293B;
+      --text: #334155;
+      --muted: #64748B;
+      --bg-soft: #F8FAFC;
+      --line: #E2E8F0;
+      --warn: #FB923C;
+      --done: #36D399;
+      --shadow: 0 4px 16px rgba(0,0,0,0.1);
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', "PingFang SC", "Hiragino Sans GB", 'Microsoft YaHei', sans-serif; color: var(--text); background: #fff; }
+    a { color: inherit; text-decoration: none; }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 16px; }
+
+    /* 顶部导航 */
+    .topbar { display: grid; grid-template-columns: auto 1fr auto auto auto; align-items: center; gap: 12px; padding: 8px 0 12px; position: sticky; top: 0; background: #fff; z-index: 10; }
+    .logo { font-weight: 800; color: var(--title); letter-spacing: 0.5px; }
+    .search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; background: var(--bg-soft); }
+    .search input { flex: 1; border: none; outline: none; background: transparent; font-size: 14px; }
+    .search-suggest { position: absolute; background: #fff; border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 8px; display: none; width: min(520px, 92vw); }
+    .search-suggest .item { padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+    .search-suggest .item:hover { background: var(--bg-soft); }
+    .icon-btn { position: relative; height: 36px; width: 36px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 10px; background: #fff; cursor: pointer; }
+    .badge { position: absolute; right: -6px; top: -6px; background: #ef4444; color: #fff; border-radius: 999px; font-size: 10px; height: 18px; min-width: 18px; display: grid; place-items: center; padding: 0 4px; }
+    .profile { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); padding: 6px 10px; border-radius: 10px; }
+    .avatar { width: 24px; height: 24px; border-radius: 999px; background: linear-gradient(135deg, #60a5fa, #a78bfa); }
+
+    /* 布局 */
+    .grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 8px; }
+    @media (min-width: 1024px) {
+      .grid { grid-template-columns: 1.6fr 1.2fr; align-items: start; }
+    }
+
+    /* 卡片通用 */
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
+    .card h3 { margin: 0 0 10px; color: var(--title); font-size: 18px; }
+    .sub { color: var(--muted); font-size: 12px; margin-top: -6px; margin-bottom: 10px; }
+
+    /* 待办学习任务 */
+    .todo { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; border: 2px solid #fed7aa; background: #fff7ed; }
+    .todo .title { font-size: 16px; font-weight: 700; color: #9a3412; }
+    .todo .meta { font-size: 13px; color: #b45309; }
+    .todo .cta { display: flex; gap: 8px; }
+    .btn { height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+    .btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+    /* 学习画像 */
+    .stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    .stat { border: 1px dashed var(--line); border-radius: 10px; padding: 12px; background: var(--bg-soft); }
+    .stat .k { font-size: 12px; color: var(--muted); }
+    .stat .v { font-size: 22px; font-weight: 800; color: var(--title); display: flex; align-items: baseline; gap: 6px; }
+    .prog { height: 10px; background: #e5e7eb; border-radius: 999px; overflow: hidden; margin-top: 8px; }
+    .prog > span { display: block; height: 100%; width: 0%; background: var(--primary); transition: width .4s ease; }
+    .badge-wall { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .medal { height: 32px; padding: 0 10px; display: inline-flex; align-items: center; gap: 6px; background: #f0f9ff; border: 1px solid #e0f2fe; color: #0369a1; border-radius: 999px; font-size: 12px; cursor: pointer; }
+
+    /* 社区预览 */
+    .feed { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    .post { border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; }
+    .post .u { width: 32px; height: 32px; border-radius: 999px; background: #e9d5ff; }
+    .post .t { font-size: 14px; color: var(--title); }
+    .post .m { font-size: 12px; color: var(--muted); }
+
+    /* 继续学习 + 推荐 */
+    .resume { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    .resume-card { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+    .chip { font-size: 12px; background: #EEF2F7; color: var(--muted); padding: 2px 8px; border-radius: 999px; }
+    .row { display: flex; align-items: center; gap: 8px; }
+    .reco { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .reco .card { padding: 12px; }
+
+    /* 复习 & 课程探索 */
+    .review { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .explore-btn { height: 40px; border-radius: 8px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+
+    /* 通知中心下拉 */
+    .dropdown { position: absolute; right: 0; margin-top: 8px; width: 320px; background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); display: none; }
+    .dropdown h4 { margin: 12px; font-size: 14px; color: var(--title); }
+    .notif { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; padding: 10px 12px; border-top: 1px solid var(--line); }
+    .notif.unread { background: #f8fafc; }
+    .notif .ic { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; background: #eff6ff; color: var(--primary); font-size: 14px; }
+    .notif .txt { font-size: 13px; color: var(--text); }
+    .notif .time { font-size: 11px; color: var(--muted); }
+
+    /* 帮助/反馈 & 页脚 */
+    footer { margin: 16px 0 40px; color: var(--muted); font-size: 12px; display: grid; gap: 8px; }
+    .help { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #fff; display: grid; gap: 8px; }
+    .help .row { justify-content: space-between; }
+
+    /* 动画简化 */
+    .rise { opacity: 0; transform: translateY(6px); animation: rise .25s ease forwards; }
+    @keyframes rise { to { opacity: 1; transform: translateY(0); } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- 顶部导航 -->
+    <div class="topbar">
+      <div class="logo">Sparrow 学习</div>
+      <div style="position: relative;">
+        <div class="search" role="search">
+          <span>🔎</span>
+          <input id="searchInput" placeholder="搜索课程/单词/主题…" aria-label="搜索课程或主题" />
+        </div>
+        <div id="searchSuggest" class="search-suggest" role="listbox" aria-label="搜索联想"></div>
+      </div>
+      <div style="position: relative;">
+        <button id="notifBtn" class="icon-btn" aria-label="通知中心">
+          🔔
+          <span id="notifBadge" class="badge" style="display:none;">0</span>
+        </button>
+        <div id="notifDd" class="dropdown" role="menu" aria-label="通知列表"></div>
+      </div>
+      <div class="icon-btn" title="设置">⚙️</div>
+      <div class="profile" title="个人中心">
+        <div class="avatar"></div>
+        <div style="font-size: 12px;">小林</div>
+      </div>
+    </div>
+
+    <!-- 核心区域 -->
+    <div class="grid">
+      <div class="left" style="display: grid; gap: 16px;">
+        <!-- 待办学习任务 -->
+        <div class="card todo rise" style="animation-delay:60ms;">
+          <div>
+            <div class="title">今日目标：完成 1 个主题课程（剩余 25 分钟）</div>
+            <div class="meta">复习提醒：30 个单词待巩固｜1 个复习包待完成</div>
+          </div>
+          <div class="cta">
+            <button class="btn">查看详情</button>
+            <button class="btn primary" id="startTodayBtn">立即开始</button>
+          </div>
+        </div>
+
+        <!-- 学习画像 + 勋章入口 -->
+        <div class="card rise" style="animation-delay:120ms;">
+          <h3>学习画像</h3>
+          <div class="stats">
+            <div class="stat">
+              <div class="k">连续学习</div>
+              <div class="v">7 天 <span style="font-size:12px; color:#22c55e;">再学 3 天解锁徽章</span></div>
+            </div>
+            <div class="stat">
+              <div class="k">本周学习时长</div>
+              <div class="v">5 / 8 小时</div>
+              <div class="prog" aria-label="时长完成度"><span id="hProg" style="width:62.5%"></span></div>
+            </div>
+            <div class="stat">
+              <div class="k">正确率</div>
+              <div class="v">78% <span style="font-size:12px; color:#16a34a;">↑ 5%</span></div>
+              <div class="prog" aria-label="正确率"><span id="accProg" style="width:78%"></span></div>
+            </div>
+          </div>
+          <div class="badge-wall">
+            <button class="medal" id="medalBtn">🏅 坚持达人</button>
+            <div class="medal" title="待解锁">🔒 词汇大师</div>
+            <div class="medal" title="待解锁">🔒 发音能手</div>
+          </div>
+        </div>
+
+        <!-- 社区动态预览 -->
+        <div class="card rise" style="animation-delay:180ms;">
+          <div class="row" style="justify-content: space-between;">
+            <h3 style="margin:0;">学习社区</h3>
+            <a href="#" style="font-size:12px; color: var(--primary);">查看更多</a>
+          </div>
+          <div class="feed" style="margin-top:8px;">
+            <div class="post">
+              <div class="u"></div>
+              <div>
+                <div class="t">@小李 分享了「商务谈判」学习笔记</div>
+                <div class="m">32 人点赞 · 5 分钟前</div>
+              </div>
+              <button class="btn" style="height:28px;">点赞</button>
+            </div>
+            <div class="post">
+              <div class="u" style="background:#bae6fd;"></div>
+              <div>
+                <div class="t">@小张 刚完成「会议开场」课程</div>
+                <div class="m">你的 3 位好友今日已学习</div>
+              </div>
+              <button class="btn" style="height:28px;">祝贺</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="right" style="display: grid; gap: 16px;">
+        <!-- 继续学习入口 -->
+        <div class="card resume rise" style="animation-delay:90ms;">
+          <div class="resume-card">
+            <div>
+              <div style="font-weight:700; color: var(--title);">继续学习：会议开场</div>
+              <div style="font-size:12px; color: var(--muted);">进度 3 / 5 任务</div>
+            </div>
+            <div class="row">
+              <div class="chip">中级</div>
+              <button class="btn primary" id="resumeBtn">继续</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 新内容推荐入口 -->
+        <div class="card rise" style="animation-delay:150ms;">
+          <h3>为你推荐</h3>
+          <div class="reco">
+            <div class="card">
+              <div style="font-weight:700; color: var(--title);">会议纪要</div>
+              <div class="sub">基于「会议开场」的延伸</div>
+              <button class="btn" style="width:100%;">查看详情 →</button>
+            </div>
+            <div class="card">
+              <div style="font-weight:700; color: var(--title);">跨境电商沟通</div>
+              <div class="sub">1000+ 人正在学习</div>
+              <button class="btn" style="width:100%;">查看详情 →</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 复习入口 -->
+        <div class="card rise" style="animation-delay:210ms;">
+          <h3>复习</h3>
+          <div class="review">
+            <div class="card" style="background:#f8fafc;">
+              <div class="row" style="justify-content: space-between;">
+                <div>
+                  <div style="font-weight:700; color: var(--title);">单词复习</div>
+                  <div class="sub">30 个</div>
+                </div>
+                <button class="btn">开始</button>
+              </div>
+            </div>
+            <div class="card" style="background:#f8fafc;">
+              <div class="row" style="justify-content: space-between;">
+                <div>
+                  <div style="font-weight:700; color: var(--title);">个性化复习包</div>
+                  <div class="sub">1 个</div>
+                </div>
+                <button class="btn">开始</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 课程探索入口 -->
+        <div class="card rise" style="animation-delay:240ms;">
+          <div class="row" style="justify-content: space-between;">
+            <h3 style="margin:0;">课程探索</h3>
+            <button class="explore-btn">探索更多课程</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 帮助 / 反馈 -->
+    <div class="help card" style="margin-top:16px;">
+      <div class="row">
+        <div>
+          <div style="font-weight:700; color: var(--title);">帮助与反馈</div>
+          <div class="sub">新手指南 · 常见问题 · 提交反馈</div>
+        </div>
+        <button class="btn">打开</button>
+      </div>
+    </div>
+
+    <footer>
+      <div>© 2025 Sparrow 学习 · All rights reserved.</div>
+    </footer>
+  </div>
+
+  <script>
+    // 简易数据
+    const suggests = ['商务邮件写作', '邮件常用句型', '会议开场', '商务谈判', '跨境电商沟通'];
+    const notifications = [
+      { id: 1, icon: '⏰', text: '复习时间到了：单词复习 30 个', time: '2 分钟前', unread: true },
+      { id: 2, icon: '🏆', text: '成就解锁：连续学习 7 天', time: '1 小时前', unread: true },
+      { id: 3, icon: '📰', text: '新课程上架：会议纪要', time: '昨天', unread: false },
+    ];
+
+    // 搜索联想
+    const inp = document.getElementById('searchInput');
+    const suggestBox = document.getElementById('searchSuggest');
+    function renderSuggest(q) {
+      if (!q) { suggestBox.style.display = 'none'; return; }
+      const items = suggests.filter(s => s.includes(q)).slice(0, 5);
+      if (!items.length) { suggestBox.style.display = 'none'; return; }
+      suggestBox.innerHTML = items.map((s, idx) => `<div class="item" role="option" data-i="${idx}">${s}</div>`).join('');
+      suggestBox.style.display = 'block';
+      const rect = inp.getBoundingClientRect();
+      suggestBox.style.left = '0px';
+      suggestBox.style.top = '44px';
+    }
+    inp.addEventListener('input', (e) => renderSuggest(e.target.value.trim()));
+    suggestBox.addEventListener('click', (e) => {
+      const t = e.target.closest('.item');
+      if (!t) return;
+      inp.value = t.textContent;
+      suggestBox.style.display = 'none';
+      alert('搜索：' + inp.value);
+    });
+    document.addEventListener('click', (e) => {
+      if (!suggestBox.contains(e.target) && e.target !== inp) suggestBox.style.display = 'none';
+    });
+
+    // 通知中心
+    const notifBtn = document.getElementById('notifBtn');
+    const notifDd = document.getElementById('notifDd');
+    const notifBadge = document.getElementById('notifBadge');
+    function updateBadge() {
+      const count = notifications.filter(n => n.unread).length;
+      if (count > 0) { notifBadge.style.display = 'grid'; notifBadge.textContent = String(count); }
+      else { notifBadge.style.display = 'none'; }
+    }
+    function renderNotif() {
+      notifDd.innerHTML = `<h4>通知</h4>` + notifications.map(n => `
+        <div class="notif ${n.unread ? 'unread' : ''}">
+          <div class="ic">${n.icon}</div>
+          <div class="txt">${n.text}<div class="time">${n.time}</div></div>
+          <button class="btn" style="height:28px;" data-id="${n.id}">${n.unread ? '标为已读' : '已读'}</button>
+        </div>
+      `).join('');
+    }
+    notifBtn.addEventListener('click', () => {
+      const open = notifDd.style.display === 'block';
+      notifDd.style.display = open ? 'none' : 'block';
+      if (!open) renderNotif();
+    });
+    notifDd.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-id]');
+      if (!btn) return;
+      const id = Number(btn.getAttribute('data-id'));
+      const n = notifications.find(x => x.id === id);
+      if (n) n.unread = false;
+      renderNotif();
+      updateBadge();
+    });
+    document.addEventListener('click', (e) => {
+      if (!notifDd.contains(e.target) && e.target !== notifBtn) notifDd.style.display = 'none';
+    });
+
+    // CTA
+    document.getElementById('startTodayBtn').addEventListener('click', () => alert('开始今日目标'));
+    document.getElementById('resumeBtn').addEventListener('click', () => alert('继续上次学习'));
+    document.getElementById('medalBtn').addEventListener('click', () => alert('打开勋章墙'));
+
+    // 初始化
+    (function init() {
+      updateBadge();
+    })();
+  </script>
+</body>
+</html>
+
+

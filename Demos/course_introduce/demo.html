@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>课程介绍 Demo · 会议开场</title>
+  <style>
+    :root {
+      --primary: #4A7BFF;
+      --primary-dark: #3A6BE0;
+      --title: #1E293B;
+      --text: #334155;
+      --muted: #64748B;
+      --bg-soft: #F8FAFC;
+      --done: #36D399;
+      --error: #F87272;
+      --warn: #FB923C;
+      --line: #E2E8F0;
+      --shadow: 0 4px 16px rgba(0,0,0,0.1);
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', "PingFang SC", "Hiragino Sans GB", 'Microsoft YaHei', sans-serif; color: var(--text); background: #fff; }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px 16px 120px; position: relative; }
+
+    /* 顶部 */
+    .header { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+    .title { font-size: 16px; font-weight: 600; color: var(--text); }
+    .top-progress { height: 6px; width: 100%; background: var(--line); border-radius: 999px; overflow: hidden; }
+    .top-progress > span { display: block; height: 100%; width: 0%; background: var(--primary); transition: width .3s ease; }
+
+    /* 主体布局 */
+    .main { display: grid; grid-template-columns: 1fr; gap: 16px; }
+    @media (min-width: 1024px) {
+      .main { grid-template-columns: 1.6fr 1.2fr 1.2fr; align-items: start; gap: 24px; }
+    }
+
+    /* 主题头图区 */
+    .hero { position: relative; border-radius: 12px; overflow: hidden; min-height: 420px; background: #e5e7eb; }
+    .hero-img { width: 100%; height: 100%; object-fit: cover; display: block; filter: saturate(1.05) contrast(1.02); opacity: 0; animation: fadeIn .6s ease forwards; }
+    .hero-gradient { position: absolute; left: 0; right: 0; bottom: 0; height: 40%; background: linear-gradient(180deg, rgba(74,123,255,0) 0%, rgba(74,123,255,0.25) 40%, rgba(251,146,60,0.35) 100%); }
+    .hero-tag { position: absolute; left: 16px; top: 16px; background: #F1F5F9; color: var(--text); border-radius: 8px; padding: 6px 12px; font-size: 14px; box-shadow: 0 2px 6px rgba(0,0,0,0.06); }
+    @keyframes fadeIn { to { opacity: 1; } }
+
+    /* 核心信息区 */
+    .core { border: 1px solid var(--line); border-radius: 12px; padding: 20px; background: #fff; }
+    .core-title { font-size: 28px; font-weight: 700; color: var(--title); margin: 0 0 10px; }
+    .core-desc { font-size: 16px; color: var(--text); margin: 0 0 18px; line-height: 1.6; }
+    .core-benefits { margin: 0 0 16px; padding-left: 0; list-style: none; }
+    .core-benefits li { font-size: 14px; color: var(--muted); margin: 8px 0; }
+    .core-meta { display: flex; align-items: center; gap: 8px; justify-content: space-between; margin-top: 8px; }
+    .meta-left { font-size: 14px; color: var(--text); }
+    .badge { display: inline-block; background: var(--primary); color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+
+    /* 任务导航区（模块卡片） */
+    .navzone { display: grid; grid-template-columns: 1fr; gap: 12px; }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: flex; align-items: center; gap: 12px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.05); transition: transform .15s ease, border-color .2s ease, box-shadow .2s ease; opacity: 0; animation: rise .35s ease forwards; min-height: 72px; }
+    .card:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.08); }
+    .card-icon { width: 32px; height: 32px; display: grid; place-items: center; color: var(--primary); font-size: 20px; }
+    .card-body { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .card-title { font-size: 14px; color: var(--title); }
+    .card-sub { font-size: 12px; color: var(--muted); }
+    .card-aside { display: flex; align-items: center; gap: 8px; }
+    .count-pill { font-size: 12px; background: #EEF2F7; color: var(--muted); padding: 2px 8px; border-radius: 999px; }
+    .status-check { width: 20px; height: 20px; border-radius: 999px; border: 2px solid #d1fae5; display: grid; place-items: center; color: var(--done); font-size: 12px; }
+    .card-learned { border-color: var(--done); }
+    .card-primary { border-width: 2px; border-color: var(--primary); }
+    @keyframes rise { from { transform: translateY(6px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    /* 底部学习入口 */
+    .footer-cta { position: fixed; left: 0; right: 0; bottom: 24px; display: grid; place-items: center; pointer-events: none; }
+    .footer-inner { pointer-events: auto; background: #fff; padding: 20px; border-radius: 16px; box-shadow: var(--shadow); border: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 560px; }
+    .start-btn { height: 56px; width: 220px; border-radius: 8px; background: var(--primary); color: #fff; border: none; font-size: 18px; font-weight: 700; cursor: pointer; transition: background .15s ease, transform .1s ease; }
+    .start-btn:hover { background: var(--primary-dark); }
+    .start-btn:active { transform: scale(0.98); }
+    .resume { font-size: 14px; color: var(--muted); }
+
+    /* 完成弹窗 */
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: none; align-items: center; justify-content: center; padding: 16px; }
+    .modal { width: min(640px, 90vw); background: #fff; border-radius: 16px; box-shadow: var(--shadow); padding: 24px; text-align: center; }
+    .modal h3 { margin: 12px 0 6px; font-size: 18px; color: var(--title); }
+    .modal p { margin: 0 0 16px; font-size: 14px; color: var(--muted); }
+    .modal-actions { display: flex; gap: 24px; justify-content: center; margin-top: 8px; }
+    .btn { height: 48px; padding: 0 18px; border-radius: 10px; border: 1px solid var(--line); background: #fff; cursor: pointer; }
+    .btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .grid-reco { margin-top: 16px; display: grid; grid-template-columns: 1fr; gap: 12px; }
+    .reco-card { background: var(--bg-soft); border-radius: 12px; padding: 12px; text-align: left; }
+    .reco-title { font-size: 14px; color: var(--title); margin: 0 0 4px; }
+    .reco-reason { font-size: 12px; color: var(--muted); margin: 0; }
+    @media (min-width: 640px) { .grid-reco { grid-template-columns: 1fr 1fr; } }
+
+    /* 骨架屏（简单版） */
+    .skeleton { background: linear-gradient(90deg, #eee, #f5f5f5, #eee); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+    /* 可点击动画统一 */
+    .clickable:active { transform: scale(0.95); }
+  </style>
+</head>
+<body>
+  <div class="container" aria-live="polite">
+    <header class="header">
+      <div class="title" aria-label="课程层级">单元 1，课程 1 · 会议开场</div>
+      <div class="top-progress" role="progressbar" aria-label="课程完成进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <span id="navProgressBar"></span>
+      </div>
+    </header>
+
+    <main class="main">
+      <!-- 主题头图区 -->
+      <section class="hero" aria-label="主题头图">
+        <img class="hero-img" alt="商务会议场景图，适合中级水平" src="https://images.unsplash.com/photo-1552664730-d307ca884978?q=80&w=1600&auto=format&fit=crop" />
+        <div class="hero-gradient" aria-hidden="true"></div>
+        <div class="hero-tag">商务英语</div>
+      </section>
+
+      <!-- 核心信息区 -->
+      <section class="core" aria-label="核心信息">
+        <h2 class="core-title">会议开场</h2>
+        <p class="core-desc">掌握会议开场的 3 大核心表达，能独立主持 10 人以下商务会议开场环节。</p>
+        <ul class="core-benefits">
+          <li>✓ 避免会议开场冷场</li>
+          <li>✓ 清晰传递会议目标</li>
+          <li>✓ 快速建立沟通秩序</li>
+        </ul>
+        <div class="core-meta">
+          <div class="meta-left">预计耗时：30 分钟（4 个模块）</div>
+          <div class="badge" aria-label="难度 中级">中级</div>
+        </div>
+      </section>
+
+      <!-- 任务导航区 -->
+      <section aria-label="任务导航区" id="navZone" class="navzone"></section>
+    </main>
+  </div>
+
+  <!-- 底部学习入口 -->
+  <div class="footer-cta" aria-live="polite">
+    <div class="footer-inner">
+      <button id="startBtn" class="start-btn" aria-label="开始学习按钮，跳转至首个未完成任务">开始学习</button>
+      <div id="resumeText" class="resume"></div>
+    </div>
+  </div>
+
+  <!-- 完成弹窗 -->
+  <div id="modalBd" class="modal-backdrop" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="modal">
+      <div style="font-size:64px; line-height:1; color: var(--primary);">🏆</div>
+      <h3>恭喜完成 <span id="courseName">会议开场</span> 所有任务！</h3>
+      <p>已掌握：值机核心句型与广播关键词</p>
+      <div class="modal-actions">
+        <button class="btn" id="reportBtn">查看学习报告</button>
+        <button class="btn primary" id="continueBtn">继续学习</button>
+      </div>
+      <div class="grid-reco" style="margin-top:16px;">
+        <div class="reco-card">
+          <p class="reco-title">酒店入住沟通</p>
+          <p class="reco-reason">与机场场景关联，学完能应对酒店入住</p>
+        </div>
+        <div class="reco-card">
+          <p class="reco-title">安检与登机</p>
+          <p class="reco-reason">同主题延伸，巩固旅行出行环节表达</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // 课程模块数据（输入→阅读→表达→最终任务）
+    const courseId = 'demo-course-meeting-opening';
+    const modules = [
+      { id: 'm_vocab', icon: '📗', title: '词汇积累 | 会议核心词', sub: '输入模块', tag: '20 词' },
+      { id: 'm_read',  icon: '📘', title: '阅读训练 | 会议议程', sub: '理解模块', tag: '1 篇' },
+      { id: 'm_speak', icon: '🎤', title: '口语表达 | 讨论公司问题', sub: '输出模块', tag: '3 个句型' },
+      { id: 'm_task',  icon: '🎯', title: '综合应用 | 会议开场', sub: '应用模块', tag: '1 个场景', primary: true }
+    ];
+
+    // 状态持久化（模块完成 & 上次位置）
+    function loadState() {
+      try {
+        const raw = localStorage.getItem('course:state:' + courseId);
+        if (!raw) return { modulesDone: {}, lastModuleId: null };
+        return JSON.parse(raw);
+      } catch (_) {
+        return { modulesDone: {}, lastModuleId: null };
+      }
+    }
+    function saveState(state) { localStorage.setItem('course:state:' + courseId, JSON.stringify(state)); }
+    let state = loadState();
+
+    // 渲染任务导航区
+    const navZone = document.getElementById('navZone');
+    function renderModules() {
+      navZone.innerHTML = '';
+      modules.forEach((m, idx) => {
+        const el = document.createElement('div');
+        el.className = 'card' + (state.modulesDone[m.id] ? ' card-learned' : '') + (m.primary ? ' card-primary' : '');
+        el.style.animationDelay = (idx * 80) + 'ms';
+        el.setAttribute('role', 'button');
+        el.setAttribute('aria-label', `${m.title}，${state.modulesDone[m.id] ? '已学习' : '未学习'}`);
+        el.addEventListener('click', () => enterModule(m.id));
+
+        const icon = document.createElement('div');
+        icon.className = 'card-icon';
+        icon.textContent = m.icon;
+
+        const body = document.createElement('div');
+        body.className = 'card-body';
+        const t = document.createElement('div'); t.className = 'card-title'; t.textContent = m.title;
+        const s = document.createElement('div'); s.className = 'card-sub'; s.textContent = m.sub;
+        body.appendChild(t); body.appendChild(s);
+
+        const aside = document.createElement('div');
+        aside.className = 'card-aside';
+        const count = document.createElement('div'); count.className = 'count-pill'; count.textContent = m.tag;
+        const status = document.createElement('div'); status.className = 'status-check'; status.textContent = state.modulesDone[m.id] ? '✓' : '';
+        aside.appendChild(count); aside.appendChild(status);
+
+        el.appendChild(icon); el.appendChild(body); el.appendChild(aside);
+        navZone.appendChild(el);
+      });
+      updateTopProgress();
+      updateResumeText();
+    }
+
+    function updateTopProgress() {
+      const total = modules.length;
+      const completed = modules.filter(m => state.modulesDone[m.id]).length;
+      const percent = Math.round((completed / Math.max(1, total)) * 100);
+      const bar = document.getElementById('navProgressBar');
+      bar.style.width = percent + '%';
+      bar.parentElement.setAttribute('aria-valuenow', String(percent));
+      if (completed === total && total > 0) showCompletionModal();
+    }
+
+    function updateResumeText() {
+      const resumeEl = document.getElementById('resumeText');
+      const firstIncomplete = modules.find(m => !state.modulesDone[m.id]);
+      if (state.lastModuleId) {
+        const last = modules.find(m => m.id === state.lastModuleId);
+        if (last) resumeEl.textContent = `上次学习：${last.title}（继续）`;
+      } else if (firstIncomplete) {
+        resumeEl.textContent = `上次学习：${firstIncomplete.title}（继续）`;
+      } else {
+        resumeEl.textContent = '';
+      }
+    }
+
+    // 进入模块（示例：切换学习完成状态）
+    function enterModule(moduleId) {
+      state.lastModuleId = moduleId;
+      // 模拟：切换已学习状态；实际应跳转模块详情页
+      state.modulesDone[moduleId] = !state.modulesDone[moduleId];
+      saveState(state);
+      renderModules();
+    }
+
+    // 开始学习：首个未学习模块
+    document.getElementById('startBtn').addEventListener('click', () => {
+      const target = modules.find(m => !state.modulesDone[m.id]) || modules[0];
+      if (target) enterModule(target.id);
+    });
+
+    // 完成弹窗逻辑
+    const modalBd = document.getElementById('modalBd');
+    function showCompletionModal() {
+      modalBd.style.display = 'flex';
+      modalBd.setAttribute('aria-hidden', 'false');
+      // 轻量成就音效（可关闭）：为简化，使用浏览器提示音
+      try { new Audio('data:audio/mp3;base64,//uQZAAAAAAAAAAAAAAAAAAAA').play().catch(() => {}); } catch (_) {}
+    }
+    function hideCompletionModal() {
+      modalBd.style.display = 'none';
+      modalBd.setAttribute('aria-hidden', 'true');
+    }
+    modalBd.addEventListener('click', (e) => { if (e.target === modalBd) hideCompletionModal(); });
+    document.getElementById('continueBtn').addEventListener('click', () => {
+      hideCompletionModal();
+      // 推荐课程：跳转到示例介绍（此处仅提示）
+      alert('前往推荐课程：酒店入住沟通');
+    });
+    document.getElementById('reportBtn').addEventListener('click', () => {
+      alert('打开学习报告（示例）');
+    });
+
+    // 初始渲染
+    (function init() {
+      renderModules();
+    })();
+  </script>
+</body>
+</html>
+
+
+
