@@ -416,6 +416,12 @@ func GetSessionIDFromCookie(c *gin.Context) string {
 func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		//
+		// client id , secret id , appid
+		// code
+		// code + secret id  = token
+
+		//
+
 		clientID := c.Query("client_id")
 		redirectURI := c.Query("redirect_uri")
 		responseType := c.Query("response_type")
@@ -479,7 +485,8 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 			}
 			// 这里应该重定向到登录页面，携带这些参数
 			log.Println("Redirecting to login page with parameters:", sessionData, getFullURL(c, true))
-			c.Redirect(http.StatusFound, WEB_CENTER_URL+"/?app_origin=true&redirect_uri="+getFullURL(c, true))
+			// 这里要修改为环境变量
+			c.Redirect(http.StatusFound, "http://localhost:3033/?app_origin=true&redirect_uri="+getFullURL(c, true))
 			return
 		}
 

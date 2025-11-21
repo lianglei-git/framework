@@ -213,8 +213,8 @@ func main() {
 		// 认证相关路由
 		auth := api.Group("/auth")
 		{
-			// OAuth 2.0/OpenID Connect端点
-			auth.GET("/oauth/authorize", handlers.GetOAuthAuthorize(db))
+			// OAuth 2.0/OpenID Connect OIDC 端点
+			auth.GET("/oauth/authorize", handlers.GetOAuthAuthorize(db)) //
 			auth.POST("/oauth/token", handlers.GetOAuthToken(db))
 			auth.GET("/oauth/userinfo", handlers.GetOAuthUserinfo(db))
 			auth.POST("/oauth/logout", handlers.GetOAuthLogout(db))
