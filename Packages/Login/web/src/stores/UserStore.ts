@@ -200,7 +200,7 @@ class UserStore {
         }
     }
 
-    setAuthFromResponse = (response: any) => {
+    setAuthFromResponse = (response: any, options?: { notify?: boolean }) => {
         const authData = {
             user: response.user ?? response.token?.user,
             token: response.token,
@@ -214,8 +214,12 @@ class UserStore {
         this.authInfo = authData
         if (authData.user) {
             this.setUserInfo(authData.user, authData.token)
+        } else if (authData.token) {
+            this.info = { ...this.info, token: authData.token }
         }
-        window.dispatchEvent(new CustomEvent('auth:login', { detail: response }))
+        if (options?.notify) {
+            window.dispatchEvent(new CustomEvent('auth:login', { detail: authData }))
+        }
     }
 
     // 设置用户信息

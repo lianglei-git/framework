@@ -300,24 +300,25 @@ export class AuthApiService extends ApiService {
 
     // 用户注册 - 支持201状态码，注册成功后返回登录信息
     async register(data: RegisterRequest): Promise<LoginResponse> {
-        const response = await this.post<{ code: number, data?: any, message?: string }>(`${this.baseURL}/api/v1/auth/register`, {
-            email: data.email,
-            username: data.username,
-            nickname: data.username,
-            password: data.password,
-            code: data.verification_code
-        }, {
-            headers: getCommonHeaders()
-        })
+        const response = await this.post<LoginResponse & { code?: number; message?: string; error?: string }>(
+            `${this.baseURL}/api/v1/auth/register`,
+            {
+                email: data.email,
+                username: data.username,
+                nickname: data.username,
+                password: data.password,
+                code: data.verification_code
+            },
+            {
+                headers: getCommonHeaders()
+            }
+        )
+
+        if (response?.error || (typeof response?.code === 'number' && response.code >= 400)) {
+            throw new Error(formatAuthError(response, '注册失败'))
+        }
 
         return response
-
-        // 支持200和201状态码
-        // if (response.code === 200 || response.code === 201) {
-        //     return response.data
-        // } else {
-        //     throw new Error(response.message || '注册失败')
-        // }
     }
 
     // 发送邮箱验证码

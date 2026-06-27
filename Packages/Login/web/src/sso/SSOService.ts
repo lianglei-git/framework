@@ -204,7 +204,6 @@ export class SSOService extends ApiService {
                             if (result) {
                                 console.log('SSO回调处理成功:', result)
                                 handleSSOCallbackResult(result)
-                                window.dispatchEvent(new CustomEvent('auth:login', { detail: result }))
                             } else {
                                 window.dispatchEvent(new CustomEvent('auth:oauth-failed'))
                             }
@@ -1181,7 +1180,7 @@ export class SSOService extends ApiService {
         // const userInfo = await this.getUserInfo(response.access_token)
 
         const auth = {
-            // user: userInfo,
+            user: response.user,
             token: response,
             session: session
         }
@@ -1328,27 +1327,41 @@ export class SSOService extends ApiService {
 
 
     // 登出
-    async ssoLogout({ id_token_hint, post_logout_redirect_uri, state }: {
-        id_token_hint: string;
-        post_logout_redirect_uri: string;
-        state: string;
+    async ssoLogout({
+        id_token_hint,
+        post_logout_redirect_uri,
+        state,
+    }: {
+        id_token_hint: string
+        post_logout_redirect_uri?: string
+        state?: string
     }, requestType = 'href') {
         await this.tokenManager.clearTokens()
         await this.sessionManager.destroySession()
         storage.clearAuth()
         this.clearSessionCookies()
-        if (requestType == 'href') {
-            const querys = new URLSearchParams({
-                id_token_hint,
-                post_logout_redirect_uri,
-                state
-            })
+
+        const redirectUri =
+            post_logout_redirect_uri ||
+            this.config.redirectUri ||
+            `${window.location.origin}${window.location.pathname}`
+
+        if (requestType === 'href') {
+            const querys = new URLSearchParams()
+            querys.set('id_token_hint', id_token_hint)
+            querys.set('post_logout_redirect_uri', redirectUri)
+            if (state) {
+                querys.set('state', state)
+            }
             const uri = `${this.baseURL}/api/v1/auth/oauth/logout?${querys.toString()}`
-            window.location.href = uri;
-            return;
+            window.location.href = uri
+            return
         }
+
         return this.post(`/api/v1/auth/oauth/logout`, {
             id_token_hint,
+            post_logout_redirect_uri: redirectUri,
+            ...(state ? { state } : {}),
         })
     }
 

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import {
     type User,
     type PhoneLoginRequest,
@@ -124,9 +124,9 @@ export const useAuth = () => {
         return () => window.removeEventListener('pageshow', onPageShow)
     }, [resetOAuthLoading])
 
-    useAuthEvents('login', (details) => {
+    useAuthEvents('login', () => {
         setLoadingInfos('stop')
-        store.setAuthFromResponse(details)
+        store.syncFromStorage()
     })
 
     useAuthEvents('oauth-failed', () => {
@@ -169,7 +169,8 @@ export const useAuth = () => {
         store.error = null
         try {
             const response = await authApi.phoneLogin(data)
-            store.setAuthFromResponse({ ...response, remember_me: data.remember_me })
+            const payload = { ...response, remember_me: data.remember_me }
+            store.setAuthFromResponse(payload, { notify: true })
         } catch (err: any) {
             failWith(err, '登录失败')
         } finally {
@@ -194,24 +195,46 @@ export const useAuth = () => {
 
     const logout = () => store.logout()
 
-    const ssoLogout = async (params: any = {}) => {
+    const buildLogoutRedirectUri = (override?: string) => {
+        const base =
+            override ||
+            getSSOConfig().redirectUri ||
+            `${window.location.origin}${window.location.pathname}`
+        return base.includes('logout=')
+            ? base
+            : `${base}${base.includes('?') ? '&' : '?'}logout=true`
+    }
+
+    const ssoLogout = async (params: Record<string, any> = {}) => {
         store.isLoading = true
         store.error = null
-        const token = store.tokenPayload
-        if (!token?.id_token) {
-            throw Error("没有token")
+
+        const logoutRedirect = buildLogoutRedirectUri(params.post_logout_redirect_uri)
+        const idToken = store.tokenPayload?.id_token
+
+        const finishLocalLogout = () => {
+            clearLocalAuth()
+            resetOAuthLoading()
+            window.dispatchEvent(new CustomEvent('auth:logout'))
+            store.isLoading = false
         }
+
+        if (!idToken || !ssoService) {
+            finishLocalLogout()
+            window.location.href = logoutRedirect
+            return
+        }
+
         try {
-            ssoService.ssoLogout({
-                id_token_hint: token.id_token,
-                ...params,
+            await ssoService.ssoLogout({
+                id_token_hint: idToken,
+                post_logout_redirect_uri: logoutRedirect,
+                state: params.state,
             })
         } catch (err) {
             console.error('Logout API error:', err)
-        } finally {
-            clearLocalAuth()
-            window.dispatchEvent(new CustomEvent('auth:logout'))
-            store.isLoading = false
+            finishLocalLogout()
+            window.location.href = logoutRedirect
         }
     }
 
@@ -427,9 +450,12 @@ export const useAuth = () => {
 
 // 辅助Hooks
 export const useAuthEvents = (eventType: string, callback: AuthEventListener) => {
+    const callbackRef = useRef(callback)
+    callbackRef.current = callback
+
     useEffect(() => {
         const handleEvent = (event: CustomEvent) => {
-            callback(event.detail)
+            callbackRef.current(event.detail)
         }
 
         window.addEventListener(`auth:${eventType}`, handleEvent as EventListener)
@@ -437,7 +463,7 @@ export const useAuthEvents = (eventType: string, callback: AuthEventListener) =>
         return () => {
             window.removeEventListener(`auth:${eventType}`, handleEvent as EventListener)
         }
-    }, [eventType, callback])
+    }, [eventType])
 }
 
 export const useAuthState = () => {
