@@ -17,6 +17,7 @@ export default {
   resolve: {
     alias: {
       src: _resolve("src"),
+      '@global-utils': _resolve('../../../Js/utils'),
     },
   },
   esbuild: {

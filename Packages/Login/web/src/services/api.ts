@@ -26,7 +26,7 @@ import {
     unifiedNormalLocalLoginResponse
 } from '../types'
 import axios from 'axios'
-import queryString from '../../../../../utils/queryString'
+import queryString from '../../@global-utils/queryString'
 import apiClient from './axiosInterceptor'
 import { getGenresType } from '../utils/getGenresType'
 import { storage } from '../utils'

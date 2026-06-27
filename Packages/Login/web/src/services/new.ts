@@ -18,7 +18,7 @@ import {
     PhoneResetPasswordRequest
 } from '../types'
 import axios from 'axios'
-import queryString from '../../../../../utils/queryString'
+import queryString from '../../@global-utils/queryString'
 
 // 基础配置 - 对接后端unit-auth服务
 const basicUrl = import.meta.env.DEV ? "http://localhost:8080" : "https://sparrowui.cn/translate"

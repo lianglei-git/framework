@@ -1,10 +1,13 @@
 package models
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
+	"regexp"
 	"unit-auth/config"
 
+	_ "github.com/go-sql-driver/mysql"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -12,7 +15,49 @@ import (
 
 var DB *gorm.DB
 
+var dbNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+
+// ensureDatabaseExists 在目标库不存在时自动创建（需 MySQL 用户具备 CREATE 权限）
+func ensureDatabaseExists() error {
+	dbName := config.AppConfig.DBName
+	if !dbNamePattern.MatchString(dbName) {
+		return fmt.Errorf("invalid database name: %s", dbName)
+	}
+
+	serverDSN := fmt.Sprintf("%s:%s@tcp(%s:%s)/?charset=utf8mb4&parseTime=True&loc=Local",
+		config.AppConfig.DBUser,
+		config.AppConfig.DBPassword,
+		config.AppConfig.DBHost,
+		config.AppConfig.DBPort,
+	)
+
+	conn, err := sql.Open("mysql", serverDSN)
+	if err != nil {
+		return fmt.Errorf("failed to connect to mysql server: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.Ping(); err != nil {
+		return fmt.Errorf("failed to ping mysql server: %v", err)
+	}
+
+	createSQL := fmt.Sprintf(
+		"CREATE DATABASE IF NOT EXISTS `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci",
+		dbName,
+	)
+	if _, err := conn.Exec(createSQL); err != nil {
+		return fmt.Errorf("failed to create database: %v", err)
+	}
+
+	log.Printf("Database '%s' ensured (created if not exists)", dbName)
+	return nil
+}
+
 func InitDB() (*gorm.DB, error) {
+	if err := ensureDatabaseExists(); err != nil {
+		return nil, err
+	}
+
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
 		config.AppConfig.DBUser,
 		config.AppConfig.DBPassword,
