@@ -1,15 +1,9 @@
-import ReactDOM from "react-dom/client";
-import { configure, reaction } from "mobx";
-import { Login } from './Login'
-configure({
-    enforceActions: "never",
-});
-const rootEl = document.getElementById("root") as HTMLElement;
+import ReactDOM from "react-dom/client"
+import { configure } from "mobx"
+import { LoginPage } from './src/ui/LoginPage'
 
-const reactRoot = ReactDOM.createRoot(rootEl);
+configure({ enforceActions: "never" })
 
-
-
-window.onload = () => {
-    reactRoot.render(<Login />)
-}
+const rootEl = document.getElementById("root") as HTMLElement
+const reactRoot = ReactDOM.createRoot(rootEl)
+reactRoot.render(<LoginPage />)

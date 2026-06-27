@@ -13,6 +13,8 @@ import { getOAuthURLAPI } from '../../services/api'
 
 import { RiGithubFill, RiGoogleFill, RiUserFill, RiWechatFill } from 'react-icons/ri'
 import { handleSSOCallbackResult } from '../../utils/handleSSOCallbackResult'
+import { formatAuthError } from '../../utils/authError'
+import { pickSocialProviders } from '../../sso/socialProviders'
 
 interface AuthLoginProps {
     onSwitchToRegister: () => void
@@ -115,7 +117,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
             console.log("登录成功！")
 
         } catch (error: any) {
-            accountForm.setError('password', error.message)
+            accountForm.setError('password', formatAuthError(error, '登录失败'))
         }
     }
 
@@ -129,7 +131,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
                 remember_me: phoneForm.values.remember_me
             })
         } catch (error: any) {
-            phoneForm.setError('code', error.message || '登录失败')
+            phoneForm.setError('code', formatAuthError(error, '登录失败'))
         }
     }
 
@@ -153,7 +155,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
                 })
             }, 1000)
         } catch (error: any) {
-            phoneForm.setError('phone', error.message || '发送验证码失败')
+            phoneForm.setError('phone', formatAuthError(error, '发送验证码失败'))
         } finally {
             setIsSendingCode(false)
         }
@@ -194,7 +196,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
                 })
             }, 1000)
         } catch (e: any) {
-            setCodeLoginHint(e.message || '验证码发送失败')
+            setCodeLoginHint(formatAuthError(e, '验证码发送失败'))
         } finally {
             setEmailSending(false)
         }
@@ -217,7 +219,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
             console.log("登录成功！")
 
         } catch (error: any) {
-            accountForm.setError('password', error.message)
+            accountForm.setError('password', formatAuthError(error, '登录失败'))
         }
     }
 
@@ -280,7 +282,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
         }
     }
 
-
+    const socialProviders = pickSocialProviders(ssoProviders)
 
     return (
         <div className="login-content">
@@ -310,9 +312,8 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
                     <div className="divider"><span>or</span></div>
 
                     <div className="social-login">
-                        {ssoProviders.map((provider: any) => {
-                            if (provider.id == 'local') return null
-                            return <Button
+                        {socialProviders.map((provider: any) => (
+                            <Button
                                 key={provider.id}
                                 variant="secondary"
                                 fullWidth
@@ -324,10 +325,10 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
                                     {provider.id === 'google' && <RiGoogleFill />}
                                     {provider.id === 'wechat' && <RiWechatFill style={{ color: "#07c160" }} />}
                                 </span>
-                                <span>使用 {provider.displayName} 登录</span>
+                                <span>使用 {provider.displayName || provider.name} 登录</span>
                                 <span></span>
                             </Button>
-                        })}
+                        ))}
 
                         {/* <Button variant="secondary" fullWidth className="social-btn github-btn" onClick={handleGithubLogin}>
                             <span className="social-icon"> <RiGithubFill /></span>

@@ -13,4 +13,7 @@ export {
 } from './validation'
 
 // 存储工具
-export { storage, storageManager, StorageManager } from './storage' 
+export { storage, storageManager, StorageManager } from './storage'
+
+// 错误文案
+export { formatAuthError, throwAuthError, isUnauthorizedError } from './authError' 

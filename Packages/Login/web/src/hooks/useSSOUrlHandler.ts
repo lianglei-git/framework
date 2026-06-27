@@ -1,6 +1,7 @@
 import { useEffect, useCallback, useState } from 'react'
 import { SSOService, createDefaultSSOConfig } from '../services/sso'
 import type { SSOLoginResponse, SSOAuthRequest, SSOCallbackContext } from '../types'
+import { formatAuthError } from '../utils/authError'
 
 /**
  * SSO URL处理Hook
@@ -35,7 +36,7 @@ export const useSSOUrlHandler = () => {
                 setIsInitialized(true)
             } catch (err: any) {
                 console.error('SSO服务初始化失败:', err)
-                setError(err.message || 'SSO服务初始化失败')
+                setError(formatAuthError(err, 'SSO服务初始化失败'))
             } finally {
                 setIsLoading(false)
             }
@@ -63,7 +64,7 @@ export const useSSOUrlHandler = () => {
             }
         } catch (err: any) {
             console.error('SSO流程自动处理失败:', err)
-            setError(err.message || 'SSO流程处理失败')
+            setError(formatAuthError(err, 'SSO流程处理失败'))
             throw err
         } finally {
             setIsLoading(false)
@@ -85,7 +86,7 @@ export const useSSOUrlHandler = () => {
             return result
         } catch (err: any) {
             console.error('SSO回调处理失败:', err)
-            setError(err.message || 'SSO回调处理失败')
+            setError(formatAuthError(err, 'SSO回调处理失败'))
             throw err
         } finally {
             setIsLoading(false)
@@ -243,7 +244,7 @@ export const useExternalSSOIntegration = () => {
             return sessionCheck
         } catch (error) {
             console.error('检查认证状态失败:', error)
-            return { isAuthenticated: false, error: error instanceof Error ? error.message : '检查失败' }
+            return { isAuthenticated: false, error: formatAuthError(error, '检查失败') }
         }
     }, [ssoHandler.ssoService])
 

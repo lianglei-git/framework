@@ -7,6 +7,7 @@ import SubProjectIntegrationDemo from '../examples/SubProjectIntegrationDemo'
 import AuthFlowRouter from './AuthFlowRouter'
 import AuthDemo from './AuthDemo'
 import LoginForm from './LoginForm'
+import { formatAuthError } from '../utils/authError'
 // 主应用组件
 export const App: React.FC = () => {
     const [currentView, setCurrentView] = useState<'demo' | 'login' | 'token-status' | 'test' | 'subproject-integration' | 'integration-demo'>('demo')
@@ -40,7 +41,7 @@ export const App: React.FC = () => {
 
                 setCurrentView('token-status')
             } catch (err: any) {
-                setError(err.message || '登录失败')
+                setError(formatAuthError(err, '登录失败'))
             } finally {
                 setIsLoading(false)
             }

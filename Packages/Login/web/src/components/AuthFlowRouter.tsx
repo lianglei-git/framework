@@ -4,6 +4,7 @@ import { appLayerManager, getCurrentAppId, getAppBranding, isFeatureEnabled } fr
 import { SSOService, createDefaultSSOConfig } from '../services/sso'
 import { ThirdPartyAuthHandler, createThirdPartyAuthHandler } from '../services/thirdPartyAuth'
 import { AuthApiService } from '../services/api'
+import { formatAuthError } from '../utils/authError'
 
 interface AuthFlowRouterProps {
     onAuthSuccess?: (user: any, token: string) => void
@@ -71,7 +72,7 @@ const AuthFlowRouter: React.FC<AuthFlowRouterProps> = ({
 
         } catch (error: any) {
             console.error('初始化认证流程失败:', error)
-            setError(error.message || '初始化失败')
+            setError(formatAuthError(error, '初始化失败'))
             setAuthMode('error')
         }
     }
@@ -108,7 +109,7 @@ const AuthFlowRouter: React.FC<AuthFlowRouterProps> = ({
                 handleAuthError(result.error || '回调处理失败')
             }
         } catch (error: any) {
-            handleAuthError(error.message || '回调处理异常')
+            handleAuthError(formatAuthError(error, '回调处理异常'))
         }
     }
 

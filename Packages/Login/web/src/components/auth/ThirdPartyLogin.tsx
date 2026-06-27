@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Button } from '../../'
-import { getWechatQRCodeAPI, checkWechatLoginStatusAPI } from '../../../api'
+import { getWechatQRCodeAPI, checkWechatLoginStatusAPI } from '../../services/api'
 import { globalUserStore } from '../../stores/UserStore'
 
 interface ThirdPartyLoginProps {

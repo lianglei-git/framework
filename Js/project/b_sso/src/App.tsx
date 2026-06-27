@@ -1,5 +1,5 @@
 import './App.css'
-import { useSubProjectSSO, setSSOConfig } from '../../../Views/React/Login-v1/src/hooks/useSubProjectSSO'
+import { useSubProjectSSO, setSSOConfig } from '../../../../Packages/Login/web/src/hooks/useSubProjectSSO'
 
 
 const customConfig = {

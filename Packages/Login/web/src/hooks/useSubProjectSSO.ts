@@ -4,6 +4,7 @@ import { getSubProjectConfig, SubProjectConfig } from '../config/subproject-inte
 import { type SSOToken, type SSOUser, type SSOSession, StorageType } from '../types'
 import {useAuth, useAuthEvents} from "./useAuth"
 import { storage } from '../utils'
+import { formatAuthError } from '../utils/authError'
 export {
     setSSOConfig
 }
@@ -128,7 +129,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
             console.log('子项目SSO服务初始化完成', { subProjectId, config: finalConfig })
 
         } catch (err: any) {
-            const error = new Error(err.message || 'SSO服务初始化失败')
+            const error = new Error(formatAuthError(err, 'SSO服务初始化失败'))
             setError(error)
             onError?.(error)
             console.error('子项目SSO服务初始化失败:', err)
@@ -185,7 +186,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
                 // }
             }
         } catch (err: any) {
-            const error = new Error(err.message || '登录失败')
+            const error = new Error(formatAuthError(err, '登录失败'))
             setError(error)
             onError?.(error)
             console.error('登录失败:', err)
@@ -221,7 +222,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
 
             console.log('用户已登出')
         } catch (err: any) {
-            const error = new Error(err.message || '登出失败')
+            const error = new Error(formatAuthError(err, '登出失败'))
             setError(error)
             onError?.(error)
             console.error('登出失败:', err)
@@ -254,7 +255,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
                 console.log('令牌刷新成功')
             }
         } catch (err: any) {
-            const error = new Error(err.message || '令牌刷新失败')
+            const error = new Error(formatAuthError(err, '令牌刷新失败'))
             setError(error)
             onError?.(error)
             console.error('令牌刷新失败:', err)

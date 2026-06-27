@@ -1,7 +1,9 @@
-import { computed, makeAutoObservable, observable, reaction } from "mobx"
-import { User, UserRole } from '../types'
+import { makeAutoObservable } from "mobx"
+import { User, UserRole, type SSOSession, type SSOUser } from '../types'
 import { authApi, userApi } from '../services/api'
 import { storageManager } from "../utils"
+import { storage } from '../utils/storage'
+import { formatAuthError } from '../utils/authError'
 
 // 用户等级枚举
 export enum UserLevelENUM {
@@ -36,6 +38,9 @@ class UserStore {
     info = { ...basicUserInfo }
     isLoading: boolean = false
     error: string | null = null
+    authInfo: any = null
+    ssoUser: SSOUser | null = null
+    ssoSession: SSOSession | null = null
 
     // 登录状态监听器
     private loginListeners: (() => void)[] = []
@@ -50,7 +55,7 @@ class UserStore {
     }
 
     // 计算属性
-    get user() {
+    get username() {
         return this.info.username
     }
 
@@ -76,6 +81,33 @@ class UserStore {
 
     get isLogin() {
         return !!this.token
+    }
+
+    /** 完整用户对象（SSO / 传统认证） */
+    get user(): User | null {
+        const auth = storage.getAuth()
+        if (auth?.user) return auth.user
+        if (!this.info.id && !this.info.username) return null
+        return {
+            id: this.info.id,
+            username: this.info.username,
+            nickname: this.info.nickname,
+            role: this.info.role as unknown as UserRole,
+        } as User
+    }
+
+    /** 完整 token 载荷（含 id_token、access_token 等） */
+    get tokenPayload(): any {
+        const auth = storage.getAuth()
+        return auth?.token ?? this.info.token ?? null
+    }
+
+    get isAuthenticated(): boolean {
+        return !!this.token && !!this.user
+    }
+
+    get isSSOAuthenticated(): boolean {
+        return !!this.ssoUser && !!this.ssoSession
     }
 
     get role(): UserLevelENUM {
@@ -126,11 +158,64 @@ class UserStore {
 
     // 登出
     logout = async () => {
-        await authApi.logout();
-        storageManager.clearAuthData();
+        this.isLoading = true
+        try {
+            await authApi.logout()
+        } catch {
+            // ignore
+        }
+        this.clearLocalAuth()
+        this.isLoading = false
+    }
+
+    clearLocalAuth = () => {
+        storageManager.clearAuthData()
+        storage.clearAuth()
+        storage.clearSSOData()
+        storage.clearSSOSession()
         this.info = { ...basicUserInfo }
+        this.authInfo = null
+        this.ssoUser = null
+        this.ssoSession = null
         this.error = null
-        this.notifyLoginListeners() // 触发登录监听器
+        this.notifyLoginListeners()
+    }
+
+    syncFromStorage = () => {
+        this.getLocalStorageUserInfo()
+        const authData = storage.getAuth()
+        if (authData) {
+            this.authInfo = authData
+            if (authData.user) {
+                this.setUserInfo(authData.user, authData.token)
+            }
+        }
+        const session = storage.getSSOSession()
+        if (session && !storage.isSSOTokenExpired()) {
+            this.ssoSession = session
+        }
+        const ssoData = storage.getSSOData()
+        if (ssoData?.user) {
+            this.ssoUser = ssoData.user
+        }
+    }
+
+    setAuthFromResponse = (response: any) => {
+        const authData = {
+            user: response.user ?? response.token?.user,
+            token: response.token,
+            refresh_token: response.refresh_token,
+            remember_me: response.remember_me ?? false,
+            expires_at: response.expires_at ?? (response.expires_in
+                ? Date.now() + response.expires_in * 1000
+                : undefined),
+        }
+        storage.saveAuth(authData)
+        this.authInfo = authData
+        if (authData.user) {
+            this.setUserInfo(authData.user, authData.token)
+        }
+        window.dispatchEvent(new CustomEvent('auth:login', { detail: response }))
     }
 
     // 设置用户信息
@@ -167,7 +252,7 @@ class UserStore {
             this.setLocalStorageUserInfo()
             return updatedUser
         } catch (error: any) {
-            this.error = error.message || "更新用户信息失败"
+            this.error = formatAuthError(error, '更新用户信息失败')
             throw error
         } finally {
             this.isLoading = false
@@ -188,22 +273,24 @@ class UserStore {
 
     // 本地存储相关
     getLocalStorageUserInfo() {
-        const authinfo = storageManager.getAuthData();
-        if (authinfo) {
-            try {
-                this.info = {
-                    ...this.info,
-                    ...authinfo,
-                    username: authinfo.user.username,
-                    nickname: authinfo.user.meta?.nickname || authinfo.user.nickname,
-                    remark: authinfo.user.meta?.bio || authinfo.user.remark,
-                    id: authinfo.user.id,
-                    avatar: authinfo.user.avatar || authinfo.user.meta?.avatar || undefined,
-                    role: authinfo.user.role ? this.convertUserRole(authinfo.user.role) : UserLevelENUM.NormalUser,
-                }
-            } catch (error) {
-                console.error("解析本地存储用户信息失败:", error)
+        const authinfo = storageManager.getAuthData()
+        if (!authinfo?.user) {
+            return this.info
+        }
+
+        try {
+            const user = authinfo.user
+            this.info = {
+                ...this.info,
+                username: user.username ?? user.email ?? '',
+                nickname: user.meta?.nickname || user.nickname || '',
+                remark: user.meta?.bio || user.remark || '',
+                id: user.id ?? '',
+                avatar: user.avatar || user.meta?.avatar || undefined,
+                role: user.role ? this.convertUserRole(user.role) : UserLevelENUM.NormalUser,
             }
+        } catch (error) {
+            console.error('解析本地存储用户信息失败:', error)
         }
         return this.info
     }

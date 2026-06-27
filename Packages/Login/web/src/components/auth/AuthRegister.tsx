@@ -9,6 +9,7 @@ import {
     VerificationType
 } from '../../'
 import { handleSSOCallbackResult } from '../../utils/handleSSOCallbackResult'
+import { formatAuthError } from '../../utils/authError'
 
 interface AuthRegisterProps {
     onSwitchToLogin: () => void
@@ -53,7 +54,7 @@ const AuthRegister: React.FC<AuthRegisterProps> = ({ onSwitchToLogin }) => {
                 })
             }, 1000)
         } catch (error: any) {
-            registerForm.setError('email', error.message || '验证码发送失败')
+            registerForm.setError('email', formatAuthError(error, '验证码发送失败'))
         } finally {
             setIsSendingCode(false)
         }
@@ -73,7 +74,7 @@ const AuthRegister: React.FC<AuthRegisterProps> = ({ onSwitchToLogin }) => {
             })
             handleSSOCallbackResult(res);
         } catch (error: any) {
-            registerForm.setError('email', error.message || '注册失败')
+            registerForm.setError('email', formatAuthError(error, '注册失败'))
         }
     }
 

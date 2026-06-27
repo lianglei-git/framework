@@ -23,16 +23,14 @@ export {
     type UseTokenRefreshReturn
 } from './useTokenRefresh'
 
-// SSO URL处理Hooks - 支持外部应用通过URL跳转进入的SSO场景
+// SSO Hooks（统一入口 useSSO + 兼容导出）
 export {
+    useSSO,
+    useSubProjectSSO,
     useSSOUrlHandler,
     useExternalSSOIntegration,
-    useOpenIDConnect
-} from './useSSOUrlHandler'
-
-// 子项目SSO Hooks - 供其他项目集成SSO功能
-export {
-    useSubProjectSSO,
+    useOpenIDConnect,
+    setSSOConfig,
     type UseSubProjectSSOOptions,
-    type UseSubProjectSSOResult
-} from './useSubProjectSSO' 
+    type UseSubProjectSSOResult,
+} from './useSSO' 

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { globalUserStore } from '../stores/UserStore'
 import tokenRefreshService from '../services/tokenRefreshService'
+import { formatAuthError } from '../utils/authError'
 
 // Token状态组件
 export const TokenStatus: React.FC = () => {
@@ -20,7 +21,7 @@ export const TokenStatus: React.FC = () => {
             const status = await tokenRefreshService.checkTokenStatus()
             setTokenStatus(status)
         } catch (err: any) {
-            setError(err.message || '检查token状态失败')
+            setError(formatAuthError(err, '检查 token 状态失败'))
         } finally {
             setIsLoading(false)
         }
@@ -40,7 +41,7 @@ export const TokenStatus: React.FC = () => {
                 setError('Token续签失败')
             }
         } catch (err: any) {
-            setError(err.message || '续签token失败')
+            setError(formatAuthError(err, '续签 token 失败'))
         } finally {
             setIsLoading(false)
         }

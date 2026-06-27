@@ -10,6 +10,7 @@ import {
     identifyAccountType,
     AccountType
 } from '../index'
+import { formatAuthError } from '../utils/authError'
 
 interface LoginFormProps {
     onSuccess?: () => void
@@ -75,7 +76,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSuccess, onError }) => {
             })
             onSuccess?.()
         } catch (error: any) {
-            onError?.(error.message || '登录失败')
+            onError?.(formatAuthError(error, '登录失败'))
         }
     }
 
@@ -89,7 +90,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSuccess, onError }) => {
             })
             onSuccess?.()
         } catch (error: any) {
-            onError?.(error.message || '登录失败')
+            onError?.(formatAuthError(error, '登录失败'))
         }
     }
 
@@ -114,7 +115,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSuccess, onError }) => {
                 })
             }, 1000)
         } catch (error: any) {
-            onError?.(error.message || '发送验证码失败')
+            onError?.(formatAuthError(error, '发送验证码失败'))
         }
     }
 

@@ -14,8 +14,4 @@ const getGenresType = () => {
     return type
 }
 
-console.log("GenresType: ", getGenresType())
-window.genresType = getGenresType();
-export {
-    getGenresType
-}
+export { getGenresType }

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useAuth } from '../../'
 import { Loading } from '../common/Loading'
+import { formatAuthError } from '../../utils/authError'
 
 interface SSOCallbackProps {
     provider: string
@@ -23,7 +24,10 @@ const SSOCallback: React.FC<SSOCallbackProps> = ({ provider, onSuccess, onError 
                 const errorDescription = urlParams.get('error_description')
 
                 if (error) {
-                    const message = errorDescription || error
+                    const message = formatAuthError(
+                        { error, error_description: errorDescription },
+                        '第三方登录失败'
+                    )
                     setErrorMessage(message)
                     setStatus('error')
                     onError?.(message)
@@ -31,7 +35,7 @@ const SSOCallback: React.FC<SSOCallbackProps> = ({ provider, onSuccess, onError 
                 }
 
                 if (!code) {
-                    const message = 'Authorization code not found'
+                    const message = '未获取到授权码，请重新登录'
                     setErrorMessage(message)
                     setStatus('error')
                     onError?.(message)
@@ -50,7 +54,7 @@ const SSOCallback: React.FC<SSOCallbackProps> = ({ provider, onSuccess, onError 
                 onSuccess?.()
 
             } catch (error: any) {
-                const message = error.message || 'SSO login failed'
+                const message = formatAuthError(error, 'SSO 登录失败')
                 setErrorMessage(message)
                 setStatus('error')
                 onError?.(message)

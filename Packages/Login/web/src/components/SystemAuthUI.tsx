@@ -3,6 +3,7 @@ import { SSOService, createDefaultSSOConfig } from '../services/sso'
 import { SSOProvider, SSOLoginRequest } from '../types'
 import { AuthApiService } from '../services/api'
 import { getOAuthURLAPI, oauthLoginAPI } from '../services/api'
+import { formatAuthError } from '../utils/authError'
 
 interface SystemAuthUIProps {
     appId?: string
@@ -123,8 +124,9 @@ const SystemAuthUI: React.FC<SystemAuthUIProps> = ({
             }
         } catch (error: any) {
             console.error('本地登录失败:', error)
-            setError(error.message || '登录失败，请检查账号密码')
-            onAuthError?.(error.message || '登录失败')
+            const msg = formatAuthError(error, '登录失败，请检查账号密码')
+            setError(msg)
+            onAuthError?.(msg)
         } finally {
             setIsLoading(false)
         }
@@ -161,8 +163,9 @@ const SystemAuthUI: React.FC<SystemAuthUIProps> = ({
             window.location.href = authUrl
         } catch (error: any) {
             console.error('社交登录失败:', error)
-            setError(error.message || '登录失败')
-            onAuthError?.(error.message || '登录失败')
+            const msg = formatAuthError(error, '登录失败')
+            setError(msg)
+            onAuthError?.(msg)
         } finally {
             setIsLoading(false)
         }

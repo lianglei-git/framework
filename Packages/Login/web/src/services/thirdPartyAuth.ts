@@ -5,6 +5,7 @@
 
 import { SSOService, SSOLoginResponse } from './sso'
 import { SSOProvider } from '../types'
+import { formatAuthError } from '../utils/authError'
 
 export interface ThirdPartyAuthResult {
     success: boolean
@@ -57,7 +58,7 @@ export class ThirdPartyAuthHandler {
             return {
                 success: false,
                 provider: providerId,
-                error: error.message || '登录失败'
+                error: formatAuthError(error, '登录失败')
             }
         }
     }
@@ -89,7 +90,7 @@ export class ThirdPartyAuthHandler {
             return {
                 success: false,
                 provider: providerId,
-                error: error.message || '回调处理失败'
+                error: formatAuthError(error, '回调处理失败')
             }
         }
     }
