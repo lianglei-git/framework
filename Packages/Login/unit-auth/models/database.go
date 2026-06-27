@@ -146,6 +146,8 @@ func InitDB() (*gorm.DB, error) {
 		}
 	}
 
+	seedDefaultAdminUser(db)
+
 	// 创建跨项目统计视图
 	err = createCrossProjectStatsView(db)
 	if err != nil {
@@ -173,6 +175,38 @@ func InitDB() (*gorm.DB, error) {
 	DB = db
 	log.Println("Database connected and migrated successfully")
 	return db, nil
+}
+
+// seedDefaultAdminUser 首次初始化时创建默认超级管理员（用户名/密码均为 zayne）
+func seedDefaultAdminUser(db *gorm.DB) {
+	const username = "zayne"
+	const password = "zayne"
+
+	var cnt int64
+	db.Model(&User{}).Where("username = ?", username).Count(&cnt)
+	if cnt > 0 {
+		return
+	}
+
+	email := "zayne@local"
+	user := &User{
+		Email:         &email,
+		Username:      username,
+		Nickname:      username,
+		Password:      password,
+		Role:          "admin",
+		Status:        "active",
+		EmailVerified: true,
+	}
+	if err := user.HashPassword(); err != nil {
+		log.Printf("Warning: failed to hash default admin password: %v", err)
+		return
+	}
+	if err := db.Create(user).Error; err != nil {
+		log.Printf("Warning: failed to seed default admin user: %v", err)
+		return
+	}
+	log.Printf("Default admin user '%s' seeded (login with username or email)", username)
 }
 
 // 创建跨项目统计视图

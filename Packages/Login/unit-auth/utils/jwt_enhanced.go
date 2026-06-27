@@ -221,9 +221,7 @@ func GenerateRememberMeToken(userID string, email, role string) (string, error) 
 // ValidateEnhancedTokenIgnoreExpiry 验证增强的JWT Token（忽略过期验证）
 func ValidateEnhancedTokenIgnoreExpiry(tokenString string) (*EnhancedClaims, error) {
 	claims := jwt.MapClaims{}
-	_, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		return []byte(config.AppConfig.JWTSecret), nil
-	})
+	_, err := jwt.ParseWithClaims(tokenString, claims, jwtValidationKey)
 	if err != nil {
 		return nil, err
 	}
@@ -304,12 +302,21 @@ func ValidateEnhancedTokenIgnoreExpiry(tokenString string) (*EnhancedClaims, err
 	return enh, nil
 }
 
-// ValidateEnhancedToken 验证增强的JWT Token（兼容紧凑字段 uid/pid/luid 与完整字段）
+func jwtValidationKey(token *jwt.Token) (interface{}, error) {
+	switch token.Method {
+	case jwt.SigningMethodHS256:
+		return []byte(config.AppConfig.JWTSecret), nil
+	case jwt.SigningMethodRS256:
+		return getRSAPublicKey()
+	default:
+		return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+	}
+}
+
+// ValidateEnhancedToken 验证增强的JWT Token（兼容 HS256 与 RS256，及紧凑字段 uid/pid/luid）
 func ValidateEnhancedToken(tokenString string) (*EnhancedClaims, error) {
 	claims := jwt.MapClaims{}
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
-		return []byte(config.AppConfig.JWTSecret), nil
-	})
+	token, err := jwt.ParseWithClaims(tokenString, claims, jwtValidationKey)
 	if err != nil {
 		return nil, err
 	}
