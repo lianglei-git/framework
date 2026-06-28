@@ -17,6 +17,7 @@ import {
     clearOAuthLoadingInfo,
     hasOAuthCallbackParams,
     readOAuthLoadingInfo,
+    stripLogoutParamFromUrl,
     writeOAuthLoadingInfo,
     type OAuthLoadingInfo,
 } from '../utils/oauthLoading'
@@ -98,6 +99,7 @@ export const useAuth = () => {
         if (url.searchParams.get('logout') === 'true') {
             clearLocalAuth()
             resetOAuthLoading()
+            stripLogoutParamFromUrl(url)
         }
 
         const oauthError = url.searchParams.get('error')
@@ -126,6 +128,7 @@ export const useAuth = () => {
 
     useAuthEvents('login', () => {
         setLoadingInfos('stop')
+        stripLogoutParamFromUrl()
         store.syncFromStorage()
     })
 

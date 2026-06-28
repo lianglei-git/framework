@@ -10,11 +10,24 @@ export interface OAuthLoadingInfo {
     time?: number
 }
 
-export function cleanOAuthParamsFromUrl(url = new URL(window.location.href)): void {
-    OAUTH_QUERY_KEYS.forEach((key) => url.searchParams.delete(key))
+export function replaceUrlWithoutParams(
+    url: URL,
+    keys: readonly string[]
+): void {
+    keys.forEach((key) => url.searchParams.delete(key))
     const search = url.searchParams.toString()
     const next = `${url.pathname}${search ? `?${search}` : ''}${url.hash}`
     window.history.replaceState({}, document.title, next)
+}
+
+export function cleanOAuthParamsFromUrl(url = new URL(window.location.href)): void {
+    replaceUrlWithoutParams(url, OAUTH_QUERY_KEYS)
+}
+
+/** 登出回调后移除 logout 参数，避免刷新时反复清空登录态 */
+export function stripLogoutParamFromUrl(url = new URL(window.location.href)): void {
+    if (!url.searchParams.has('logout')) return
+    replaceUrlWithoutParams(url, ['logout'])
 }
 
 export function hasOAuthCallbackParams(url = new URL(window.location.href)): boolean {
