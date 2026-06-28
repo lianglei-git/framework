@@ -1,0 +1,7 @@
+{
+  "port": "5556",
+  "sso_server_url": "http://localhost:8080",
+  "client_id": "6a7db4e5-1c21-4cf1-92c9-507a0f924e29",
+  "client_secret": "client_secret_22e58ccf-c367-4ead-b517-3be17f796211",
+  "redirect_uri": "http://localhost:5174"
+}

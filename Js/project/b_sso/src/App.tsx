@@ -1,97 +1,68 @@
 import './App.css'
-import { useSubProjectSSO, setSSOConfig } from '../../../../Packages/Login/web/src/hooks/useSubProjectSSO'
-
-
-const customConfig = {
-  id: 'sso_test_b',
-  name: 'kajsd ',
-  description: '这是测试应用',
-  ssoServerUrl: 'http://localhost:3342',
-  // 上线后需要替换和ssoServerUrl一样的路径
-  ssoHomeUrl: 'http://localhost:3033',
-  homepageUrl: 'https://demo.example.com',
-  clientId: '6a7db4e5-1c21-4cf1-92c9-507a0f924e29',
-  // clientSecret: 'client_secret_22e58ccf-c367-4ead-b517-3be17f796211',
-  // redirectUris: ['https://demo.example.com/auth/callback'],
-  redirectUri: "http://localhost:5174",
-  logoutEndpoint: "",
-  tokenEndpoint: "/api/v1/auth/oauth/token",
-  // 这个字段目前在我这是没用的，因为已经被写死了
-  "authorizationUrl": "/api/v1/auth/oauth/authorize",
-  "tokenUrl":         "/api/v1/auth/oauth/token",
-  "userInfoUrl":      "/api/v1/auth/oauth/userinfo",
-  "logoutUrl":        "/api/v1/auth/oauth/logout",
-  allowedScopes: ['openid', 'profile', 'email', 'custom.read'],
-  branding: {
-    primaryColor: '#722ed1',
-    backgroundColor: '#f9f0ff',
-    logo: 'https://demo.example.com/logo.png'
-  },
-  features: {
-    autoRefresh: true,
-    rememberMe: true,
-    socialLogin: true,
-    passwordReset: true,
-    multiFactorAuth: false
-  },
-  security: {
-    requireHttps: true,
-    allowedDomains: ['example.com', 'demo.example.com'],
-    blockedDomains: [],
-    sessionTimeout: 1800
-  }
-}
-
-setSSOConfig(customConfig);
+import { useEffect } from 'react'
+import { useSubProjectSSO, useTokenRefresh } from '@sparrow/login/hooks'
+import { subProjectConfig } from './subprojectConfig'
 
 function App() {
-
   const {
     isAuthenticated,
     user,
+    token,
     login,
     logout,
     isLoading,
-    error,
     refreshToken,
+    error,
     getUserInfoFetch,
-
   } = useSubProjectSSO({
-    customConfig,
-    onSuccess: (user, token, session) => {
-      console.log('自定义配置认证成功:', { user, token, session })
+    customConfig: subProjectConfig,
+    subProjectId: subProjectConfig.id,
+    onSuccess: (u, t) => {
+      console.log('[b_sso] 认证成功', { user: u, token: t?.access_token?.slice(0, 12) })
     },
-    subProjectId: 'temp1'
   })
 
+  const { startMonitoring, stopMonitoring, tokenStatus, isRefreshing } = useTokenRefresh()
+
+  useEffect(() => {
+    if (isAuthenticated && subProjectConfig.features.autoRefresh) {
+      startMonitoring()
+      return () => stopMonitoring()
+    }
+  }, [isAuthenticated, startMonitoring, stopMonitoring])
 
   if (isLoading) {
-    return <div>加载中...</div>
+    return <div className="app"><p>加载中...</p></div>
   }
 
   if (error) {
-    return <div>
-      <p>错误: {error.message}</p>
-      <button onClick={() => logout()}>重新登录</button>
-    </div>
+    return (
+      <div className="app">
+        <p>错误: {error.message}</p>
+        <button type="button" onClick={() => login({ redirect: true })}>重新登录</button>
+      </div>
+    )
   }
 
   return (
     <div className="app">
-      <div>
-        {isAuthenticated ? (
-          <div>
-            <h1>欢迎, {user?.name}!</h1>
-            <button onClick={logout}>登出</button>
-            <button onClick={refreshToken}>刷新令牌</button>
-            <button onClick={getUserInfoFetch}>获取用户信息</button>
+      <h1>APP B (b_sso :5174)</h1>
+      {isAuthenticated ? (
+        <div>
+          <p>欢迎, {user?.name || user?.nickname || user?.email}!</p>
+          <p>Token 前缀: {token?.access_token?.slice(0, 20)}…</p>
+          {tokenStatus && (
+            <p>续签状态: {isRefreshing ? '刷新中' : tokenStatus.isValid ? '有效' : '无效'}</p>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" onClick={() => logout()}>登出</button>
+            <button type="button" onClick={() => refreshToken()}>手动刷新令牌</button>
+            <button type="button" onClick={() => getUserInfoFetch()}>获取用户信息</button>
           </div>
-        ) : (
-          <button onClick={() => login({ redirect: true })}>
-            登录
-          </button>
-        )}
-      </div>
+        </div>
+      ) : (
+        <button type="button" onClick={() => login({ redirect: true })}>SSO 登录</button>
+      )}
     </div>
   )
 }

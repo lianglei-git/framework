@@ -147,6 +147,7 @@ func InitDB() (*gorm.DB, error) {
 	}
 
 	seedDefaultAdminUser(db)
+	seedSubprojectSSOClients(db)
 
 	// 创建跨项目统计视图
 	err = createCrossProjectStatsView(db)
@@ -207,6 +208,73 @@ func seedDefaultAdminUser(db *gorm.DB) {
 		return
 	}
 	log.Printf("Default admin user '%s' seeded (login with username or email)", username)
+}
+
+// seedSubprojectSSOClients 种子数据：a_sso / b_sso 联调客户端（固定 ID 与 secret，便于本地 BFF 配置）
+func seedSubprojectSSOClients(db *gorm.DB) {
+	type seedClient struct {
+		id, secret, name, description, redirect string
+	}
+	seeds := []seedClient{
+		{
+			id:          "8c1dd65d-7d2a-4ba4-aff1-610960a295e7",
+			secret:      "client_secret_a4121ad0-bc7e-4b59-8ab1-e29544060fc4",
+			name:        "sso_test_a",
+			description: "Sub-project a_sso (localhost:5173)",
+			redirect:    "http://localhost:5173",
+		},
+		{
+			id:          "6a7db4e5-1c21-4cf1-92c9-507a0f924e29",
+			secret:      "client_secret_22e58ccf-c367-4ead-b517-3be17f796211",
+			name:        "sso_test_b",
+			description: "Sub-project b_sso (localhost:5174)",
+			redirect:    "http://localhost:5174",
+		},
+	}
+	for _, s := range seeds {
+		var existing SSOClient
+		err := db.Where("id = ?", s.id).First(&existing).Error
+		if err == nil {
+			// 已存在：同步 redirect_uri（便于本地端口变更后仍能通过校验）
+			if err := existing.SetRedirectURIs([]string{s.redirect}); err == nil {
+				db.Model(&existing).Update("redirect_uris", existing.RedirectURIs)
+			}
+			continue
+		}
+		if err != gorm.ErrRecordNotFound {
+			log.Printf("Warning: seed SSO client lookup %s: %v", s.name, err)
+			continue
+		}
+		client := &SSOClient{
+			ID:          s.id,
+			Name:        s.name,
+			Description: s.description,
+			Secret:      s.secret,
+			IsActive:    true,
+			AutoApprove: true,
+		}
+		if err := client.SetRedirectURIs([]string{s.redirect}); err != nil {
+			log.Printf("Warning: seed SSO client %s redirect: %v", s.name, err)
+			continue
+		}
+		if err := client.SetGrantTypes([]string{"authorization_code", "refresh_token"}); err != nil {
+			log.Printf("Warning: seed SSO client %s grant_types: %v", s.name, err)
+			continue
+		}
+		if err := client.SetResponseTypes([]string{"code"}); err != nil {
+			log.Printf("Warning: seed SSO client %s response_types: %v", s.name, err)
+			continue
+		}
+		if err := client.SetScope([]string{"openid", "profile", "email"}); err != nil {
+			log.Printf("Warning: seed SSO client %s scope: %v", s.name, err)
+			continue
+		}
+		if err := db.Create(client).Error; err != nil {
+			log.Printf("Warning: failed to seed SSO client %s: %v", s.name, err)
+			continue
+		}
+		log.Printf("Seeded SSO client %s (%s)", s.name, s.id)
+	}
 }
 
 // 创建跨项目统计视图

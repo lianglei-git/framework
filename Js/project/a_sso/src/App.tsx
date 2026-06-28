@@ -1,93 +1,68 @@
 import './App.css'
-import { useSubProjectSSO, setSSOConfig } from '../../../../Packages/Login/web/src/hooks/useSubProjectSSO'
-
-const customConfig = {
-  id: 'sso_test_a',
-  name: 'ssoa ',
-  description: '这是测试应用',
-  // 这个是本地服务的地址
-  ssoServerUrl: 'http://localhost:5555',
-  // 这个是中心登录的web地址
-  ssoHomeUrl: 'http://localhost:3033',
-  homepageUrl: 'https://demo.example.com',
-  clientId: '8c1dd65d-7d2a-4ba4-aff1-610960a295e7',
-  // clientSecret: 'client_secret_a4121ad0-bc7e-4b59-8ab1-e29544060fc4',
- // redirectUris: ['https://demo.example.com/auth/callback'],
- // 这个是本地服务的回调地址
-  redirectUri: "http://localhost:5173",
-  logoutEndpoint: "",
-  tokenEndpoint: "/api/v1/auth/oauth/token",
-  // 这个字段目前在我这是没用的，因为已经被写死了
-  "authorizationUrl": "/api/v1/auth/oauth/authorize",
-  "tokenUrl":         "/api/v1/auth/oauth/token",
-  "userInfoUrl":      "/api/v1/auth/oauth/userinfo",
-  "logoutUrl":        "/api/v1/auth/oauth/logout",
-  allowedScopes: ['openid', 'profile', 'email', 'custom.read'],
-  branding: {
-    primaryColor: '#722ed1',
-    backgroundColor: '#f9f0ff',
-    logo: 'https://demo.example.com/logo.png'
-  },
-  features: {
-    autoRefresh: true,
-    rememberMe: true,
-    socialLogin: true,
-    passwordReset: true,
-    multiFactorAuth: false
-  },
-  security: {
-    requireHttps: true,
-    allowedDomains: ['example.com', 'demo.example.com'],
-    blockedDomains: [],
-    sessionTimeout: 1800
-  }
-}
-setSSOConfig(customConfig);
+import { useEffect } from 'react'
+import { useSubProjectSSO, useTokenRefresh } from '@sparrow/login/hooks'
+import { subProjectConfig } from './subprojectConfig'
 
 function App() {
-
   const {
     isAuthenticated,
     user,
+    token,
     login,
     logout,
     isLoading,
     refreshToken,
-    error
+    error,
+    getUserInfoFetch,
   } = useSubProjectSSO({
-    customConfig,
-    onSuccess: (user, token, session) => {
-      console.log('自定义配置认证成功:', { user, token, session })
+    customConfig: subProjectConfig,
+    subProjectId: subProjectConfig.id,
+    onSuccess: (u, t) => {
+      console.log('[a_sso] 认证成功', { user: u, token: t?.access_token?.slice(0, 12) })
     },
-    subProjectId: 'temp1'
   })
 
+  const { startMonitoring, stopMonitoring, tokenStatus, isRefreshing } = useTokenRefresh()
+
+  useEffect(() => {
+    if (isAuthenticated && subProjectConfig.features.autoRefresh) {
+      startMonitoring()
+      return () => stopMonitoring()
+    }
+  }, [isAuthenticated, startMonitoring, stopMonitoring])
 
   if (isLoading) {
-    return <div>加载中...</div>
+    return <div className="app"><p>加载中...</p></div>
   }
 
   if (error) {
-    return <div>错误: {error.message}</div>
+    return (
+      <div className="app">
+        <p>错误: {error.message}</p>
+        <button type="button" onClick={() => login({ redirect: true })}>重新登录</button>
+      </div>
+    )
   }
 
   return (
     <div className="app">
-    <h1>APP A</h1>
-
-      <div>
-        {isAuthenticated ? (
-          <div>
-            <h1>欢迎, {user?.nickname}!</h1>
-            <button onClick={logout}>登出</button>
-            <button onClick={refreshToken}>刷新令牌</button>
+      <h1>APP A (a_sso :5173)</h1>
+      {isAuthenticated ? (
+        <div>
+          <p>欢迎, {user?.name || user?.nickname || user?.email}!</p>
+          <p>Token 前缀: {token?.access_token?.slice(0, 20)}…</p>
+          {tokenStatus && (
+            <p>续签状态: {isRefreshing ? '刷新中' : tokenStatus.isValid ? '有效' : '无效'}</p>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="button" onClick={() => logout()}>登出</button>
+            <button type="button" onClick={() => refreshToken()}>手动刷新令牌</button>
+            <button type="button" onClick={() => getUserInfoFetch()}>获取用户信息</button>
           </div>
-        ) : (
-          <button onClick={() => login({ redirect: true })}>
-            登录
-          </button>
-        )}
-      </div>
+        </div>
+      ) : (
+        <button type="button" onClick={() => login({ redirect: true })}>SSO 登录</button>
+      )}
     </div>
   )
 }

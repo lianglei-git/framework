@@ -1,5 +1,8 @@
 import axios from 'axios'
 import { globalUserStore } from '../stores/UserStore'
+import { getSSOConfig } from '../sso/config'
+import { SSOService } from '../services/sso'
+import { storage } from '../utils/storage'
 
 // Token自动续签服务
 export class TokenRefreshService {
@@ -52,9 +55,82 @@ export class TokenRefreshService {
     // 从本地存储获取Refresh Token
     private getStoredRefreshToken(): string | null {
         try {
-            return localStorage.getItem('refresh_token')
+            return (
+                localStorage.getItem('refresh_token') ||
+                storage.getSSORefreshToken() ||
+                storage.getAuth()?.token?.refresh_token ||
+                null
+            )
         } catch (error) {
             console.error('获取Refresh Token失败:', error)
+            return null
+        }
+    }
+
+    private isOAuthSubProject(): boolean {
+        const cfg = getSSOConfig()
+        return !!(cfg?.clientId && cfg?.ssoServerUrl)
+    }
+
+    private decodeJwtExp(token: string): number | null {
+        try {
+            const payload = token.split('.')[1]
+            if (!payload) return null
+            const json = JSON.parse(atob(payload.replace(/-/g, '+').replace(/_/g, '/')))
+            return typeof json.exp === 'number' ? json.exp : null
+        } catch {
+            return null
+        }
+    }
+
+    private async checkOAuthTokenStatus(): Promise<{
+        is_valid: boolean
+        expires_at: string
+        remaining_hours: number
+        remaining_minutes: number
+        is_expiring_soon: boolean
+        token_type: string
+    } | null> {
+        const accessToken =
+            globalUserStore.token ||
+            storage.getSSOAccessToken() ||
+            (typeof storage.getAuth()?.token === 'string'
+                ? storage.getAuth()?.token
+                : storage.getAuth()?.token?.access_token)
+
+        if (!accessToken || typeof accessToken !== 'string') {
+            return null
+        }
+
+        const exp = this.decodeJwtExp(accessToken)
+        if (!exp) return null
+
+        const remainingSeconds = exp - Math.floor(Date.now() / 1000)
+        const remainingMinutes = Math.max(0, Math.floor(remainingSeconds / 60))
+        const remainingHours = remainingMinutes / 60
+
+        return {
+            is_valid: remainingSeconds > 0,
+            expires_at: new Date(exp * 1000).toISOString(),
+            remaining_hours: remainingHours,
+            remaining_minutes: remainingMinutes,
+            is_expiring_soon: remainingSeconds < 300,
+            token_type: 'Bearer',
+        }
+    }
+
+    private async refreshOAuthToken(): Promise<{ access_token: string } | null> {
+        try {
+            const cfg = getSSOConfig()
+            const service = await SSOService.getInstance(cfg)
+            const result = await service.refreshToken()
+            if (result?.access_token) {
+                globalUserStore.syncFromStorage()
+                return { access_token: result.access_token }
+            }
+            return null
+        } catch (error) {
+            console.error('OAuth Token续签错误:', error)
             return null
         }
     }
@@ -78,6 +154,10 @@ export class TokenRefreshService {
         is_expiring_soon: boolean
         token_type: string
     } | null> {
+        if (this.isOAuthSubProject()) {
+            return this.checkOAuthTokenStatus()
+        }
+
         try {
             const response = await axios.get(`${this.basicUrl}/api/v1/auth/token-status`, {
                 headers: this.getCommonHeaders()
@@ -263,6 +343,10 @@ export class TokenRefreshService {
             return false
         }
 
+        if (this.isOAuthSubProject()) {
+            return tokenStatus.is_expiring_soon || tokenStatus.remaining_minutes < 5
+        }
+
         // 如果即将过期（剩余时间少于阈值），则续签
         return tokenStatus.remaining_hours < this.refreshThresholdHours
     }
@@ -280,11 +364,13 @@ export class TokenRefreshService {
             if (await this.shouldRefreshToken(tokenStatus)) {
                 console.log(`Token将在${tokenStatus.remaining_hours}小时后过期，开始自动续签`)
 
-                // 优先使用双Token续签，如果没有Refresh Token则使用简单续签
                 const refreshToken = this.getStoredRefreshToken()
                 let refreshResult
 
-                if (refreshToken) {
+                if (this.isOAuthSubProject() && refreshToken) {
+                    console.log('使用 OAuth BFF 续签')
+                    refreshResult = await this.refreshOAuthToken()
+                } else if (refreshToken) {
                     console.log('使用双Token续签')
                     refreshResult = await this.refreshTokenWithRefreshToken()
                 } else {

@@ -486,7 +486,11 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 			// 这里应该重定向到登录页面，携带这些参数
 			log.Println("Redirecting to login page with parameters:", sessionData, getFullURL(c, true))
 			// 这里要修改为环境变量
-			c.Redirect(http.StatusFound, "http://localhost:3033/?app_origin=true&redirect_uri="+getFullURL(c, true))
+			loginWebURL := os.Getenv("LOGIN_WEB_URL")
+			if loginWebURL == "" {
+				loginWebURL = "http://localhost:3033"
+			}
+			c.Redirect(http.StatusFound, loginWebURL+"/?app_origin=true&redirect_uri="+getFullURL(c, true))
 			return
 		}
 

@@ -22,15 +22,25 @@ func (ss *StatsService) GetDB() *gorm.DB {
 	return ss.db
 }
 
+// startOfStatsDay 将任意时间归一化为当日 0 点（用于 user_stats.date 唯一索引）
+func startOfStatsDay(date time.Time) time.Time {
+	loc := date.Location()
+	if loc == nil || loc == time.UTC {
+		loc = time.Local
+	}
+	y, m, d := date.In(loc).Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, loc)
+}
+
 // GetDailyStats 获取每日统计
 func (ss *StatsService) GetDailyStats(date time.Time) (*models.UserStats, error) {
 	var stats models.UserStats
+	day := startOfStatsDay(date)
+	end := day.Add(24 * time.Hour)
 
-	// 获取指定日期的统计
-	if err := ss.db.Where("date = ?", date.Format("2006-01-02")).First(&stats).Error; err != nil {
+	if err := ss.db.Where("date >= ? AND date < ?", day, end).First(&stats).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			// 如果不存在，则计算并创建
-			return ss.CalculateDailyStats(date)
+			return ss.CalculateDailyStats(day)
 		}
 		return nil, err
 	}
@@ -40,7 +50,7 @@ func (ss *StatsService) GetDailyStats(date time.Time) (*models.UserStats, error)
 
 // CalculateDailyStats 计算每日统计
 func (ss *StatsService) CalculateDailyStats(date time.Time) (*models.UserStats, error) {
-	startOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, date.Location())
+	startOfDay := startOfStatsDay(date)
 	endOfDay := startOfDay.Add(24 * time.Hour)
 
 	// 总用户数
@@ -69,7 +79,7 @@ func (ss *StatsService) CalculateDailyStats(date time.Time) (*models.UserStats, 
 
 	// 保存或更新统计
 	var existingStats models.UserStats
-	if err := ss.db.Where("date = ?", startOfDay.Format("2006-01-02")).First(&existingStats).Error; err != nil {
+	if err := ss.db.Where("date >= ? AND date < ?", startOfDay, endOfDay).First(&existingStats).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			// 创建新统计
 			if err := ss.db.Create(stats).Error; err != nil {

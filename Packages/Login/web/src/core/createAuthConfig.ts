@@ -11,6 +11,28 @@ export function createAuthConfig(overrides: AuthConfigInput = {}): SSOConfig {
     const base = createDefaultSSOConfig()
     const merged: SSOConfig = { ...base, ...overrides }
 
+    if (overrides.allowedScopes?.length) {
+        merged.scope = overrides.allowedScopes
+    }
+    if (overrides.id && !merged.appId) {
+        merged.appId = overrides.id
+    }
+    if (overrides.tokenUrl && !merged.tokenEndpoint) {
+        merged.tokenEndpoint = overrides.tokenUrl
+    }
+    if (overrides.authorizationUrl && !merged.authorizationUrl) {
+        merged.authorizationUrl = overrides.authorizationUrl
+    }
+    if (overrides.userInfoUrl && !merged.userInfoEndpoint) {
+        merged.userInfoEndpoint = overrides.userInfoUrl
+    }
+    if (overrides.logoutUrl && !merged.logoutEndpoint) {
+        merged.logoutEndpoint = overrides.logoutUrl
+    }
+    if (overrides.features?.autoRefresh !== undefined) {
+        merged.autoRefresh = overrides.features.autoRefresh
+    }
+
     if (typeof window !== 'undefined') {
         const params = new URLSearchParams(window.location.search)
         const fromUrl: Record<string, string> = {}

@@ -5,6 +5,7 @@ export {
     validateUsername,
     validatePassword,
     identifyAccountType,
+    validateLoginAccount,
     validateLoginForm,
     validateRegisterForm,
     validateForgotPasswordForm,

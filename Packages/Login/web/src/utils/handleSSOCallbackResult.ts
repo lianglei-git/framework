@@ -1,4 +1,5 @@
 import { SSOService } from "../services/sso";
+import { cleanOAuthParamsFromUrl } from "./oauthLoading";
 
 const getSubAppInfoForSessionStorage = () => {
     const appid = localStorage.getItem('app_id') || 'centeral_auth';
@@ -15,6 +16,8 @@ export const handleSSOCallbackResult = async (result: any) => {
 
     console.log("origin_app_uri::", origin_app_uri)
     if (!origin_app_uri) {
+        // 子项目本地回调：换 token 已完成，清理 URL 上的 code/state
+        cleanOAuthParamsFromUrl()
         return
     }
     localStorage.removeItem('origin_app_uri');

@@ -83,14 +83,22 @@ func (wp *WeChatProvider) Authenticate(ctx context.Context, credentials map[stri
 }
 
 func (wp *WeChatProvider) GetAuthURL(ctx *gin.Context, state string) (string, error) {
-	// 微信OAuth2.0授权URL
+	// 微信开放平台网站应用扫码登录
 	authURL := "https://open.weixin.qq.com/connect/qrconnect"
+	redirectURI := wp.redirectURI
+	if fromQuery := ctx.Query("redirect_uri"); fromQuery != "" {
+		redirectURI = fromQuery
+	}
 	params := url.Values{}
 	params.Set("appid", wp.appID)
-	params.Set("redirect_uri", wp.redirectURI)
+	params.Set("redirect_uri", redirectURI)
 	params.Set("response_type", "code")
 	params.Set("scope", "snsapi_login")
-	params.Set("state", state)
+	if state != "" {
+		params.Set("state", state)
+	} else if qState := ctx.Query("state"); qState != "" {
+		params.Set("state", qState)
+	}
 
 	return fmt.Sprintf("%s?%s#wechat_redirect", authURL, params.Encode()), nil
 }

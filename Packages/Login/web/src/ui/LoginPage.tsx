@@ -8,6 +8,7 @@ import { TermsOfService } from '../components/legal/TermsOfService'
 import { PrivacyPolicy } from '../components/legal/PrivacyPolicy'
 import { ForgotPassword } from '../components/ForgotPassword'
 import { useAuth } from '../hooks/useAuth'
+import { handleSSOCallbackResult } from '../utils/handleSSOCallbackResult'
 import './LoginPage.less'
 
 const urlParams = new URLSearchParams(window.location.search)
@@ -41,15 +42,13 @@ const setSubAppInfoForSessionStorage = () => {
     const appid = subUrlParams.get('app_id')
     const app_redirect_uri = subUrlParams.get('redirect_uri')
     const app_origin = subUrlParams.get('app_origin')
-    const { sessionId } = getSessionFromCookies()
-    if (!sessionId && app_origin) {
+    if (app_origin) {
         const fixedLen = 'redirect_uri='.length
         const index = window.location.search.indexOf('redirect_uri=')
-        if (index === -1) return
-        localStorage.setItem('origin_app_uri', window.location.search.slice(index + fixedLen))
-        return
-    }
-    if (appid && app_redirect_uri) {
+        if (index !== -1) {
+            localStorage.setItem('origin_app_uri', window.location.search.slice(index + fixedLen))
+        }
+    } else if (appid && app_redirect_uri) {
         localStorage.setItem('appid', appid)
         localStorage.setItem('redirect_uri', app_redirect_uri)
     }
@@ -64,6 +63,15 @@ export const LoginPage: React.FC = observer(() => {
     useEffect(() => {
         setSubAppInfoForSessionStorage()
     }, [])
+
+    // 子项目 SSO：已登录用户带 app_origin 时自动回跳 authorize
+    useEffect(() => {
+        if (!auth.isAuthenticated) return
+        const origin = localStorage.getItem('origin_app_uri')
+        if (origin) {
+            handleSSOCallbackResult({ user: globalUserStore.info })
+        }
+    }, [auth.isAuthenticated])
 
     if (auth.loadingInfos?.status === 'loading') {
         const provider = auth.loadingInfos.provider

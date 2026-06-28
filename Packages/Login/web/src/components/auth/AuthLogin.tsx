@@ -7,7 +7,8 @@ import {
     validatePhone,
     identifyAccountType,
     AccountType,
-    VerificationType
+    VerificationType,
+    validateLoginAccount,
 } from '../../'
 import { getOAuthURLAPI } from '../../services/api'
 
@@ -48,20 +49,16 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
     // 账号密码登录表单（两步）
     const accountForm = useForm({
         initialValues: {
-            account: '2838370086@qq.com',
-            password: 'lianglei1216',
+            account: '',
+            password: '',
             remember_me: false,
             login_type: 'username' as const
         },
         validate: (values) => {
             const errors: Record<string, string> = {}
-            if (!values.account.trim()) {
-                errors.account = '请输入账号'
-            } else {
-                const accountType = identifyAccountType(values.account)
-                if (accountType === AccountType.UNKNOWN || accountType === AccountType.USERNAME) {
-                    errors.account = '请输入有效的邮箱、手机号'
-                }
+            const accountError = validateLoginAccount(values.account)
+            if (accountError) {
+                errors.account = accountError
             }
             return errors
         }
@@ -174,8 +171,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
             // setCodeLoginHint('我们已为您的邮箱发送验证码，请输入6位验证码完成登录')
             handleSendEmailLoginCode()
         } else {
-            accountForm.setError('account', '请输入有效的手机号或邮箱')
-            // if (loginStep !== 'account') setLoginStep('account')
+            accountForm.setError('account', '验证码登录仅支持邮箱或手机号')
         }
     }
     // 有效
@@ -292,7 +288,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
                     <form onSubmit={handleCheckAccount} className="account-login-form">
                         <Input
                             type="text"
-                            placeholder="邮箱 / 手机号"
+                            placeholder="邮箱 / 手机号 / 用户名"
                             value={accountForm.values.account}
                             onChange={(value) => accountForm.setValue('account', value)}
                             error={accountForm.errors.account}

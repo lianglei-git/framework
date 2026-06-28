@@ -81,6 +81,19 @@ export const identifyAccountType = (account: string): AccountType => {
     return AccountType.UNKNOWN
 }
 
+/** 登录账号校验：支持邮箱、手机号、用户名 */
+export function validateLoginAccount(account: string): string | null {
+    const trimmed = account.trim()
+    if (!trimmed) {
+        return '请输入账号'
+    }
+    const accountType = identifyAccountType(trimmed)
+    if (accountType === AccountType.UNKNOWN) {
+        return '请输入有效的邮箱、手机号或用户名'
+    }
+    return null
+}
+
 // 表单验证函数
 export const validateLoginForm = (data: LoginFormData): ValidationError[] => {
     const errors: ValidationError[] = []

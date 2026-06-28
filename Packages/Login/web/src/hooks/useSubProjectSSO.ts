@@ -3,6 +3,7 @@ import { setSSOConfig, SSOService } from '../services/sso'
 import { getSubProjectConfig, SubProjectConfig } from '../config/subproject-integration'
 import { type SSOToken, type SSOUser, type SSOSession, StorageType } from '../types'
 import {useAuth, useAuthEvents} from "./useAuth"
+import { globalUserStore } from '../stores/UserStore'
 import { storage } from '../utils'
 import { formatAuthError } from '../utils/authError'
 export {
@@ -94,7 +95,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
 
     // 数据
     const [session, setSession] = useState<SSOSession | null>(null)
-    const [config, setConfig] = useState<SubProjectConfig | null>(customConfig)
+    const [config, setConfig] = useState<SubProjectConfig | null>(finalConfig)
 
     // 初始化SSO服务
     const initialize = useCallback(async () => {
@@ -139,14 +140,14 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
     }, [])
 
     const _buildLoginUrl = async () => {
+        const cfg = config || finalConfig
         const loginUrl = await ssoService.buildAuthorizationUrl('sub_job', {
-            // config
-            client_id: config.clientId,
-            app_id: config.id,
-            grant_type: config.grantType,
-            redirect_uri: config.redirectUri,
+            client_id: cfg.clientId,
+            app_id: cfg.id,
+            grant_type: 'authorization_code',
+            redirect_uri: (cfg as any).redirectUri || cfg.redirectUris?.[0],
             response_type: "code",
-            scope: (config.allowedScopes || []).join(' '),
+            scope: (cfg.allowedScopes || []).join(' '),
         });
         return loginUrl
     }
@@ -197,11 +198,11 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
 
     // 登出
     const logout = async () => {
-        
+        const cfg = config || finalConfig
         const loginUrl = await _buildLoginUrl();
 
         ssoLogout({
-            post_logout_redirect_uri: config.ssoHomeUrl + "?app_origin=true&redirect_uri="+loginUrl,
+            post_logout_redirect_uri: (cfg as any).ssoHomeUrl + "?app_origin=true&redirect_uri="+loginUrl,
         });
         if (!ssoService) {
             throw new Error('SSO服务未初始化')
@@ -251,8 +252,11 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
 
             const result = await ssoService.refreshToken()
 
-            if (result.success && result.token) {
+            if (result?.access_token) {
+                globalUserStore.syncFromStorage()
                 console.log('令牌刷新成功')
+            } else {
+                throw new Error('令牌刷新失败')
             }
         } catch (err: any) {
             const error = new Error(formatAuthError(err, '令牌刷新失败'))
