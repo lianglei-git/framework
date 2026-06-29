@@ -1033,7 +1033,12 @@ export class SSOService extends ApiService {
         if (!this.isSubProjectApp()) {
             return
         }
-        if (this.isInCallbackMode() || storage.getAuth()?.token) {
+        if (this.isInCallbackMode()) {
+            return
+        }
+        const existing = storage.getAuth()?.token
+        const accessToken = typeof existing === 'string' ? existing : existing?.access_token
+        if (accessToken && !storage.isSSOTokenExpired?.()) {
             return
         }
         if (!this.hasValidSessionCookie()) {

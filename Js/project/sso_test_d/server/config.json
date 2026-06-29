@@ -1,0 +1,8 @@
+{
+  "port": "5558",
+  "unit_auth_url": "http://localhost:8080",
+  "client_id": "9bb1970a-42a7-497a-8144-a211128ea373",
+  "client_secret": "client_secret_1603375b-6f02-45d7-9feb-caa27ccd5224",
+  "redirect_uri": "http://localhost:5176",
+  "app_id": "sso_sso_test_d"
+}

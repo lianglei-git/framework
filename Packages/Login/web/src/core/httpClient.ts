@@ -6,6 +6,7 @@ import {
     refreshOAuthTokenOnce,
     shouldAttemptOAuthRefreshOn401,
 } from '../utils/oauthRefreshOn401'
+import { recoverOAuthSessionAfterRefreshFailure } from '../utils/oauthSessionRecovery'
 
 export const basicUrl = import.meta.env.DEV ? "http://localhost:8080" : "https://sparrowui.cn/translate"
 
@@ -72,6 +73,10 @@ export class ApiService {
             ) {
                 const refreshed = await refreshOAuthTokenOnce()
                 if (refreshed) {
+                    return this.request<T>(url, { ...options, _oauthRetried: true })
+                }
+                const recovery = await recoverOAuthSessionAfterRefreshFailure()
+                if (recovery === 'recovered') {
                     return this.request<T>(url, { ...options, _oauthRetried: true })
                 }
             }

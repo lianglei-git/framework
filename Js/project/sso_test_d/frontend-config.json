@@ -1,0 +1,22 @@
+{
+  "id": "sso_sso_test_d",
+  "name": "sso_test_d",
+  "ssoServerUrl": "http://localhost:5558",
+  "ssoHomeUrl": "http://localhost:3033",
+  "clientId": "9bb1970a-42a7-497a-8144-a211128ea373",
+  "redirectUri": "http://localhost:5176",
+  "redirectUris": [
+    "http://localhost:5176"
+  ],
+  "allowedScopes": [
+    "openid",
+    "profile",
+    "email"
+  ],
+  "tokenEndpoint": "/api/v1/auth/oauth/token",
+  "authorizationUrl": "/api/v1/auth/oauth/authorize",
+  "tokenUrl": "/api/v1/auth/oauth/token",
+  "userInfoUrl": "/api/v1/auth/oauth/userinfo",
+  "logoutUrl": "/api/v1/auth/oauth/logout",
+  "autoRefresh": false
+}

@@ -6,6 +6,7 @@ import {useAuth, useAuthEvents} from "./useAuth"
 import { globalUserStore } from '../stores/UserStore'
 import { storage } from '../utils'
 import { formatAuthError, isUnauthorizedError } from '../utils/authError'
+import { recoverFromOAuthUnauthorized } from '../utils/oauthSessionRecovery'
 export {
     setSSOConfig
 }
@@ -196,22 +197,19 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         }
     }, [ssoService, onSuccess, onError])
 
-    /** refresh 仍 401：尝试静默 authorize，否则清本地态 */
-    const recoverFromUnauthorized = useCallback(async (): Promise<'redirecting' | 'failed'> => {
+    /** refresh 仍 401：SDK 统一 session-check → silent authorize → 重新登录 */
+    const recoverFromUnauthorized = useCallback(async (): Promise<
+        'redirecting' | 'recovered' | 'failed'
+    > => {
         if (!ssoService) return 'failed'
 
-        if (ssoService.hasValidSessionCookie()) {
-            await ssoService.trySilentAuthorize()
-            return 'redirecting'
+        const result = await recoverFromOAuthUnauthorized()
+        if (result === 'failed') {
+            const sessionError = new Error('登录已失效（可能已在其他应用退出），请重新登录')
+            setError(sessionError)
+            onError?.(sessionError)
         }
-
-        globalUserStore.clearLocalAuth()
-        SSOService.clearSessionCookies()
-        window.dispatchEvent(new CustomEvent('auth:logout'))
-        const sessionError = new Error('登录已失效（可能已在其他应用退出），请重新登录')
-        setError(sessionError)
-        onError?.(sessionError)
-        return 'failed'
+        return result
     }, [ssoService, onError])
 
     // 登出
@@ -369,6 +367,12 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
                 const recovered = await recoverFromUnauthorized()
                 if (recovered === 'redirecting') {
                     return undefined
+                }
+                if (recovered === 'recovered') {
+                    const newToken = storage.getSSOAccessToken() || token?.access_token
+                    if (newToken) {
+                        return await ssoService.getUserInfo(newToken)
+                    }
                 }
                 throw new Error('登录已失效（可能已在其他应用退出），请重新登录')
             }

@@ -259,10 +259,41 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"unit-auth/sdk"
 )
+
+var startTime = time.Now()
+
+// requireAuth 校验 Bearer token，通过时将 IntrospectResponse 注入 context key "claims"
+func requireAuth(auth *sdk.Client) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		token := strings.TrimSpace(strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "))
+		if token == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "invalid_token", "error_description": "Authorization header missing",
+			})
+			return
+		}
+		info, err := auth.Introspect(token)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "invalid_token", "error_description": err.Error(),
+			})
+			return
+		}
+		if !info.Active {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+				"error": "invalid_token", "error_description": "token inactive or expired",
+			})
+			return
+		}
+		c.Set("claims", info)
+		c.Next()
+	}
+}
 
 type ServerConfig struct {
 	Port         string \`json:"port"\`
@@ -461,6 +492,58 @@ func main() {
 		c.Data(status, "application/json", body)
 	})
 
+	// ── Demo 业务路由（公开）──
+	r.GET("/api/v1/demo/time", func(c *gin.Context) {
+		now := time.Now()
+		c.JSON(http.StatusOK, gin.H{
+			"server_time": now.Format(time.RFC3339),
+			"timestamp":   now.UnixMilli(),
+			"uptime_sec":  int64(time.Since(startTime).Seconds()),
+		})
+	})
+
+	// ── Demo 业务路由（需 token）──
+	protected := r.Group("/api/v1/demo", requireAuth(auth))
+	{
+		protected.GET("/time-auth", func(c *gin.Context) {
+			claims := c.MustGet("claims").(*sdk.IntrospectResponse)
+			now := time.Now()
+			c.JSON(http.StatusOK, gin.H{
+				"server_time": now.Format(time.RFC3339),
+				"timestamp":   now.UnixMilli(),
+				"uptime_sec":  int64(time.Since(startTime).Seconds()),
+				"user_id":     claims.UserID,
+				"email":       claims.Email,
+			})
+		})
+		protected.GET("/whoami", func(c *gin.Context) {
+			claims := c.MustGet("claims").(*sdk.IntrospectResponse)
+			c.JSON(http.StatusOK, gin.H{
+				"active": claims.Active, "user_id": claims.UserID,
+				"email": claims.Email, "role": claims.Role,
+				"token_type": claims.TokenType, "exp": claims.Exp, "expires_at": claims.ExpiresAt,
+			})
+		})
+		protected.POST("/add", func(c *gin.Context) {
+			claims := c.MustGet("claims").(*sdk.IntrospectResponse)
+			var req struct { A float64 \`json:"a"\`; B float64 \`json:"b"\` }
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"a": req.A, "b": req.B, "sum": req.A + req.B, "user_id": claims.UserID})
+		})
+		protected.POST("/echo", func(c *gin.Context) {
+			claims := c.MustGet("claims").(*sdk.IntrospectResponse)
+			var body interface{}
+			if err := c.ShouldBindJSON(&body); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"echo": body, "user_id": claims.UserID})
+		})
+	}
+
 	if err := r.Run(":" + cfg.Port); err != nil { log.Fatal(err) }
 }
 
@@ -521,36 +604,42 @@ createAuthConfig({
 
   const appTsx = `import { useSubProjectSSO } from '@sparrow/login/hooks'
 import { appConfig } from './sso'
+import { TestPanel } from './TestPanel'
 
 export default function App() {
-  const { isAuthenticated, user, login, logout, isLoading, error } = useSubProjectSSO({
-    customConfig: appConfig,
-  })
+  const sso = useSubProjectSSO({ customConfig: appConfig })
+  const { isAuthenticated, login, isLoading, error } = sso
 
-  if (isLoading) return <main className="page">加载中…</main>
-
-  if (error) {
+  if (isLoading) {
     return (
-      <main className="page">
-        <p className="err">{error.message}</p>
-        <button type="button" onClick={() => login({ redirect: true })}>重新登录</button>
-      </main>
+      <div className="page-center">
+        <div className="spinner" />
+        <p>初始化中…</p>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="page-center">
+        <h1 className="app-title">${c.displayName}</h1>
+        <p className="hint">SSO 完整测试台 · 前端 :${c.frontendPort} · BFF :${c.bffPort}</p>
+        {error && <p className="err">{error.message}</p>}
+        <button type="button" className="btn btn-primary btn-lg" onClick={() => login({ redirect: true })}>
+          SSO 登录
+        </button>
+      </div>
     )
   }
 
   return (
-    <main className="page">
-      <h1>${c.displayName}</h1>
-      <p className="hint">前端 :${c.frontendPort} · BFF :${c.bffPort}</p>
-      {isAuthenticated ? (
-        <>
-          <p>你好，{user?.nickname || user?.name || user?.email}</p>
-          <button type="button" onClick={() => logout()}>登出</button>
-        </>
-      ) : (
-        <button type="button" onClick={() => login({ redirect: true })}>SSO 登录</button>
-      )}
-    </main>
+    <div className="app-root">
+      <header className="app-header">
+        <span className="app-title">${c.displayName} · SSO 测试台</span>
+        <span className="hint">前端 :${c.frontendPort} · BFF :${c.bffPort} · IdP :8080</span>
+      </header>
+      <TestPanel sso={sso} />
+    </div>
   )
 }
 `
@@ -568,13 +657,274 @@ createRoot(document.getElementById('root')!).render(
 )
 `
 
-  const indexCss = `* { box-sizing: border-box; }
-body { margin: 0; font-family: system-ui, sans-serif; background: #f5f5f5; color: #222; }
-.page { max-width: 420px; margin: 4rem auto; padding: 2rem; background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); text-align: center; }
-.hint { color: #888; font-size: 0.9rem; }
-.err { color: #c00; }
-button { margin-top: 1rem; padding: 0.5rem 1.25rem; border: none; border-radius: 8px; background: #1677ff; color: #fff; cursor: pointer; font-size: 1rem; }
-button:hover { background: #4096ff; }
+  const indexCss = `* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, sans-serif; background: #f0f2f5; color: #222; min-height: 100vh; }
+
+.page-center { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 12px; }
+.spinner { width: 32px; height: 32px; border: 3px solid #e0e0e0; border-top-color: #1677ff; border-radius: 50%; animation: spin 0.7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.app-root { max-width: 900px; margin: 0 auto; padding: 0 16px 48px; }
+.app-header { display: flex; align-items: baseline; gap: 12px; padding: 16px 0 12px; border-bottom: 1px solid #e0e0e0; margin-bottom: 16px; }
+.app-title { font-size: 1.2rem; font-weight: 700; color: #1677ff; }
+
+.test-panel { display: flex; flex-direction: column; gap: 16px; }
+.panel-section { background: #fff; border-radius: 10px; padding: 18px 20px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); }
+.section-title { font-size: 0.95rem; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 14px; }
+
+.token-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 0.9rem; border-bottom: 1px solid #f5f5f5; }
+.token-row:last-child { border-bottom: none; }
+.token-label { color: #888; min-width: 160px; }
+.token-countdown { font-size: 1.1rem; font-weight: 700; color: #52c41a; font-variant-numeric: tabular-nums; }
+.token-countdown.warning { color: #fa8c16; }
+.token-countdown.expired { color: #f5222d; }
+.token-ok { color: #52c41a; font-weight: 600; }
+.token-missing { color: #f5222d; }
+.token-preview { font-size: 0.78rem; background: #f5f5f5; padding: 2px 6px; border-radius: 4px; color: #555; word-break: break-all; }
+.token-time { color: #888; font-size: 0.85rem; }
+
+.btn-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { padding: 7px 14px; border: 1px solid #d9d9d9; border-radius: 7px; background: #fafafa; color: #333; cursor: pointer; font-size: 0.875rem; transition: all 0.15s; line-height: 1.4; }
+.btn:hover:not(:disabled) { border-color: #1677ff; color: #1677ff; background: #e6f4ff; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: #1677ff; color: #fff; border-color: #1677ff; }
+.btn-primary:hover:not(:disabled) { background: #4096ff; border-color: #4096ff; color: #fff; }
+.btn-danger { background: #fff1f0; border-color: #ffa39e; color: #cf1322; }
+.btn-danger:hover:not(:disabled) { background: #ff4d4f; color: #fff; border-color: #ff4d4f; }
+.btn-warning { background: #fffbe6; border-color: #ffe58f; color: #d48806; }
+.btn-warning:hover:not(:disabled) { background: #fa8c16; color: #fff; border-color: #fa8c16; }
+.btn-api { font-family: 'SF Mono', Menlo, monospace; font-size: 0.82rem; }
+.btn-lg { padding: 10px 28px; font-size: 1rem; }
+.btn-sm { padding: 3px 10px; font-size: 0.8rem; }
+
+.api-result { margin-top: 12px; background: #f6ffed; border: 1px solid #b7eb8f; border-radius: 6px; padding: 10px 12px; font-size: 0.8rem; font-family: 'SF Mono', Menlo, monospace; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+
+.log-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.log-list { max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; font-family: 'SF Mono', Menlo, monospace; font-size: 0.82rem; }
+.log-empty { color: #aaa; text-align: center; padding: 16px; }
+.log-entry { display: flex; flex-direction: column; gap: 2px; padding: 5px 8px; border-radius: 5px; border-left: 3px solid; }
+.log-ok { background: #f6ffed; border-left-color: #52c41a; }
+.log-fail { background: #fff1f0; border-left-color: #f5222d; }
+.log-time { color: #aaa; margin-right: 6px; }
+.log-icon { margin-right: 4px; }
+.log-ok .log-icon { color: #52c41a; }
+.log-fail .log-icon { color: #f5222d; }
+.log-detail { font-size: 0.75rem; margin-top: 4px; background: rgba(0,0,0,0.03); padding: 6px; border-radius: 4px; white-space: pre-wrap; word-break: break-all; max-height: 160px; overflow: auto; }
+
+.hint { color: #888; font-size: 0.88rem; }
+.err { color: #cf1322; margin-top: 8px; }
+`
+
+  const demoApiTs = `/**
+ * demoApi.ts — 测试台专用 axios 实例
+ * 自动注入 SSO token，遇到 401 先 refresh，失败则触发 session recovery
+ */
+import axios, { type AxiosRequestConfig } from 'axios'
+import { storage } from '@sparrow/login/utils'
+import { refreshOAuthTokenOnce } from '@sparrow/login/utils/oauthRefreshOn401'
+import { recoverOAuthSessionAfterRefreshFailure } from '@sparrow/login/utils/oauthSessionRecovery'
+
+const BFF_URL = import.meta.env.VITE_SSO_SERVER_URL || '${c.ssoServerUrl}'
+
+const demoAxios = axios.create({ baseURL: BFF_URL, timeout: 10000 })
+
+demoAxios.interceptors.request.use((config) => {
+  const token = storage.getSSOAccessToken()
+  if (token) config.headers.Authorization = \`Bearer \${token}\`
+  return config
+})
+
+demoAxios.interceptors.response.use(
+  (res) => res,
+  async (error) => {
+    const config = error.config as AxiosRequestConfig & { _retried?: boolean }
+    if (axios.isAxiosError(error) && error.response?.status === 401 && !config._retried) {
+      config._retried = true
+      const refreshed = await refreshOAuthTokenOnce()
+      if (refreshed) {
+        const newToken = storage.getSSOAccessToken()
+        if (newToken && config.headers) config.headers['Authorization'] = \`Bearer \${newToken}\`
+        return demoAxios(config)
+      }
+      await recoverOAuthSessionAfterRefreshFailure()
+    }
+    return Promise.reject(error)
+  }
+)
+
+export const demoApi = {
+  getTime: () => demoAxios.get('/api/v1/demo/time').then((r) => r.data),
+  getTimeAuth: () => demoAxios.get('/api/v1/demo/time-auth').then((r) => r.data),
+  whoami: () => demoAxios.get('/api/v1/demo/whoami').then((r) => r.data),
+  add: (a: number, b: number) => demoAxios.post('/api/v1/demo/add', { a, b }).then((r) => r.data),
+  echo: (body: Record<string, unknown>) => demoAxios.post('/api/v1/demo/echo', body).then((r) => r.data),
+}
+`
+
+  const useCountdownTs = `import { useState, useEffect } from 'react'
+import { storage } from '@sparrow/login/utils'
+
+export interface CountdownState {
+  remainSec: number
+  isExpired: boolean
+  expiresAt: number | null
+  remainLabel: string
+}
+
+function calc(expiresAt: number | null): CountdownState {
+  if (expiresAt === null) return { remainSec: 0, isExpired: true, expiresAt: null, remainLabel: '—' }
+  const diff = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000))
+  const min = Math.floor(diff / 60)
+  const sec = diff % 60
+  return { remainSec: diff, isExpired: diff === 0, expiresAt, remainLabel: min > 0 ? \`\${min}m \${sec}s\` : \`\${sec}s\` }
+}
+
+export function useAccessTokenCountdown(): CountdownState {
+  const [state, setState] = useState<CountdownState>(() => calc(storage.getSSOData()?.expires_at ?? null))
+  useEffect(() => {
+    setState(calc(storage.getSSOData()?.expires_at ?? null))
+    const id = setInterval(() => setState(calc(storage.getSSOData()?.expires_at ?? null)), 1000)
+    return () => clearInterval(id)
+  }, [])
+  return state
+}
+`
+
+  const testPanelTsx = `/**
+ * TestPanel.tsx — SSO 完整测试台（四区域）
+ */
+import React, { useState, useCallback } from 'react'
+import { SSOService } from '@sparrow/login/sso'
+import { globalUserStore } from '@sparrow/login/stores/UserStore'
+import { storage } from '@sparrow/login/utils'
+import { useAccessTokenCountdown } from './useCountdown'
+import { demoApi } from './demoApi'
+import type { UseSubProjectSSOResult } from '@sparrow/login/hooks'
+
+interface LogEntry { id: number; time: string; ok: boolean; msg: string; detail?: string }
+let _seq = 0
+
+export function TestPanel({ sso }: { sso: UseSubProjectSSOResult }) {
+  const { user, token, refreshToken, getUserInfoFetch, logout } = sso
+  const countdown = useAccessTokenCountdown()
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [apiResult, setApiResult] = useState('')
+  const [busy, setBusy] = useState('')
+
+  const log = useCallback((ok: boolean, msg: string, detail?: string) => {
+    const time = new Date().toTimeString().slice(0, 8)
+    setLogs((prev) => [{ id: ++_seq, time, ok, msg, detail }, ...prev].slice(0, 50))
+  }, [])
+
+  const run = useCallback(async (label: string, fn: () => Promise<unknown>) => {
+    setBusy(label); setApiResult('')
+    try {
+      const result = await fn()
+      const detail = result != null ? JSON.stringify(result, null, 2) : undefined
+      log(true, \`\${label} 成功\`, detail)
+      if (detail) setApiResult(detail)
+    } catch (err: unknown) {
+      log(false, \`\${label} 失败：\${err instanceof Error ? err.message : String(err)}\`)
+    } finally { setBusy('') }
+  }, [log])
+
+  const preview = storage.getSSOAccessToken()?.slice(0, 24) + '...' || '—'
+  const hasRT = !!storage.getSSORefreshToken()
+
+  return (
+    <div className="test-panel">
+      {/* Token 状态 */}
+      <section className="panel-section">
+        <h2 className="section-title">Token 状态</h2>
+        <div className="token-row"><span className="token-label">Access Token 剩余：</span>
+          <span className={\`token-countdown \${countdown.isExpired ? 'expired' : countdown.remainSec <= 10 ? 'warning' : ''}\`}>
+            {countdown.expiresAt === null ? '无 Token' : countdown.isExpired ? '已过期' : countdown.remainLabel}
+          </span>
+        </div>
+        <div className="token-row"><span className="token-label">Refresh Token：</span>
+          <span className={hasRT ? 'token-ok' : 'token-missing'}>{hasRT ? '存在' : '不存在'}</span>
+        </div>
+        <div className="token-row"><span className="token-label">Token 预览：</span>
+          <code className="token-preview">{preview}</code>
+        </div>
+        <div className="token-row"><span className="token-label">用户：</span>
+          <span>{user?.nickname || user?.email || user?.name || '—'}</span>
+        </div>
+        {token?.expires_in && (
+          <div className="token-row"><span className="token-label">过期时间：</span>
+            <span className="token-time">{countdown.expiresAt ? new Date(countdown.expiresAt).toLocaleTimeString() : '—'}</span>
+          </div>
+        )}
+      </section>
+
+      {/* SSO 操作 */}
+      <section className="panel-section">
+        <h2 className="section-title">SSO 操作</h2>
+        <div className="btn-grid">
+          <button className="btn btn-primary" disabled={!!busy} onClick={() => run('手动续签', () => refreshToken())}>
+            {busy === '手动续签' ? '…' : '手动续签'}
+          </button>
+          <button className="btn" disabled={!!busy} onClick={() => run('getUserInfo', () => getUserInfoFetch())}>
+            getUserInfo
+          </button>
+          <button className="btn btn-warning" disabled={!!busy} onClick={() => run('清本地 Token', async () => {
+            globalUserStore.clearLocalAuth(); return { cleared: true }
+          })}>清本地 Token</button>
+          <button className="btn" disabled={!!busy} onClick={() => run('Session-Check', async () => {
+            const svc = SSOService.instance; if (!svc) throw new Error('SSOService 未初始化')
+            return { recovered: await svc.tryRecoverSubProjectSession() }
+          })}>Session-Check 恢复</button>
+          <button className="btn" disabled={!!busy} onClick={() => run('静默 Authorize', async () => {
+            const svc = SSOService.instance; if (!svc) throw new Error('SSOService 未初始化')
+            if (!svc.hasValidSessionCookie()) throw new Error('无 session cookie')
+            await svc.trySilentAuthorize(); return { status: 'redirecting' }
+          })}>静默 Authorize</button>
+          <button className="btn btn-danger" disabled={!!busy} onClick={() => run('本地登出', async () => { await logout(); return { logout: 'local' } })}>
+            本地登出
+          </button>
+          <button className="btn btn-danger" disabled={!!busy} title="跳转 IdP logout" onClick={() => { log(true, '全局登出：即将跳转 IdP…'); logout() }}>
+            全局登出（IdP）
+          </button>
+        </div>
+      </section>
+
+      {/* BFF Demo API */}
+      <section className="panel-section">
+        <h2 className="section-title">BFF Demo API</h2>
+        <div className="btn-grid">
+          <button className="btn btn-api" disabled={!!busy} onClick={() => run('GET /time（公开）', () => demoApi.getTime())}>GET /time（公开）</button>
+          <button className="btn btn-api" disabled={!!busy} onClick={() => run('GET /time-auth', () => demoApi.getTimeAuth())}>GET /time-auth（需 token）</button>
+          <button className="btn btn-api" disabled={!!busy} onClick={() => run('GET /whoami', () => demoApi.whoami())}>GET /whoami</button>
+          <button className="btn btn-api" disabled={!!busy} onClick={() => run('POST /add（3+5）', () => demoApi.add(3, 5))}>POST /add（3+5）</button>
+          <button className="btn btn-api" disabled={!!busy} onClick={() => run('POST /echo', () => demoApi.echo({ msg: 'hello', ts: Date.now() }))}>POST /echo</button>
+          <button className="btn btn-api btn-warning" disabled={!!busy} title="清 token → 调 /time-auth → 触发 401→refresh→recovery" onClick={async () => {
+            log(true, '401 自动恢复测试：清 token → /time-auth')
+            globalUserStore.clearLocalAuth()
+            await run('401→refresh→recovery', () => demoApi.getTimeAuth())
+          }}>401 自动恢复测试</button>
+        </div>
+        {apiResult && <pre className="api-result">{apiResult}</pre>}
+      </section>
+
+      {/* 操作日志 */}
+      <section className="panel-section">
+        <div className="log-header">
+          <h2 className="section-title" style={{ margin: 0 }}>操作日志</h2>
+          <button className="btn btn-sm" onClick={() => setLogs([])}>清空</button>
+        </div>
+        <div className="log-list">
+          {logs.length === 0 && <p className="log-empty">暂无记录</p>}
+          {logs.map((e) => (
+            <div key={e.id} className={\`log-entry \${e.ok ? 'log-ok' : 'log-fail'}\`}>
+              <div><span className="log-time">[{e.time}]</span><span className="log-icon">{e.ok ? '✓' : '✗'}</span><span className="log-msg">{e.msg}</span></div>
+              {e.detail && <details><summary>详情</summary><pre className="log-detail">{e.detail}</pre></details>}
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  )
+}
 `
 
   const viteConfig = `import path from 'path'
@@ -679,6 +1029,9 @@ pnpm install && pnpm dev
     [`${root}/src/App.tsx`]: appTsx,
     [`${root}/src/main.tsx`]: mainTsx,
     [`${root}/src/index.css`]: indexCss,
+    [`${root}/src/demoApi.ts`]: demoApiTs,
+    [`${root}/src/useCountdown.ts`]: useCountdownTs,
+    [`${root}/src/TestPanel.tsx`]: testPanelTsx,
     [`${root}/server/config.json`]: buildBackendConfigJson(c),
     [`${root}/server/main.go`]: generateServerMainGo(c),
     [`${root}/server/go.mod`]: goMod,
