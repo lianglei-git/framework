@@ -40,11 +40,11 @@ export function createDefaultSSOConfig(): SSOConfig {
         id: 'centralized',
         grantType: 'authorization_code',
         sessionTimeout: 3600,
-        autoRefresh: true,
+        autoRefresh: false,
         storageType: StorageType.LOCAL,
         cookieSameSite: 'lax',
         "authorizationUrl": "/api/v1/auth/oauth/authorize",
-        "tokenEndpoint": "/api/v1/auth/oauth-login",
+        "tokenEndpoint": "/api/v1/auth/oauth/token",
         "userInfoUrl": "/api/v1/auth/oauth/userinfo",
         "logoutUrl": "/api/v1/auth/oauth/logout",
 

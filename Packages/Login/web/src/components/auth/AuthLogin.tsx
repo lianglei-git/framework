@@ -110,7 +110,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
                 provider: 'local',
                 username: accountForm.values.account,
             })
-            handleSSOCallbackResult(info)
+            handleSSOCallbackResult({ afterLogin: true })
             console.log("登录成功！")
 
         } catch (error: any) {
@@ -211,7 +211,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
                 code: emailCode,
                 provider: 'email',
             })
-            handleSSOCallbackResult(info)
+            handleSSOCallbackResult({ afterLogin: true })
             console.log("登录成功！")
 
         } catch (error: any) {

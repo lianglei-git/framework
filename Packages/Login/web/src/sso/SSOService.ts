@@ -19,7 +19,7 @@ import { ApiService } from '../core/httpClient'
 import { storage, storageManager } from '../utils/storage'
 import { globalUserStore } from '../stores/UserStore'
 import { handleSSOCallbackResult } from '../utils/handleSSOCallbackResult'
-import { getOriginAppUri } from '../utils/ssoOriginRedirect'
+import { clearOriginAppUri, getOriginAppUri } from '../utils/ssoOriginRedirect'
 import { cleanOAuthParamsFromUrl } from '../utils/oauthLoading'
 import {
     writeSsoSessionCookies,
@@ -96,8 +96,15 @@ export class SSOService extends ApiService {
      * 从URL参数中提取SSO配置
      * 用于支持外部应用通过URL跳转进入的场景
      */
-    private static extractConfigFromURL(): SSOConfig {
+    private static extractConfigFromURL(): Partial<SSOConfig> {
         const urlParams = new URLSearchParams(window.location.search)
+
+        // 子应用经 IdP 转到登录中心：redirect_uri 是完整 authorize URL，不能写入 SSO 配置
+        if (urlParams.get('app_origin') === 'true') {
+            return {
+                additionalParams: Object.fromEntries(urlParams.entries()),
+            }
+        }
 
         // 尝试获取issuer（发行者标识）
         const issuer = urlParams.get('issuer')
@@ -136,7 +143,7 @@ export class SSOService extends ApiService {
             additionalParams: Object.fromEntries(urlParams.entries()),
             state: state || undefined,
             appId
-        }
+        } as Partial<SSOConfig>
     }
 
     /**
@@ -208,8 +215,14 @@ export class SSOService extends ApiService {
                     this.handleCallback()
                         .then((result) => {
                             if (result) {
-                                console.log('SSO回调处理成功:', result)
-                                handleSSOCallbackResult(result)
+                                // 子项目已在 redirect_uri 落地，勿再跳 origin_app_uri（否则会死循环）
+                                if (this.isSubProjectApp()) {
+                                    clearOriginAppUri()
+                                    cleanOAuthParamsFromUrl()
+                                    console.log('子项目 OAuth 回调完成，已清理 URL')
+                                } else {
+                                    handleSSOCallbackResult({ afterLogin: true })
+                                }
                             } else {
                                 window.dispatchEvent(new CustomEvent('auth:oauth-failed'))
                             }
@@ -228,14 +241,8 @@ export class SSOService extends ApiService {
                 }
             } else if (this.isSubProjectApp()) {
                 await this.tryRecoverSubProjectSession()
-            } else {
-                const { sessionId, appId } = this.getSessionFromCookies()
-                if (sessionId && appId && getOriginAppUri()) {
-                    console.log('检测到子应用回跳上下文，继续 authorize 流程')
-                    handleSSOCallbackResult(storage.getAuth())
-                    return;
-                }
             }
+            // 登录中心回跳 authorize 由 LoginPage / AuthLogin 在登录成功后触发，不在 initialize 抢跑
 
             // await this.checkSessionCookies()
 
@@ -292,21 +299,56 @@ export class SSOService extends ApiService {
     }
 
     /**
+     * 子项目只能走 BFF（ssoServerUrl）换 token；IdP discovery 里的 8080 地址不可用
+     */
+    private discoveryEndpointAllowed(url?: string): boolean {
+        if (!url) return false
+        if (!this.isSubProjectApp()) return true
+        try {
+            const epOrigin = new URL(url).origin
+            const bffOrigin = new URL(this.config.ssoServerUrl).origin
+            return epOrigin === bffOrigin
+        } catch {
+            return false
+        }
+    }
+
+    /**
      * 从发现文档更新端点配置
      */
     private updateEndpointsFromDiscovery(discovery: SSODiscoveryDocument): void {
-        if (!this.config.tokenEndpoint && discovery.token_endpoint) {
+        if (discovery.token_endpoint && this.discoveryEndpointAllowed(discovery.token_endpoint)) {
             this.config.tokenEndpoint = discovery.token_endpoint
         }
-        if (!this.config.userInfoEndpoint && discovery.userinfo_endpoint) {
+        if (discovery.userinfo_endpoint && this.discoveryEndpointAllowed(discovery.userinfo_endpoint)) {
             this.config.userInfoEndpoint = discovery.userinfo_endpoint
         }
-        if (!this.config.logoutEndpoint && discovery.end_session_endpoint) {
+        if (discovery.end_session_endpoint && this.discoveryEndpointAllowed(discovery.end_session_endpoint)) {
             this.config.logoutEndpoint = discovery.end_session_endpoint
         }
-        if (!this.config.checkSessionEndpoint && discovery.check_session_iframe) {
+        if (discovery.check_session_iframe && this.discoveryEndpointAllowed(discovery.check_session_iframe)) {
             this.config.checkSessionEndpoint = discovery.check_session_iframe
         }
+    }
+
+    /** 解析 OAuth 端点（支持相对路径或 discovery 返回的绝对 URL） */
+    private resolveOAuthEndpoint(pathOrUrl?: string, fallback = '/api/v1/auth/oauth/token'): string {
+        let ep = pathOrUrl || fallback
+        if (this.isSubProjectApp() && /^https?:\/\//i.test(ep)) {
+            try {
+                if (new URL(ep).origin !== new URL(this.config.ssoServerUrl).origin) {
+                    ep = fallback
+                }
+            } catch {
+                ep = fallback
+            }
+        }
+        if (/^https?:\/\//i.test(ep)) {
+            return ep
+        }
+        const base = (this.config.ssoServerUrl || '').replace(/\/$/, '')
+        const path = ep.startsWith('/') ? ep : `/${ep}`
+        return `${base}${path}`
     }
 
     /**
@@ -1023,8 +1065,7 @@ export class SSOService extends ApiService {
         const provider = storage.get('login_provider', StorageType.LOCAL);
         // 获取当前provider的配置
         const providerConfig = this.getCurrentProviderConfig(provider)
-        // || this.config.tokenEndpoint
-        const tokenEndpoint = `${this.config.ssoServerUrl}${this.config.tokenEndpoint}`
+        const tokenEndpoint = this.resolveOAuthEndpoint(this.config.tokenEndpoint)
 
         console.log("tokenEndpoint:", tokenEndpoint)
         // 获取PKCE code_verifier（必须包含，用于双重验证）
@@ -1407,7 +1448,7 @@ export class SSOService extends ApiService {
             }
 
             // 步骤3: 调用正确的token端点（与后端一致）
-            const tokenEndpoint = `${this.config.ssoServerUrl}/api/v1/auth/oauth/token`
+            const tokenEndpoint = this.resolveOAuthEndpoint('/api/v1/auth/oauth/token')
             console.log('📡 调用token端点:', tokenEndpoint)
 
             const response = await this.post<any>(tokenEndpoint, refreshRequest)

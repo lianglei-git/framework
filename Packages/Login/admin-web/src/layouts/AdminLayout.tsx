@@ -1,10 +1,11 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Layout, Menu, Avatar, Dropdown, Button, Typography, Space, Tag } from 'antd'
 import {
   DashboardOutlined,
   TeamOutlined,
   FileTextOutlined,
   ApiOutlined,
+  AppstoreAddOutlined,
   LogoutOutlined,
   UserOutlined,
   MenuFoldOutlined,
@@ -33,21 +34,40 @@ const menuItems = [
     label: '登录日志',
   },
   {
-    key: '/sso/clients',
+    key: 'sso',
     icon: <ApiOutlined />,
-    label: 'SSO 客户端',
+    label: 'SSO',
+    children: [
+      { key: '/sso/clients', label: '客户端管理' },
+      { key: '/sso/subprojects', icon: <AppstoreAddOutlined />, label: '子项目脚手架' },
+    ],
   },
 ]
 
 export default function AdminLayout() {
   const [collapsed, setCollapsed] = useState(false)
+  const [openKeys, setOpenKeys] = useState<string[]>([])
   const navigate = useNavigate()
   const location = useLocation()
   const { user, logout } = useAdminAuth()
 
-  const selectedKey = menuItems.find((item) =>
-    location.pathname.startsWith(item.key)
-  )?.key || '/dashboard'
+  useEffect(() => {
+    if (location.pathname.startsWith('/sso')) {
+      setOpenKeys(['sso'])
+    }
+  }, [location.pathname])
+
+  const selectedKey =
+    menuItems
+      .flatMap((item) => ('children' in item && item.children ? item.children : [item]))
+      .find((item) => location.pathname.startsWith(item.key as string))?.key?.toString() ||
+    '/dashboard'
+
+  const handleMenuClick = ({ key }: { key: string }) => {
+    if (key.startsWith('/')) {
+      navigate(key)
+    }
+  }
 
   const userMenuItems = [
     {
@@ -94,8 +114,10 @@ export default function AdminLayout() {
           theme="dark"
           mode="inline"
           selectedKeys={[selectedKey]}
+          openKeys={openKeys}
+          onOpenChange={setOpenKeys}
           items={menuItems}
-          onClick={({ key }) => navigate(key)}
+          onClick={handleMenuClick}
           style={{ marginTop: 8 }}
         />
       </Sider>

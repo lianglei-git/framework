@@ -23,15 +23,10 @@ export class TokenRefreshService {
         this.init()
     }
 
-    // 初始化服务
+    // 初始化：OAuth 子项目改由 httpClient 在 401 时续签，不做定时轮询
     private init() {
-        // 仅监听登录态变化，不在构造时自动启动（避免与子项目 Hook 重复启动）
         globalUserStore.addLoginListener(() => {
-            if (globalUserStore.isLogin) {
-                if (!this.checkInterval) {
-                    this.startTokenMonitoring()
-                }
-            } else {
+            if (!globalUserStore.isLogin) {
                 this.stopTokenMonitoring()
             }
         })

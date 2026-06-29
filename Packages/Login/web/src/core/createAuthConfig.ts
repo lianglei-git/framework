@@ -31,8 +31,19 @@ export function createAuthConfig(overrides: AuthConfigInput = {}): SSOConfig {
     if (overrides.logoutUrl && !merged.logoutEndpoint) {
         merged.logoutEndpoint = overrides.logoutUrl
     }
+    if (overrides.clientId && overrides.id && overrides.id !== 'centralized') {
+        if (!overrides.tokenEndpoint && !overrides.tokenUrl) {
+            merged.tokenEndpoint = '/api/v1/auth/oauth/token'
+        }
+        if (!overrides.authorizationUrl) {
+            merged.authorizationUrl = '/api/v1/auth/oauth/authorize'
+        }
+    }
     if (overrides.features?.autoRefresh !== undefined) {
         merged.autoRefresh = overrides.features.autoRefresh
+    }
+    if (overrides.autoRefresh !== undefined) {
+        merged.autoRefresh = overrides.autoRefresh
     }
 
     if (typeof window !== 'undefined') {

@@ -36,7 +36,7 @@ export const subProjectConfig: SubProjectConfig & {
     favicon: '',
   },
   features: {
-    autoRefresh: import.meta.env.VITE_SSO_AUTO_REFRESH !== 'false',
+    autoRefresh: false,
     rememberMe: true,
     socialLogin: false,
     passwordReset: false,

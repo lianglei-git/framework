@@ -11,6 +11,7 @@ const UsersPage = lazy(() => import('./pages/users/UsersPage'))
 const UserDetailPage = lazy(() => import('./pages/users/UserDetailPage'))
 const LoginLogsPage = lazy(() => import('./pages/logs/LoginLogsPage'))
 const SSOClientsPage = lazy(() => import('./pages/sso/SSOClientsPage'))
+const SubProjectsPage = lazy(() => import('./pages/sso/SubProjectsPage'))
 
 const Loading = () => (
   <div
@@ -45,6 +46,7 @@ export default function AppRouter() {
           <Route path="users/:id" element={<UserDetailPage />} />
           <Route path="logs/login" element={<LoginLogsPage />} />
           <Route path="sso/clients" element={<SSOClientsPage />} />
+          <Route path="sso/subprojects" element={<SubProjectsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

@@ -34,4 +34,5 @@ patch_client() {
 echo "==> Patching SSO clients"
 patch_client "8c1dd65d-7d2a-4ba4-aff1-610960a295e7" "http://localhost:5173" "sso_test_a"
 patch_client "6a7db4e5-1c21-4cf1-92c9-507a0f924e29" "http://localhost:5174" "sso_test_b"
+patch_client "f3e8a2b1-9c4d-4e5f-a6b7-c8d9e0f1a2b3" "http://localhost:5175" "sso_test_c"
 echo "Done."

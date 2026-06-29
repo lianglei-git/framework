@@ -59,32 +59,15 @@ export const LoginPage: React.FC = observer(() => {
     const [showPrivacy, setShowPrivacy] = useState(false)
     const auth = useAuth()
 
-    const [redirecting, setRedirecting] = useState(false)
-
     useEffect(() => {
         setSubAppInfoForSessionStorage()
-    }, [])
-
-    // 子项目 SSO：已登录用户带 app_origin 时自动回跳 authorize
-    useEffect(() => {
-        if (!auth.isAuthenticated) return
-        if (!getOriginAppUri()) return
-        setRedirecting(true)
-        handleSSOCallbackResult({ user: globalUserStore.info })
+        const params = new URLSearchParams(window.location.search)
+        if (!params.get('app_origin')) return
+        const { sessionId } = getSessionFromCookies()
+        if (!sessionId && auth.isAuthenticated) {
+            auth.logout()
+        }
     }, [auth.isAuthenticated])
-
-    if (redirecting || (auth.isAuthenticated && getOriginAppUri())) {
-        return (
-            <div className="login-container">
-                <div className="login-card">
-                    <div className="success-state">
-                        <h2>正在返回应用…</h2>
-                        <p style={{ color: '#6b7280', marginTop: 8 }}>登录成功，即将跳回子应用</p>
-                    </div>
-                </div>
-            </div>
-        )
-    }
 
     if (auth.loadingInfos?.status === 'loading') {
         const provider = auth.loadingInfos.provider
@@ -112,6 +95,7 @@ export const LoginPage: React.FC = observer(() => {
     }
 
     if (auth.isAuthenticated) {
+        const hasOriginApp = !!getOriginAppUri()
         return (
             <div className="login-container">
                 <div className="login-card">
@@ -119,6 +103,15 @@ export const LoginPage: React.FC = observer(() => {
                         <div className="success-icon">✓</div>
                         <h2>已登录</h2>
                         <p>欢迎回来，<b style={{ color: '#000' }}>{globalUserStore.nickName}</b></p>
+                        {hasOriginApp && (
+                            <button
+                                type="button"
+                                style={{ marginTop: 12 }}
+                                onClick={() => handleSSOCallbackResult({ afterLogin: true })}
+                            >
+                                继续前往应用
+                            </button>
+                        )}
                         <button type="button" onClick={() => auth.ssoLogout()}>退出登录</button>
                     </div>
                 </div>

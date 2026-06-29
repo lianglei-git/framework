@@ -73,7 +73,7 @@ const AuthRegister: React.FC<AuthRegisterProps> = ({ onSwitchToLogin }) => {
                 verification_code: registerForm.values.code
             })
             // unifiedSaveLoginInfos 已保存登录态并触发 auth:login
-            await handleSSOCallbackResult(res)
+            await handleSSOCallbackResult({ afterLogin: true })
         } catch (error: any) {
             registerForm.setError('email', formatAuthError(error, '注册失败'))
         }

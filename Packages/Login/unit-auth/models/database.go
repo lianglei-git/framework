@@ -230,6 +230,13 @@ func seedSubprojectSSOClients(db *gorm.DB) {
 			description: "Sub-project b_sso (localhost:5174)",
 			redirect:    "http://localhost:5174",
 		},
+		{
+			id:          "f3e8a2b1-9c4d-4e5f-a6b7-c8d9e0f1a2b3",
+			secret:      "client_secret_f3e8c2b1-c9c4-4ead-c517-c8175517c5cc",
+			name:        "sso_test_c",
+			description: "Sub-project c_sso (localhost:5175)",
+			redirect:    "http://localhost:5175",
+		},
 	}
 	for _, s := range seeds {
 		var existing SSOClient

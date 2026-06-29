@@ -2,6 +2,10 @@ import axios from 'axios'
 import { storage } from '../utils/storage'
 import { getGenresType } from '../utils/getGenresType'
 import { throwAuthError } from '../utils/authError'
+import {
+    refreshOAuthTokenOnce,
+    shouldAttemptOAuthRefreshOn401,
+} from '../utils/oauthRefreshOn401'
 
 export const basicUrl = import.meta.env.DEV ? "http://localhost:8080" : "https://sparrowui.cn/translate"
 
@@ -27,16 +31,24 @@ export class ApiService {
         }
     }
 
+    private resolveAccessToken(): string | undefined {
+        const fromSso = storage.getSSOAccessToken()
+        if (fromSso) return fromSso
+        const auth = storage.getAuth()
+        if (!auth?.token) return undefined
+        if (typeof auth.token === 'string') return auth.token
+        return auth.token.access_token
+    }
+
     private async request<T>(
         url: string,
         options: any = {}
     ): Promise<T> {
-        const token = storage.getToken()
-        const access_token = token?.access_token
+        const access_token = this.resolveAccessToken()
         const headers = {
             ...this.defaultHeaders,
             ...options.headers,
-            ...(token && { Authorization: `Bearer ${access_token}` })
+            ...(access_token && { Authorization: `Bearer ${access_token}` })
         }
 
         const config = {
@@ -52,6 +64,17 @@ export class ApiService {
             // axios返回的数据结构是 { data: T, status: number, ... }
             return response.data
         } catch (error) {
+            if (
+                axios.isAxiosError(error) &&
+                error.response?.status === 401 &&
+                !options._oauthRetried &&
+                shouldAttemptOAuthRefreshOn401(config.url)
+            ) {
+                const refreshed = await refreshOAuthTokenOnce()
+                if (refreshed) {
+                    return this.request<T>(url, { ...options, _oauthRetried: true })
+                }
+            }
             console.error('API request error:', error)
             throwAuthError(error)
         }

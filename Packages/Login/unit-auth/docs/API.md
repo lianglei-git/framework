@@ -54,10 +54,23 @@ Base URL 默认：`http://localhost:8080`
 | GET | `/api/v1/projects/public` | 公开项目列表 |
 | GET | `/api/v1/projects/integration-docs` | 集成文档 |
 
-## 后续 Go SDK（占位）
+## Go SDK（子项目 BFF）
 
-计划在 `unit-auth/sdk/go` 提供：
+路径：`unit-auth/sdk`
 
-- `ParseJWT(token string) (claims, error)`
-- `ValidateExpiry(claims) bool`
-- `Introspect(token string) (*IntrospectionResponse, error)`
+```go
+import "unit-auth/sdk"
+
+client := sdk.New(sdk.Config{
+    BaseURL:      "http://localhost:8080",
+    ClientID:     "...",
+    ClientSecret: "...",
+    RedirectURI:  "http://localhost:5175",
+})
+
+authURL := client.BuildAuthorizeURL(sdk.AuthorizeURLParams{State: "xyz", AppID: "sso_test_c"})
+token, err := client.ExchangeCode(code, redirectURI)
+info, err := client.GetUserInfo(token.AccessToken)
+```
+
+示例后端：`Js/project/c_sso/server`（纯净 BFF，依赖上述 SDK）

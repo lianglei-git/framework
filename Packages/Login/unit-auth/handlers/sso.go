@@ -33,8 +33,8 @@ import (
 const (
 	SSOSessionExpiration = 365 * 24 * time.Hour // SSO Session: 1年
 	// RefreshTokenExpiration      = 1 * 2 * time.Hour    // Refresh Token: 2小时
-	RefreshTokenExpiration      = 5 * time.Minute     // Refresh Token: 2小时
-	AccessTokenExpiration       = 1 * time.Minute     // Access Token: 10分钟
+	RefreshTokenExpiration      = 30 * 24 * time.Hour // Refresh Token: 30天
+	AccessTokenExpiration       = 30 * time.Second     // Access Token: 本地测试 30 秒（生产改回 15 * time.Minute）
 	AuthorizationCodeExpiration = 10 * time.Minute    // 授权码: 10分钟
 	MaxInactiveTime             = 90 * 24 * time.Hour // 最大不活跃时间: 90天
 )
@@ -835,7 +835,7 @@ func generateTokensFromClaims(c *gin.Context, db *gorm.DB, claims jwt.MapClaims,
 		RefreshToken: refreshToken,
 		IDToken:      accessToken,
 		TokenType:    "Bearer",
-		ExpiresIn:    3600,
+		ExpiresIn:    int(AccessTokenExpiration.Seconds()),
 		Scope:        "openid profile email phone",
 		User:         user.ToResponse(),
 		Provider:     "centralized",
@@ -1548,7 +1548,7 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 		RefreshToken: refreshToken,
 		IDToken:      accessToken,
 		TokenType:    "Bearer",
-		ExpiresIn:    3600,
+		ExpiresIn:    int(AccessTokenExpiration.Seconds()),
 		Scope:        "openid profile email phone",
 		User:         user.ToResponse(),
 		Provider:     "centralized",
@@ -1640,7 +1640,7 @@ func handlePasswordGrant(c *gin.Context, db *gorm.DB, username, password, client
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
 		"token_type":    "Bearer",
-		"expires_in":    3600,
+		"expires_in":    int(AccessTokenExpiration.Seconds()),
 		"scope":         "openid profile email",
 		"user":          user.ToResponse(),
 	}
@@ -1667,7 +1667,7 @@ func handleClientCredentialsGrant(c *gin.Context, db *gorm.DB, clientID, clientS
 	response := gin.H{
 		"access_token": accessToken,
 		"token_type":   "Bearer",
-		"expires_in":   3600,
+		"expires_in":   int(AccessTokenExpiration.Seconds()),
 		"scope":        "openid",
 	}
 
@@ -2006,7 +2006,7 @@ func handleCodeVerifierGrant(c *gin.Context, db *gorm.DB, code, clientID, client
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
 		"token_type":    "Bearer",
-		"expires_in":    3600,
+		"expires_in":    int(AccessTokenExpiration.Seconds()),
 		"scope":         claims["scope"],
 		"user":          user.ToResponse(),
 	}

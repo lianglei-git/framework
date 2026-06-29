@@ -196,19 +196,9 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         }
     }, [ssoService, onSuccess, onError])
 
-    /** A 应用登出后 B 的 token 会失效：先续签，再尝试静默 authorize，最后清本地态 */
-    const recoverFromUnauthorized = useCallback(async (): Promise<'refreshed' | 'redirecting' | 'failed'> => {
+    /** refresh 仍 401：尝试静默 authorize，否则清本地态 */
+    const recoverFromUnauthorized = useCallback(async (): Promise<'redirecting' | 'failed'> => {
         if (!ssoService) return 'failed'
-
-        try {
-            const result = await ssoService.refreshToken()
-            if (result?.access_token) {
-                globalUserStore.syncFromStorage({ notify: false })
-                return 'refreshed'
-            }
-        } catch (err) {
-            console.warn('续签失败，尝试其他恢复方式:', err)
-        }
 
         if (ssoService.hasValidSessionCookie()) {
             await ssoService.trySilentAuthorize()
@@ -289,14 +279,6 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
                 throw new Error('令牌刷新失败')
             }
         } catch (err: any) {
-            if (isUnauthorizedError(err)) {
-                const recovered = await recoverFromUnauthorized()
-                if (recovered === 'refreshed') {
-                    console.log('令牌已通过续签恢复')
-                    return
-                }
-                if (recovered === 'redirecting') return
-            }
             const error = new Error(formatAuthError(err, '令牌刷新失败'))
             setError(error)
             onError?.(error)
@@ -304,7 +286,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         } finally {
             setIsLoading(false)
         }
-    }, [ssoService, onError, recoverFromUnauthorized])
+    }, [ssoService, onError])
 
     // 获取登录URL
     const getLoginUrl = useCallback((provider?: string) => {
@@ -378,34 +360,19 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
             throw new Error('未登录，请先登录')
         }
 
-        const fetchOnce = async (t: string) => ssoService.getUserInfo(t)
-
         try {
-            const userInfo = await fetchOnce(accessToken)
+            const userInfo = await ssoService.getUserInfo(accessToken)
             console.log(userInfo, 'userInfo')
             return userInfo
         } catch (err) {
-            if (!isUnauthorizedError(err)) {
-                throw new Error(formatAuthError(err, '获取用户信息失败'))
-            }
-
-            console.warn('用户信息 401，尝试续签或静默重新登录')
-            const recovered = await recoverFromUnauthorized()
-            if (recovered === 'refreshed') {
-                const newToken = storage.getSSOAccessToken()
-                    || (typeof globalUserStore.token === 'string'
-                        ? globalUserStore.token
-                        : (globalUserStore.token as any)?.access_token)
-                if (newToken) {
-                    const userInfo = await fetchOnce(newToken)
-                    console.log(userInfo, 'userInfo (after refresh)')
-                    return userInfo
+            if (isUnauthorizedError(err)) {
+                const recovered = await recoverFromUnauthorized()
+                if (recovered === 'redirecting') {
+                    return undefined
                 }
+                throw new Error('登录已失效（可能已在其他应用退出），请重新登录')
             }
-            if (recovered === 'redirecting') {
-                return undefined
-            }
-            throw new Error('登录已失效（可能已在其他应用退出），请重新登录')
+            throw new Error(formatAuthError(err, '获取用户信息失败'))
         }
     }
 

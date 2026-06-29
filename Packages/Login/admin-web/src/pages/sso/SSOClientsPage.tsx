@@ -26,9 +26,11 @@ import {
   KeyOutlined,
   ExclamationCircleOutlined,
   CopyOutlined,
+  FolderOpenOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
+import { useNavigate } from 'react-router-dom'
 import {
   listSSOClients,
   createSSOClient,
@@ -38,6 +40,11 @@ import {
 } from '../../core/adminApi'
 import type { SSOClient, SSOClientCreateRequest, SSOClientUpdateRequest } from '../../types'
 import { formatAuthError } from '../../utils/authError'
+import {
+  saveSubProject,
+  scaffoldConfigFromSSOClient,
+  setPendingScaffoldLoad,
+} from '../../utils/subProjectScaffold'
 
 const { Title, Text, Paragraph } = Typography
 
@@ -62,6 +69,7 @@ interface ClientFormValues {
 }
 
 export default function SSOClientsPage() {
+  const navigate = useNavigate()
   const [clients, setClients] = useState<SSOClient[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -85,6 +93,7 @@ export default function SSOClientsPage() {
     open: boolean
     secret: string
     clientId: string
+    client?: SSOClient
   }>({ open: false, secret: '', clientId: '' })
 
   const fetchClients = useCallback(async () => {
@@ -160,6 +169,7 @@ export default function SSOClientsPage() {
           open: true,
           secret: res.secret,
           clientId: res.id,
+          client: res,
         })
       } else if (editingClient) {
         const req: SSOClientUpdateRequest = {
@@ -227,6 +237,14 @@ export default function SSOClientsPage() {
       () => message.success('已复制到剪贴板'),
       () => message.warning('复制失败，请手动复制')
     )
+  }
+
+  const goToScaffold = (client: SSOClient, clientSecret = '') => {
+    const config = scaffoldConfigFromSSOClient(client, { clientSecret })
+    const record = saveSubProject(config)
+    setPendingScaffoldLoad(record.id)
+    navigate('/sso/subprojects')
+    message.success('已载入子项目脚手架，可补充端口后点「创建脚手架」下载')
   }
 
   const columns: ColumnsType<SSOClient> = [
@@ -301,9 +319,17 @@ export default function SSOClientsPage() {
       title: '操作',
       key: 'action',
       fixed: 'right',
-      width: 150,
+      width: 200,
       render: (_, record) => (
         <Space size={4}>
+          <Tooltip title="生成脚手架">
+            <Button
+              type="text"
+              icon={<FolderOpenOutlined />}
+              size="small"
+              onClick={() => goToScaffold(record)}
+            />
+          </Tooltip>
           <Tooltip title="编辑">
             <Button
               type="text"
@@ -470,6 +496,21 @@ export default function SSOClientsPage() {
         open={createdSecretModal.open}
         onCancel={() => setCreatedSecretModal({ open: false, secret: '', clientId: '' })}
         footer={[
+          <Button
+            key="scaffold"
+            icon={<FolderOpenOutlined />}
+            onClick={() => {
+              const client =
+                createdSecretModal.client ||
+                clients.find((c) => c.id === createdSecretModal.clientId)
+              if (client) {
+                goToScaffold(client, createdSecretModal.secret)
+              }
+              setCreatedSecretModal({ open: false, secret: '', clientId: '' })
+            }}
+          >
+            生成脚手架
+          </Button>,
           <Button
             key="copy"
             icon={<CopyOutlined />}
