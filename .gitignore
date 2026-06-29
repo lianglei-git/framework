@@ -37,3 +37,6 @@ src-tauri/target/**
 # docs
 tempStorage
 .env
+*.yaml
+*.mod
+*.sum
