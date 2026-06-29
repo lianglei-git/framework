@@ -46,14 +46,16 @@ const menuItems = [
 
 export default function AdminLayout() {
   const [collapsed, setCollapsed] = useState(false)
-  const [openKeys, setOpenKeys] = useState<string[]>([])
+  const [openKeys, setOpenKeys] = useState<string[]>(() =>
+    window.location.pathname.startsWith('/sso') ? ['sso'] : [],
+  )
   const navigate = useNavigate()
   const location = useLocation()
   const { user, logout } = useAdminAuth()
 
   useEffect(() => {
     if (location.pathname.startsWith('/sso')) {
-      setOpenKeys(['sso'])
+      setOpenKeys((prev) => (prev.includes('sso') ? prev : ['sso']))
     }
   }, [location.pathname])
 
