@@ -1,6 +1,17 @@
 import { SSOConfig, SSOSession } from '../types'
 import { storageManager } from '../utils/storage'
 
+function toTimestamp(value: unknown, fallbackMs: number): number {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value > 1e12 ? value : value * 1000
+    }
+    if (typeof value === 'string') {
+        const parsed = Date.parse(value)
+        if (!Number.isNaN(parsed)) return parsed
+    }
+    return Date.now() + fallbackMs
+}
+
 export class SSOSessionManager {
     private config: SSOConfig
 
@@ -12,13 +23,15 @@ export class SSOSessionManager {
      * 创建会话
      */
     async createSession(sessionData: Partial<SSOSession>): Promise<SSOSession> {
+        const expiresAt = toTimestamp(sessionData.expires_at, 3600 * 1000)
+        const lastActivity = toTimestamp(sessionData.last_activity, 0)
         const session: SSOSession = {
             session_id: sessionData.session_id!,
-            user_id: sessionData.user_id!,
-            client_id: sessionData.client_id!,
+            user_id: sessionData.user_id || '',
+            client_id: sessionData.client_id || '',
             authenticated_at: Date.now(),
-            expires_at: sessionData.expires_at!,
-            last_activity: sessionData.last_activity!,
+            expires_at: expiresAt,
+            last_activity: lastActivity || Date.now(),
             ip_address: await this.getClientIP(),
             user_agent: navigator.userAgent,
             is_active: true,

@@ -1187,10 +1187,15 @@ export class SSOService extends ApiService {
         }
 
         storage.saveAuth(auth as any);
-        session && storage.saveSSOData({
+        const tokenExpiresAt = response.expires_in
+            ? Date.now() + response.expires_in * 1000
+            : (typeof session?.expires_at === 'number' ? session.expires_at : Date.now() + 3600 * 1000)
+        storage.saveSSOData({
             token: response,
-            expires_at: session?.expires_at
+            expires_at: tokenExpiresAt,
         })
+
+        globalUserStore.syncFromStorage({ notify: false })
 
         console.log("清理敏感数据 pkce_code_verifier")
         // 清理敏感数据
@@ -1492,7 +1497,7 @@ export class SSOService extends ApiService {
             // 步骤7: 更新SSO数据存储
             storage.saveSSOData({
                 token: response as any,
-                expires_at: Date.now() + (response.expires_in * 1000)
+                expires_at: Date.now() + (response.expires_in ?? 3600) * 1000,
             })
 
             // 步骤8: 触发token刷新事件，通知应用

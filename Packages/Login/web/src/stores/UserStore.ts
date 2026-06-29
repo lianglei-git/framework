@@ -50,8 +50,8 @@ class UserStore {
         makeAutoObservable(this)
         this.getLocalStorageUserInfo()
 
-        window.addEventListener('auth:login', (event: any) => {
-            this.getLocalStorageUserInfo();
+        window.addEventListener('auth:login', () => {
+            this.syncFromStorage()
         })
     }
 
@@ -177,6 +177,20 @@ class UserStore {
         clearOriginAppUri()
         this.info = { ...basicUserInfo }
         this.authInfo = null
+        this.ssoUser = null
+        this.ssoSession = null
+        this.error = null
+        this.notifyLoginListeners()
+    }
+
+    /** 仅清本地 token/会话缓存，保留 IdP session cookie（供子项目测试恢复） */
+    clearAuthTokensOnly = () => {
+        storageManager.clearAuthData()
+        storage.clearAuth()
+        storage.clearSSOData()
+        storage.clearSSOSession()
+        this.authInfo = null
+        this.info = { ...basicUserInfo }
         this.ssoUser = null
         this.ssoSession = null
         this.error = null

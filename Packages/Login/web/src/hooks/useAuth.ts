@@ -336,7 +336,12 @@ export const useAuth = () => {
         const newToken = await ssoService.refreshToken()
         const ssoData = storage.getSSOData()
         if (ssoData) {
-            await storage.saveSSOData({ ...ssoData, token: newToken })
+            const expiresIn = newToken.expires_in ?? 3600
+            await storage.saveSSOData({
+                ...ssoData,
+                token: newToken,
+                expires_at: Date.now() + expiresIn * 1000,
+            })
         }
         return newToken
     }, [ssoService])

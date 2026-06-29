@@ -22,7 +22,7 @@ async function resolveSubProjectService(): Promise<SSOService | null> {
 
 /** 清除本地 token，保留 IdP session cookie 供静默恢复 */
 function clearExpiredOAuthTokens(): void {
-    globalUserStore.clearLocalAuth()
+    globalUserStore.clearAuthTokensOnly()
 }
 
 async function promptRelogin(): Promise<void> {

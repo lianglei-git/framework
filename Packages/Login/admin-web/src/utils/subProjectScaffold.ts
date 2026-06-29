@@ -602,13 +602,29 @@ createAuthConfig({
 })
 `
 
-  const appTsx = `import { useSubProjectSSO } from '@sparrow/login/hooks'
+  const appTsx = `import { useEffect, useState } from 'react'
+import { useSubProjectSSO } from '@sparrow/login/hooks'
+import { readSsoSessionCookies } from '@sparrow/login/utils/ssoSessionCookie'
 import { appConfig } from './sso'
 import { TestPanel } from './TestPanel'
+
+function detectSessionCookie(): boolean {
+  return !!readSsoSessionCookies().sessionId
+}
 
 export default function App() {
   const sso = useSubProjectSSO({ customConfig: appConfig })
   const { isAuthenticated, login, isLoading, error } = sso
+  const [hasSessionCookie, setHasSessionCookie] = useState(false)
+
+  useEffect(() => {
+    const check = () => setHasSessionCookie(detectSessionCookie())
+    check()
+    const id = setInterval(check, 1000)
+    return () => clearInterval(id)
+  }, [isAuthenticated])
+
+  const showTestPanel = isAuthenticated || hasSessionCookie
 
   if (isLoading) {
     return (
@@ -619,7 +635,7 @@ export default function App() {
     )
   }
 
-  if (!isAuthenticated) {
+  if (!showTestPanel) {
     return (
       <div className="page-center">
         <h1 className="app-title">${c.displayName}</h1>
@@ -638,7 +654,10 @@ export default function App() {
         <span className="app-title">${c.displayName} · SSO 测试台</span>
         <span className="hint">前端 :${c.frontendPort} · BFF :${c.bffPort} · IdP :8080</span>
       </header>
-      <TestPanel sso={sso} />
+      {!isAuthenticated && hasSessionCookie && (
+        <p className="session-hint">本地 token 已清空，IdP session cookie 仍在。可点击 Session-Check 恢复。</p>
+      )}
+      <TestPanel sso={sso} onAuthChange={() => setHasSessionCookie(detectSessionCookie())} />
     </div>
   )
 }
@@ -713,6 +732,7 @@ body { font-family: system-ui, -apple-system, sans-serif; background: #f0f2f5; c
 
 .hint { color: #888; font-size: 0.88rem; }
 .err { color: #cf1322; margin-top: 8px; }
+.session-hint { background: #fffbe6; border: 1px solid #ffe58f; color: #ad6800; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 0.9rem; }
 `
 
   const demoApiTs = `/**
@@ -771,8 +791,45 @@ export interface CountdownState {
   remainLabel: string
 }
 
+function normalizeExpiresAtMs(raw: unknown): number | null {
+  if (raw == null) return null
+  if (typeof raw === 'number') {
+    if (!Number.isFinite(raw)) return null
+    return raw > 1e12 ? raw : raw * 1000
+  }
+  if (typeof raw === 'string') {
+    const asNum = Number(raw)
+    if (Number.isFinite(asNum)) return asNum > 1e12 ? asNum : asNum * 1000
+    const parsed = Date.parse(raw)
+    return Number.isNaN(parsed) ? null : parsed
+  }
+  return null
+}
+
+function readExpiresAt(): number | null {
+  if (!storage.getSSOAccessToken()) return null
+  const ssoData = storage.getSSOData()
+  const fromField = normalizeExpiresAtMs(ssoData?.expires_at)
+  if (fromField !== null) return fromField
+  const token = ssoData?.token as { expires_in?: number; stored_at?: number; expires_at?: unknown } | undefined
+  if (token?.stored_at != null && token.expires_in != null) {
+    const computed = token.stored_at + token.expires_in * 1000
+    if (Number.isFinite(computed)) return computed
+  }
+  if (token?.expires_in != null) {
+    const computed = Date.now() + token.expires_in * 1000
+    if (Number.isFinite(computed)) return computed
+  }
+  const fromTokenField = normalizeExpiresAtMs(token?.expires_at)
+  if (fromTokenField !== null) return fromTokenField
+  const auth = storage.getAuth() as { expires_at?: unknown } | null
+  return normalizeExpiresAtMs(auth?.expires_at)
+}
+
 function calc(expiresAt: number | null): CountdownState {
-  if (expiresAt === null) return { remainSec: 0, isExpired: true, expiresAt: null, remainLabel: '—' }
+  if (expiresAt === null || !Number.isFinite(expiresAt)) {
+    return { remainSec: 0, isExpired: true, expiresAt: null, remainLabel: '—' }
+  }
   const diff = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000))
   const min = Math.floor(diff / 60)
   const sec = diff % 60
@@ -780,10 +837,11 @@ function calc(expiresAt: number | null): CountdownState {
 }
 
 export function useAccessTokenCountdown(): CountdownState {
-  const [state, setState] = useState<CountdownState>(() => calc(storage.getSSOData()?.expires_at ?? null))
+  const [state, setState] = useState<CountdownState>(() => calc(readExpiresAt()))
   useEffect(() => {
-    setState(calc(storage.getSSOData()?.expires_at ?? null))
-    const id = setInterval(() => setState(calc(storage.getSSOData()?.expires_at ?? null)), 1000)
+    const tick = () => setState(calc(readExpiresAt()))
+    tick()
+    const id = setInterval(tick, 1000)
     return () => clearInterval(id)
   }, [])
   return state
@@ -799,13 +857,14 @@ import { globalUserStore } from '@sparrow/login/stores/UserStore'
 import { storage } from '@sparrow/login/utils'
 import { useAccessTokenCountdown } from './useCountdown'
 import { demoApi } from './demoApi'
+import { readSsoSessionCookies } from '@sparrow/login/utils/ssoSessionCookie'
 import type { UseSubProjectSSOResult } from '@sparrow/login/hooks'
 
 interface LogEntry { id: number; time: string; ok: boolean; msg: string; detail?: string }
 let _seq = 0
 
-export function TestPanel({ sso }: { sso: UseSubProjectSSOResult }) {
-  const { user, token, refreshToken, getUserInfoFetch, logout } = sso
+export function TestPanel({ sso, onAuthChange }: { sso: UseSubProjectSSOResult; onAuthChange?: () => void }) {
+  const { user, token, refreshToken, getUserInfoFetch, logoutLocal, logout } = sso
   const countdown = useAccessTokenCountdown()
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [apiResult, setApiResult] = useState('')
@@ -868,18 +927,22 @@ export function TestPanel({ sso }: { sso: UseSubProjectSSOResult }) {
             getUserInfo
           </button>
           <button className="btn btn-warning" disabled={!!busy} onClick={() => run('清本地 Token', async () => {
-            globalUserStore.clearLocalAuth(); return { cleared: true }
+            globalUserStore.clearAuthTokensOnly(); onAuthChange?.(); return { cleared: true }
           })}>清本地 Token</button>
           <button className="btn" disabled={!!busy} onClick={() => run('Session-Check', async () => {
             const svc = SSOService.instance; if (!svc) throw new Error('SSOService 未初始化')
-            return { recovered: await svc.tryRecoverSubProjectSession() }
+            const { sessionId } = readSsoSessionCookies(); if (!sessionId) throw new Error('无 session cookie')
+            const ok = await svc.tryRecoverSubProjectSession()
+            if (ok) { globalUserStore.syncFromStorage(); onAuthChange?.() }
+            return { recovered: ok, session_id: sessionId }
           })}>Session-Check 恢复</button>
           <button className="btn" disabled={!!busy} onClick={() => run('静默 Authorize', async () => {
-            const svc = SSOService.instance; if (!svc) throw new Error('SSOService 未初始化')
-            if (!svc.hasValidSessionCookie()) throw new Error('无 session cookie')
-            await svc.trySilentAuthorize(); return { status: 'redirecting' }
+            if (!readSsoSessionCookies().sessionId) throw new Error('无 session cookie')
+            const svc = SSOService.instance
+            if (!svc || typeof (svc as SSOService).trySilentAuthorize !== 'function') throw new Error('SSOService 未初始化')
+            await (svc as SSOService).trySilentAuthorize(); return { status: 'redirecting' }
           })}>静默 Authorize</button>
-          <button className="btn btn-danger" disabled={!!busy} onClick={() => run('本地登出', async () => { await logout(); return { logout: 'local' } })}>
+          <button className="btn btn-danger" disabled={!!busy} onClick={() => run('本地登出', async () => { await logoutLocal(); onAuthChange?.(); return { logout: 'local', note: '未跳转 IdP，session cookie 保留' } })}>
             本地登出
           </button>
           <button className="btn btn-danger" disabled={!!busy} title="跳转 IdP logout" onClick={() => { log(true, '全局登出：即将跳转 IdP…'); logout() }}>
@@ -899,7 +962,7 @@ export function TestPanel({ sso }: { sso: UseSubProjectSSOResult }) {
           <button className="btn btn-api" disabled={!!busy} onClick={() => run('POST /echo', () => demoApi.echo({ msg: 'hello', ts: Date.now() }))}>POST /echo</button>
           <button className="btn btn-api btn-warning" disabled={!!busy} title="清 token → 调 /time-auth → 触发 401→refresh→recovery" onClick={async () => {
             log(true, '401 自动恢复测试：清 token → /time-auth')
-            globalUserStore.clearLocalAuth()
+            globalUserStore.clearAuthTokensOnly(); onAuthChange?.()
             await run('401→refresh→recovery', () => demoApi.getTimeAuth())
           }}>401 自动恢复测试</button>
         </div>

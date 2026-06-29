@@ -40,6 +40,9 @@ export interface UseSubProjectSSOResult {
     // 方法
     initialize: () => Promise<void>
     login: (options?: { redirect?: boolean; provider?: string }) => Promise<void>
+    /** 仅清子项目本地 token，保留 IdP session，不跳转 */
+    logoutLocal: () => Promise<void>
+    /** 全局登出：清本地态并跳转 IdP logout */
     logout: () => Promise<void>
     refreshToken: () => Promise<void>
     getLoginUrl: (provider?: string) => string
@@ -212,8 +215,26 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         return result
     }, [ssoService, onError])
 
-    // 登出
-    const logout = async () => {
+    /** 本地登出：仅清子项目 token，保留 sso_session_id，不跳转 IdP */
+    const logoutLocal = useCallback(async () => {
+        try {
+            setIsLoading(true)
+            globalUserStore.clearAuthTokensOnly()
+            setSession(null)
+            onLogout?.()
+            console.log('本地登出完成（IdP session 保留）')
+        } catch (err: any) {
+            const error = new Error(formatAuthError(err, '本地登出失败'))
+            setError(error)
+            onError?.(error)
+            console.error('本地登出失败:', err)
+        } finally {
+            setIsLoading(false)
+        }
+    }, [onLogout, onError])
+
+    /** 全局登出：跳转 IdP logout，3033 session 失效 */
+    const logout = useCallback(async () => {
         const cfg = config || finalConfig
         const loginUrl = await _buildLoginUrl()
         const home = (cfg as any).ssoHomeUrl || 'http://localhost:3033'
@@ -222,33 +243,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         ssoLogout({
             post_logout_redirect_uri: postLogout,
         })
-        if (!ssoService) {
-            throw new Error('SSO服务未初始化')
-        }
-        console.log(authInfo,"authInfo")
-        return 
-
-        try {
-            setIsLoading(true)
-            // 跳转到认证中心
-
-            await ssoService.logout({
-                id_token_hint: authInfo
-            })
-
-            setSession(null)
-            onLogout?.()
-
-            console.log('用户已登出')
-        } catch (err: any) {
-            const error = new Error(formatAuthError(err, '登出失败'))
-            setError(error)
-            onError?.(error)
-            console.error('登出失败:', err)
-        } finally {
-            setIsLoading(false)
-        }
-    }
+    }, [config, finalConfig, ssoLogout])
 
     // 登出前回调
     useAuthEvents('beforeLogout', (details) => {
@@ -397,6 +392,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         // 方法
         initialize,
         login,
+        logoutLocal,
         logout,
         refreshToken,
         getLoginUrl,

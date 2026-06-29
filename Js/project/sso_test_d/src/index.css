@@ -209,3 +209,12 @@ body {
 
 .hint { color: #888; font-size: 0.88rem; }
 .err { color: #cf1322; margin-top: 8px; }
+.session-hint {
+    background: #fffbe6;
+    border: 1px solid #ffe58f;
+    color: #ad6800;
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    font-size: 0.9rem;
+}

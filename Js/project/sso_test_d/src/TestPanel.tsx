@@ -10,8 +10,11 @@ import { useAccessTokenCountdown } from './useCountdown'
 import { demoApi } from './demoApi'
 import type { UseSubProjectSSOResult } from '@sparrow/login/hooks'
 
+import { readSsoSessionCookies } from '@sparrow/login/utils/ssoSessionCookie'
+
 interface Props {
     sso: UseSubProjectSSOResult
+    onAuthChange?: () => void
 }
 
 interface LogEntry {
@@ -24,8 +27,8 @@ interface LogEntry {
 
 let logIdSeq = 0
 
-export function TestPanel({ sso }: Props) {
-    const { user, token, refreshToken, getUserInfoFetch, logout } = sso
+export function TestPanel({ sso, onAuthChange }: Props) {
+    const { user, token, refreshToken, getUserInfoFetch, logoutLocal, logout } = sso
     const countdown = useAccessTokenCountdown()
     const [logs, setLogs] = useState<LogEntry[]>([])
     const [apiResult, setApiResult] = useState<string>('')
@@ -64,6 +67,7 @@ export function TestPanel({ sso }: Props) {
 
     const accessTokenPreview = storage.getSSOAccessToken()?.slice(0, 24) + '...' || '—'
     const hasRefreshToken = !!storage.getSSORefreshToken()
+    const { sessionId } = readSsoSessionCookies()
 
     return (
         <div className="test-panel">
@@ -74,6 +78,12 @@ export function TestPanel({ sso }: Props) {
                     <span className="token-label">Access Token 剩余：</span>
                     <span className={`token-countdown ${countdown.isExpired ? 'expired' : countdown.remainSec <= 10 ? 'warning' : ''}`}>
                         {countdown.expiresAt === null ? '无 Token' : countdown.isExpired ? '已过期' : countdown.remainLabel}
+                    </span>
+                </div>
+                <div className="token-row">
+                    <span className="token-label">Session Cookie：</span>
+                    <span className={sessionId ? 'token-ok' : 'token-missing'}>
+                        {sessionId ? `${sessionId.slice(0, 16)}…` : '不存在'}
                     </span>
                 </div>
                 <div className="token-row">
@@ -124,8 +134,9 @@ export function TestPanel({ sso }: Props) {
                         className="btn btn-warning"
                         disabled={!!busy}
                         onClick={() => run('清本地 Token（保留 Cookie）', async () => {
-                            globalUserStore.clearLocalAuth()
-                            return { cleared: true, note: 'session cookie 保留' }
+                            globalUserStore.clearAuthTokensOnly()
+                            onAuthChange?.()
+                            return { cleared: true, note: 'session cookie 保留，可 Session-Check 恢复' }
                         })}
                     >
                         清本地 Token
@@ -137,8 +148,14 @@ export function TestPanel({ sso }: Props) {
                         onClick={() => run('Session-Check 恢复', async () => {
                             const svc = SSOService.instance
                             if (!svc) throw new Error('SSOService 未初始化')
+                            const { sessionId: sid } = readSsoSessionCookies()
+                            if (!sid) throw new Error('无 session cookie，无法 session-check')
                             const ok = await svc.tryRecoverSubProjectSession()
-                            return { recovered: ok }
+                            if (ok) {
+                                globalUserStore.syncFromStorage()
+                                onAuthChange?.()
+                            }
+                            return { recovered: ok, session_id: sid }
                         })}
                     >
                         Session-Check 恢复
@@ -148,12 +165,14 @@ export function TestPanel({ sso }: Props) {
                         className="btn"
                         disabled={!!busy}
                         onClick={() => run('静默 Authorize', async () => {
-                            const svc = SSOService.instance
-                            if (!svc) throw new Error('SSOService 未初始化')
-                            if (!svc.hasValidSessionCookie()) {
+                            if (!readSsoSessionCookies().sessionId) {
                                 throw new Error('无 IdP session cookie，无法静默 authorize')
                             }
-                            await svc.trySilentAuthorize()
+                            const svc = SSOService.instance
+                            if (!svc || typeof (svc as SSOService).trySilentAuthorize !== 'function') {
+                                throw new Error('SSOService 未初始化')
+                            }
+                            await (svc as SSOService).trySilentAuthorize()
                             return { status: 'redirecting…' }
                         })}
                     >
@@ -164,8 +183,9 @@ export function TestPanel({ sso }: Props) {
                         className="btn btn-danger"
                         disabled={!!busy}
                         onClick={() => run('本地登出', async () => {
-                            await logout()
-                            return { logout: 'local' }
+                            await logoutLocal()
+                            onAuthChange?.()
+                            return { logout: 'local', note: '未跳转 IdP，session cookie 保留' }
                         })}
                     >
                         本地登出
@@ -234,8 +254,9 @@ export function TestPanel({ sso }: Props) {
                         disabled={!!busy}
                         title="先清本地 token，再调 /time-auth，触发 401→refresh→recovery 完整链路"
                         onClick={async () => {
-                            log(true, '401 自动恢复测试：清本地 token → 调 /time-auth')
-                            globalUserStore.clearLocalAuth()
+                            log(true, '401 自动恢复测试：清 token → 调 /time-auth')
+                            globalUserStore.clearAuthTokensOnly()
+                            onAuthChange?.()
                             await run('401→refresh→recovery（/time-auth）', () => demoApi.getTimeAuth())
                         }}
                     >
