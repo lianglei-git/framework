@@ -19,7 +19,13 @@ import { ApiService } from '../core/httpClient'
 import { storage, storageManager } from '../utils/storage'
 import { globalUserStore } from '../stores/UserStore'
 import { handleSSOCallbackResult } from '../utils/handleSSOCallbackResult'
+import { getOriginAppUri } from '../utils/ssoOriginRedirect'
 import { cleanOAuthParamsFromUrl } from '../utils/oauthLoading'
+import {
+    writeSsoSessionCookies,
+    readSsoSessionCookies,
+    clearSsoSessionCookies,
+} from '../utils/ssoSessionCookie'
 import { SSOTokenManager } from './tokenManager'
 import { SSOSessionManager } from './sessionManager'
 import { SSOError, createDefaultSSOConfig, getSSOConfig, setSSOConfig } from './config'
@@ -220,11 +226,12 @@ export class SSOService extends ApiService {
                     window.dispatchEvent(new CustomEvent('auth:oauth-failed', { detail: { error } }))
                     alert(`登录失败：${formatAuthError(error, '请重试')}`)
                 }
+            } else if (this.isSubProjectApp()) {
+                await this.tryRecoverSubProjectSession()
             } else {
-                // 如果登录有效
                 const { sessionId, appId } = this.getSessionFromCookies()
-                if (sessionId && appId) {
-                    console.log('SSO登录有效，跳过回调处理')
+                if (sessionId && appId && getOriginAppUri()) {
+                    console.log('检测到子应用回跳上下文，继续 authorize 流程')
                     handleSSOCallbackResult(storage.getAuth())
                     return;
                 }
@@ -913,149 +920,97 @@ export class SSOService extends ApiService {
         }
     }
 
-    /**
-     * 将session_id设置到cookie中
-     * @param sessionId 会话ID
-     * @param appId 应用ID
-     */
-    private setSessionCookie(sessionId: string, appId: string): void {
-        console.log("setSessionCookie", sessionId, appId)
-        if (appId !== 'centralized') {
-            // 如果不是centralized，则不设置cookie
-            console.log("不是centralized，不设置cookie")
-            return;
-        }
-        try {
-            // 设置session_id cookie，有效期为会话期间
-            document.cookie = `sso_session_id=${sessionId}; path=/; SameSite=Lax; Secure=${window.location.protocol === 'https:'}`
+    private resolveAppId(): string {
+        const c = this.config as SSOConfig & { id?: string; appId?: string }
+        return c.appId || c.id || 'default'
+    }
 
-            // 设置应用ID cookie，有效期为会话期间
-            document.cookie = `sso_app_id=${appId}; path=/; SameSite=Lax; Secure=${window.location.protocol === 'https:'}`
-
-            // 设置Cookie过期时间（与Refresh Token保持一致：30天）
-            const expirationDate = new Date()
-            expirationDate.setTime(expirationDate.getTime() + (30 * 24 * 60 * 60 * 1000)) // 30天
-            const expires = `expires=${expirationDate.toUTCString()}`
-
-            // 设置长期有效的session cookie（用于自动登录）
-            document.cookie = `sso_session_id=${sessionId}; ${expires}; path=/; SameSite=Lax; Secure=${window.location.protocol === 'https:'}`
-            document.cookie = `sso_app_id=${appId}; ${expires}; path=/; SameSite=Lax; Secure=${window.location.protocol === 'https:'}`
-
-            console.log('✅ Session cookies 设置成功:', {
-                session_id: sessionId,
-                app_id: appId,
-                domain: window.location.hostname,
-                secure: window.location.protocol === 'https:'
-            })
-        } catch (error) {
-            console.error('❌ 设置session cookies失败:', error)
-        }
+    /** 子项目（a_sso / b_sso 等），非 3033 中心登录页 */
+    isSubProjectApp(): boolean {
+        const appId = this.resolveAppId()
+        return !!(this.config.clientId && appId && appId !== 'centralized')
     }
 
     /**
-     * 从cookie中获取session信息
+     * 将 session_id 写入 host 级 cookie，供跨应用 SSO（W-92）
+     */
+    private setSessionCookie(sessionId: string, appId?: string): void {
+        const resolvedAppId = appId || this.resolveAppId()
+        if (!sessionId) return
+        writeSsoSessionCookies(sessionId, resolvedAppId)
+        console.log('✅ SSO session cookies 已写入:', { session_id: sessionId, app_id: resolvedAppId })
+    }
+
+    /**
+     * 从 cookie 读取 SSO session（localhost 各端口共享）
      */
     private getSessionFromCookies(): { sessionId: string | null; appId: string | null } {
-        try {
-            const cookies = document.cookie.split(';').map(cookie => cookie.trim())
-            let sessionId: string | null = null
-            let appId: string | null = null
-
-            cookies.forEach(cookie => {
-                if (cookie.startsWith('sso_session_id=')) {
-                    sessionId = cookie.substring('sso_session_id='.length)
-                }
-                if (cookie.startsWith('sso_app_id=')) {
-                    appId = cookie.substring('sso_app_id='.length)
-                }
-            })
-
-            return { sessionId, appId }
-        } catch (error) {
-            console.error('❌ 获取session cookies失败:', error)
-            return { sessionId: null, appId: null }
-        }
+        return readSsoSessionCookies()
     }
 
-    /**
-     * 检查是否存在有效的session cookie
-     */
     hasValidSessionCookie(): boolean {
-        const { sessionId, appId } = this.getSessionFromCookies()
-        return !!(sessionId && appId)
+        const { sessionId } = readSsoSessionCookies()
+        return !!sessionId
     }
-
 
     static clearSessionCookies(): void {
-        try {
-            // 清除session cookies
-            document.cookie = 'sso_session_id=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax'
-            document.cookie = 'sso_app_id=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax'
-
-            console.log('✅ Session cookies 已清除')
-        } catch (error) {
-            console.error('❌ 清除session cookies失败:', error)
-        }
+        clearSsoSessionCookies()
     }
-    /**
-     * 清除session cookies
-     */
+
     clearSessionCookies(): void {
         SSOService.clearSessionCookies()
     }
 
     /**
-     * 检查session cookies并尝试自动登录
+     * 子项目：用 IdP session cookie 静默恢复当前应用的 token（W-92 强免登）
      */
-    private async checkSessionCookies(): Promise<void> {
-        //
-        try {
-            // 检查是否存在有效的session cookies
-            if (!this.hasValidSessionCookie()) {
-                console.log('ℹ️ 没有找到有效的session cookies，跳过自动登录')
-                return
-            }
-
-            const { sessionId, appId } = this.getSessionFromCookies()
-
-            if (!sessionId || !appId) {
-                console.log('ℹ️ Session cookies不完整，跳过自动登录')
-                return
-            }
-
-            console.log('🔍 发现有效的session cookies，尝试自动登录:', { sessionId, appId })
-
-            // 调用后端API验证session并获取用户信息
-
-            const sessionCheckResponse = await this.post<SSOSessionCheckResponse>(`${this.config.ssoServerUrl}/api/v1/auth/oauth/session-check`, {
-                session_id: sessionId,
-                app_id: appId
-            })
-
-            if (sessionCheckResponse.is_authenticated && sessionCheckResponse.session) {
-                console.log('✅ Session验证成功，自动登录中...')
-
-                // 创建本地会话
-                const session = await this.sessionManager.createSession(sessionCheckResponse.session)
-
-                // // 如果有token信息，也保存token
-                // if (sessionCheckResponse.token) {
-                //     storageManager.saveAuthData({
-                //         user: sessionCheckResponse.user!,
-                //         token: sessionCheckResponse.token,
-                //         session: session
-                //     })
-                // }
-
-                console.log('✅ 自动登录成功，用户信息:', sessionCheckResponse.user?.name)
-            } else {
-                console.log('⚠️ Session验证失败，清除无效的session cookies')
-                // this.clearSessionCookies()
-            }
-        } catch (error) {
-            console.warn('❌ Session cookies检查失败:', error)
-            // 不要清除cookies，可能是网络问题，稍后重试
+    async tryRecoverSubProjectSession(): Promise<boolean> {
+        if (this.isInCallbackMode()) {
+            return false
         }
+
+        const existing = storage.getAuth()?.token
+        const accessToken = typeof existing === 'string' ? existing : existing?.access_token
+        if (accessToken && !storage.isSSOTokenExpired?.()) {
+            return true
+        }
+
+        const { sessionId } = readSsoSessionCookies()
+        if (!sessionId) {
+            return false
+        }
+
+        const recovered = await this.recoverFromSession(sessionId)
+        return !!recovered
+    }
+
+    /**
+     * 弱免登：有 IdP session 时跳转 authorize（由 8080 直接发 code，通常不经 3033）
+     */
+    async trySilentAuthorize(): Promise<void> {
+        if (!this.isSubProjectApp()) {
+            return
+        }
+        if (this.isInCallbackMode() || storage.getAuth()?.token) {
+            return
+        }
+        if (!this.hasValidSessionCookie()) {
+            return
+        }
+        const loginUrl = await this.buildAuthorizationUrl('sub_job', {
+            client_id: this.config.clientId,
+            app_id: this.resolveAppId(),
+            grant_type: 'authorization_code',
+            redirect_uri: this.config.redirectUri,
+            response_type: 'code',
+            scope: (this.config.scope || []).join?.(' ') || (Array.isArray(this.config.scope) ? this.config.scope.join(' ') : 'openid profile email'),
+        })
+        window.location.href = loginUrl
+    }
+
+    /** @deprecated use tryRecoverSubProjectSession */
+    private async checkSessionCookies(): Promise<void> {
+        await this.tryRecoverSubProjectSession()
     }
 
 
@@ -1173,7 +1128,7 @@ export class SSOService extends ApiService {
         if (response.session_info) {
             session = await this.sessionManager.createSession(response.session_info)
             // 将session_id设置到cookie中，用于后续会话保持和自动登录
-            this.setSessionCookie(response.session_info.session_id, this.config.appId)
+            this.setSessionCookie(response.session_info.session_id, this.resolveAppId())
         }
 
         // 获取用户信息
@@ -1594,22 +1549,31 @@ export class SSOService extends ApiService {
      */
     private async recoverFromSession(sessionId: string): Promise<any | null> {
         try {
-            console.log('🔄 尝试通过session ID恢复登录:', sessionId)
+            const appId = this.resolveAppId()
+            console.log('🔄 尝试通过 session 恢复登录:', { sessionId, appId })
 
-            const sessionCheck = await this.post<any>(`${this.config.ssoServerUrl}/api/v1/auth/oauth/session-check`, {
-                session_id: sessionId,
-                app_id: (this.config as any).appId
-            })
+            const sessionCheck = await this.post<any>(
+                `${this.config.ssoServerUrl}/api/v1/auth/oauth/session-check`,
+                { session_id: sessionId, app_id: appId }
+            )
 
-            if (sessionCheck.is_authenticated && sessionCheck.token) {
-                console.log('✅ Session有效，已获取新token')
+            if (sessionCheck?.access_token) {
+                console.log('✅ Session 有效，已获取 token')
+                if (sessionCheck.session_info?.session_id) {
+                    writeSsoSessionCookies(sessionCheck.session_info.session_id, appId)
+                } else {
+                    writeSsoSessionCookies(sessionId, appId)
+                }
                 await this.unifiedSaveLoginInfos(sessionCheck)
                 return sessionCheck
             }
 
+            if (sessionCheck?.is_authenticated === false) {
+                clearSsoSessionCookies()
+            }
             return null
         } catch (error) {
-            console.error('❌ Session恢复失败:', error)
+            console.error('❌ Session 恢复失败:', error)
             return null
         }
     }

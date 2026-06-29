@@ -11,6 +11,7 @@ import {
 } from '../types'
 import { authApi, userApi } from '../services/api'
 import { storage } from '../utils/storage'
+import { clearOriginAppUri } from '../utils/ssoOriginRedirect'
 import { formatAuthError, isUnauthorizedError } from '../utils/authError'
 import {
     cleanOAuthParamsFromUrl,
@@ -84,6 +85,7 @@ export const useAuth = () => {
     const clearLocalAuth = () => {
         store.clearLocalAuth()
         SSOService.clearSessionCookies()
+        clearOriginAppUri()
         document.cookie = 'sso_session_id=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax'
     }
 

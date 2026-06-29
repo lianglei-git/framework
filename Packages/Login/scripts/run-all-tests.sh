@@ -27,6 +27,7 @@ step "admin API smoke" node "$ROOT/admin-web/scripts/smoke-admin.mjs" zayne zayn
 step "backend API tests (B)" bash "$ROOT/scripts/run-backend-api-tests.sh"
 step "cross-module tests (X)" bash "$ROOT/scripts/run-cross-module-tests.sh"
 step "sub-project OIDC (X-05)" bash "$ROOT/scripts/run-subproject-oidc-test.sh"
+step "cross-app SSO (W-92)" bash "$ROOT/scripts/run-w92-cross-app-sso-test.sh"
 
 echo ""
 if [[ "$FAIL" -eq 0 ]]; then

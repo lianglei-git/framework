@@ -7,8 +7,29 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const ssoSessionCookieMaxAge = 30 * 24 * 60 * 60
+
+// SetSSOSessionCookies 在 IdP 域写入 session cookie，供 /oauth/authorize 免登识别
+func SetSSOSessionCookies(c *gin.Context, sessionID, appID string) {
+	if sessionID == "" {
+		return
+	}
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("sso_session_id", sessionID, ssoSessionCookieMaxAge, "/", "", false, false)
+	if appID != "" {
+		c.SetCookie("sso_app_id", appID, ssoSessionCookieMaxAge, "/", "", false, false)
+	}
+}
+
 // ReturnTokenSuccess 返回标准的 Token 成功响应
 func ReturnTokenSuccess(c *gin.Context, response *models.TokenResponse) {
+	if response != nil && response.SessionID != "" {
+		appID := ""
+		if response.SessionInfo != nil {
+			appID = response.SessionInfo.CurrentAppID
+		}
+		SetSSOSessionCookies(c, response.SessionID, appID)
+	}
 	c.JSON(http.StatusOK, response)
 }
 

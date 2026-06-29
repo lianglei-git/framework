@@ -3,6 +3,7 @@ import { User, UserRole, type SSOSession, type SSOUser } from '../types'
 import { authApi, userApi } from '../services/api'
 import { storageManager } from "../utils"
 import { storage } from '../utils/storage'
+import { clearOriginAppUri } from '../utils/ssoOriginRedirect'
 import { formatAuthError } from '../utils/authError'
 
 // 用户等级枚举
@@ -173,6 +174,7 @@ class UserStore {
         storage.clearAuth()
         storage.clearSSOData()
         storage.clearSSOSession()
+        clearOriginAppUri()
         this.info = { ...basicUserInfo }
         this.authInfo = null
         this.ssoUser = null
@@ -181,13 +183,16 @@ class UserStore {
         this.notifyLoginListeners()
     }
 
-    syncFromStorage = () => {
+    /** 从 storage 同步认证态；token 刷新时传 notify:false 避免重启续签监控 */
+    syncFromStorage = (options?: { notify?: boolean }) => {
         this.getLocalStorageUserInfo()
         const authData = storage.getAuth()
         if (authData) {
             this.authInfo = authData
             if (authData.user) {
-                this.setUserInfo(authData.user, authData.token)
+                this.setUserInfo(authData.user, authData.token, { notify: options?.notify })
+            } else if (authData.token) {
+                this.info = { ...this.info, token: authData.token }
             }
         }
         const session = storage.getSSOSession()
@@ -223,7 +228,7 @@ class UserStore {
     }
 
     // 设置用户信息
-    setUserInfo = (userInfo: any, token: string) => {
+    setUserInfo = (userInfo: any, token: string, options?: { notify?: boolean }) => {
         this.info = {
             username: userInfo.username || userInfo.openid || '',
             nickname: userInfo.meta?.nickname || userInfo.nickname || '',
@@ -234,7 +239,9 @@ class UserStore {
             role: userInfo.role ? this.convertUserRole(userInfo.role) : UserLevelENUM.NormalUser,
         }
         this.setLocalStorageUserInfo()
-        this.notifyLoginListeners() // 触发登录监听器
+        if (options?.notify !== false) {
+            this.notifyLoginListeners()
+        }
     }
 
     // 更新用户信息

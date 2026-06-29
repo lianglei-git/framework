@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 	"unit-auth/config"
@@ -80,7 +81,13 @@ func AuthMiddleware() gin.HandlerFunc {
 // CORS中间件
 func CORS() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
+		origin := c.GetHeader("Origin")
+		if origin != "" {
+			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Access-Control-Allow-Credentials", "true")
+		} else {
+			c.Header("Access-Control-Allow-Origin", "*")
+		}
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, X-Genres-Type, Authorization")
 
@@ -111,28 +118,44 @@ func RequestID() gin.HandlerFunc {
 	}
 }
 
-// 限流中间件
+// 限流中间件（支持环境变量；本地回环地址默认跳过，避免 BFF 代理打满配额）
 func RateLimit() gin.HandlerFunc {
-	// 简单的内存限流器
+	maxRequests := 100
+	if v := os.Getenv("RATE_LIMIT_REQUESTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxRequests = n
+		}
+	}
+	window := time.Minute
+	if v := os.Getenv("RATE_LIMIT_DURATION"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			window = d
+		}
+	}
+	skipLocalhost := os.Getenv("RATE_LIMIT_SKIP_LOCALHOST") != "false"
+
 	requests := make(map[string][]time.Time)
 
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
+		if skipLocalhost && isLoopbackIP(ip) {
+			c.Next()
+			return
+		}
+
 		now := time.Now()
 
-		// 清理过期的请求记录（1分钟窗口）
 		if times, exists := requests[ip]; exists {
 			var validTimes []time.Time
 			for _, t := range times {
-				if now.Sub(t) < time.Minute {
+				if now.Sub(t) < window {
 					validTimes = append(validTimes, t)
 				}
 			}
 			requests[ip] = validTimes
 		}
 
-		// 检查请求次数（每分钟最多100次）
-		if len(requests[ip]) >= 100 {
+		if len(requests[ip]) >= maxRequests {
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"code":    429,
 				"message": "Rate limit exceeded",
@@ -144,6 +167,11 @@ func RateLimit() gin.HandlerFunc {
 		requests[ip] = append(requests[ip], now)
 		c.Next()
 	}
+}
+
+func isLoopbackIP(ip string) bool {
+	ip = strings.TrimSpace(ip)
+	return ip == "127.0.0.1" || ip == "::1" || strings.HasPrefix(ip, "127.")
 }
 
 // Prometheus监控处理器

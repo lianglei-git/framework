@@ -490,7 +490,7 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 			if loginWebURL == "" {
 				loginWebURL = "http://localhost:3033"
 			}
-			c.Redirect(http.StatusFound, loginWebURL+"/?app_origin=true&redirect_uri="+getFullURL(c, true))
+			c.Redirect(http.StatusFound, loginWebURL+"/?app_origin=true&redirect_uri="+url.QueryEscape(getFullURL(c, true)))
 			return
 		}
 

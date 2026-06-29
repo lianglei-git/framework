@@ -9,7 +9,11 @@ import { PrivacyPolicy } from '../components/legal/PrivacyPolicy'
 import { ForgotPassword } from '../components/ForgotPassword'
 import { useAuth } from '../hooks/useAuth'
 import { handleSSOCallbackResult } from '../utils/handleSSOCallbackResult'
+import { saveOriginAppUriFromUrl, getOriginAppUri } from '../utils/ssoOriginRedirect'
 import './LoginPage.less'
+
+// 页面加载时立即保存回跳地址（早于 SSO 初始化，避免竞态丢失）
+saveOriginAppUriFromUrl()
 
 const urlParams = new URLSearchParams(window.location.search)
 const githubAccessCode = urlParams.get('code')
@@ -38,17 +42,12 @@ const getSessionFromCookies = (): { sessionId: string | null; appId: string | nu
 }
 
 const setSubAppInfoForSessionStorage = () => {
+    saveOriginAppUriFromUrl()
     const subUrlParams = new URLSearchParams(window.location.search)
     const appid = subUrlParams.get('app_id')
     const app_redirect_uri = subUrlParams.get('redirect_uri')
     const app_origin = subUrlParams.get('app_origin')
-    if (app_origin) {
-        const fixedLen = 'redirect_uri='.length
-        const index = window.location.search.indexOf('redirect_uri=')
-        if (index !== -1) {
-            localStorage.setItem('origin_app_uri', window.location.search.slice(index + fixedLen))
-        }
-    } else if (appid && app_redirect_uri) {
+    if (!app_origin && appid && app_redirect_uri) {
         localStorage.setItem('appid', appid)
         localStorage.setItem('redirect_uri', app_redirect_uri)
     }
@@ -60,6 +59,8 @@ export const LoginPage: React.FC = observer(() => {
     const [showPrivacy, setShowPrivacy] = useState(false)
     const auth = useAuth()
 
+    const [redirecting, setRedirecting] = useState(false)
+
     useEffect(() => {
         setSubAppInfoForSessionStorage()
     }, [])
@@ -67,11 +68,23 @@ export const LoginPage: React.FC = observer(() => {
     // 子项目 SSO：已登录用户带 app_origin 时自动回跳 authorize
     useEffect(() => {
         if (!auth.isAuthenticated) return
-        const origin = localStorage.getItem('origin_app_uri')
-        if (origin) {
-            handleSSOCallbackResult({ user: globalUserStore.info })
-        }
+        if (!getOriginAppUri()) return
+        setRedirecting(true)
+        handleSSOCallbackResult({ user: globalUserStore.info })
     }, [auth.isAuthenticated])
+
+    if (redirecting || (auth.isAuthenticated && getOriginAppUri())) {
+        return (
+            <div className="login-container">
+                <div className="login-card">
+                    <div className="success-state">
+                        <h2>正在返回应用…</h2>
+                        <p style={{ color: '#6b7280', marginTop: 8 }}>登录成功，即将跳回子应用</p>
+                    </div>
+                </div>
+            </div>
+        )
+    }
 
     if (auth.loadingInfos?.status === 'loading') {
         const provider = auth.loadingInfos.provider

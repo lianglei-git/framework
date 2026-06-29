@@ -71,6 +71,15 @@ func CheckSessionAndGetToken(db *gorm.DB) gin.HandlerFunc {
 			fmt.Printf("Failed to update session activity: %v\n", err)
 		}
 
+		// 解析子项目 client_id（session 恢复时为当前 app 签发 token）
+		clientID := "centralized"
+		if req.AppID != "" {
+			var client models.SSOClient
+			if err := db.Where("id = ? OR name = ?", req.AppID, req.AppID).First(&client).Error; err == nil && client.ID != "" {
+				clientID = client.ID
+			}
+		}
+
 		// 复用 sso.go 中的 generateTokensFromClaims 统一返回结构
 		claims := jwt.MapClaims{
 			"sub": user.ID,                     // 用户ID
@@ -79,7 +88,7 @@ func CheckSessionAndGetToken(db *gorm.DB) gin.HandlerFunc {
 			"iat": time.Now().Unix(),           // 签发时间
 		}
 
-		generateTokensFromClaims(c, db, claims, "centralized", "", "session_recovery", OAuthTokenRequest{AppID: req.AppID})
+		generateTokensFromClaims(c, db, claims, clientID, "", "session_recovery", OAuthTokenRequest{AppID: req.AppID})
 		return
 	}
 }

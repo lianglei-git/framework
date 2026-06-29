@@ -54,11 +54,12 @@
 | X-05 | PASS | authorize → token → userinfo → refresh（A + B BFF） |
 | W-90 | PASS | a_sso 5173 → 3033 登录页 → 回跳（浏览器/自动化） |
 | W-91 | PASS | b_sso 5174 独立 client_id，redirect 5174 |
-| W-92 | 部分 | 同源 cookie 共享；A/B token 按 client 隔离 |
+| W-92 | PASS | A 登录后 B 经 session-check / silent authorize 免登（自动化） |
 | W-93 | PASS | 子应用登出跳转 3033 |
 
 一键子项目栈：`bash Packages/Login/scripts/start-subproject-dev.sh`  
-OIDC 自动化：`bash Packages/Login/scripts/run-subproject-oidc-test.sh`
+OIDC 自动化：`bash Packages/Login/scripts/run-subproject-oidc-test.sh`  
+W-92 跨应用免登：`bash Packages/Login/scripts/run-w92-cross-app-sso-test.sh`
 
 ## 暂缓（按计划不验收）
 - B-42、W-52~W-54：第三方 OAuth 需真实 IdP 配置

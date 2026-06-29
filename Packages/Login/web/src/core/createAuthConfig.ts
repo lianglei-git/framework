@@ -14,8 +14,10 @@ export function createAuthConfig(overrides: AuthConfigInput = {}): SSOConfig {
     if (overrides.allowedScopes?.length) {
         merged.scope = overrides.allowedScopes
     }
-    if (overrides.id && !merged.appId) {
-        merged.appId = overrides.id
+    if (overrides.id) {
+        const c = merged as SSOConfig & { id?: string; appId?: string }
+        if (!c.appId) c.appId = overrides.id
+        if (!c.id) c.id = overrides.id
     }
     if (overrides.tokenUrl && !merged.tokenEndpoint) {
         merged.tokenEndpoint = overrides.tokenUrl

@@ -183,6 +183,28 @@ func main() {
 			c.Data(status, "application/json", body)
 		})
 
+		auth.POST("/oauth/session-check", func(c *gin.Context) {
+			var req map[string]interface{}
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+				return
+			}
+			if req["app_id"] == nil || req["app_id"] == "" {
+				// 由子项目 SDK 传入 app_id（如 sso_test_a），勿用 client_id 替代
+			}
+			payload, _ := json.Marshal(req)
+			sessionURI := cfg.SSOServerURL + "/api/v1/auth/oauth/session-check"
+			status, body, err := proxyRequest(sessionURI, http.MethodPost, map[string]string{
+				"Content-Type": "application/json",
+				"Accept":       "application/json",
+			}, payload)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			c.Data(status, "application/json", body)
+		})
+
 		auth.POST("/oauth/token", func(c *gin.Context) {
 			var req map[string]interface{}
 			if err := c.ShouldBindJSON(&req); err != nil {

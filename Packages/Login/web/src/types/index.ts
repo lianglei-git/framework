@@ -831,6 +831,7 @@ export interface TokenStatus {
     expires_at: string
     remaining_hours: number
     remaining_minutes: number
+    remaining_seconds?: number
     is_expiring_soon: boolean
     token_type: string
 }

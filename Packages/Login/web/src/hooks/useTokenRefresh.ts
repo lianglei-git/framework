@@ -240,15 +240,12 @@ export function useTokenRefresh(): UseTokenRefreshReturn {
 
     // 初始化效果
     useEffect(() => {
-        // 如果用户已登录，启动监控
-        if (globalUserStore.isLogin) {
-            startMonitoring()
-        }
-
-        // 监听登录状态变化
+        // 监听登录状态变化（不在挂载时重复启动，由 App 或 isLogin 首次触发）
         const loginListener = () => {
             if (globalUserStore.isLogin) {
-                startMonitoring()
+                if (!isMonitoring) {
+                    startMonitoring()
+                }
                 checkTokenStatus()
             } else {
                 stopMonitoring()
@@ -258,12 +255,15 @@ export function useTokenRefresh(): UseTokenRefreshReturn {
 
         globalUserStore.addLoginListener(loginListener)
 
-        // 清理函数
+        if (globalUserStore.isLogin && !isMonitoring) {
+            startMonitoring()
+        }
+
         return () => {
             globalUserStore.removeLoginListener(loginListener)
             stopMonitoring()
         }
-    }, [startMonitoring, stopMonitoring, checkTokenStatus])
+    }, [startMonitoring, stopMonitoring, checkTokenStatus, isMonitoring])
 
     // 定期检查token状态
     useEffect(() => {

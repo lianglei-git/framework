@@ -4,7 +4,7 @@ import type { TokenErrorResponse } from '../types/token'
 
 const HTTP_STATUS_MESSAGES: Record<number, string> = {
     400: '请求无效，请检查输入后重试',
-    401: '账号或密码错误，请重新输入',
+    401: '登录已失效或未授权，请重新登录',
     403: '当前账号无权执行此操作',
     404: '请求的服务不存在',
     409: '该邮箱或用户名已被注册',

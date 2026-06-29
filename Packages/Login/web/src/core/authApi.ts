@@ -292,7 +292,8 @@ export class AuthApiService extends ApiService {
     }
     async unifiedNormalLocalLogin(params: unifiedNormalLocalLoginRequest): Promise<unifiedNormalLocalLoginResponse> {
         const response = await this.post(`${this.baseURL}/api/v1/auth/oauth-login`, params, {
-            headers: getCommonHeaders()
+            headers: getCommonHeaders(),
+            withCredentials: true,
         })
         return response as unifiedNormalLocalLoginResponse
 
