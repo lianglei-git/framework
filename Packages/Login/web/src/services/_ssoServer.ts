@@ -16,8 +16,7 @@ import axios from 'axios'
 import { storageManager } from '../utils/storage'
 
 // 后端API基础URL
-const backendBaseURL = import.meta.env.DEV ? "http://localhost:8080" : "https://sparrowui.cn/translate"
-
+const backendBaseURL = import.meta.env.VITE_SSO_SERVER_URL
 /**
  * SSO服务器服务类
  * 提供SSO认证服务给子项目

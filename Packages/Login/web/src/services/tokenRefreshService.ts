@@ -19,7 +19,7 @@ export class TokenRefreshService {
     private readonly oauthRefreshBeforeExpirySec = 20
 
     constructor() {
-        this.basicUrl = (import.meta as any).env?.DEV ? "http://localhost:8080" : "https://sparrowui.cn/translate"
+        this.basicUrl = import.meta.env.VITE_SSO_SERVER_URL
         this.init()
     }
 

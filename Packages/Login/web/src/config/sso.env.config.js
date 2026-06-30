@@ -6,7 +6,7 @@
 // 开发环境配置
 const devConfig = {
     // SSO服务器配置
-    ssoServerUrl: 'http://localhost:8080',
+    ssoServerUrl: import.meta.env.VITE_SSO_SERVER_URL,
     clientId: 'default-client',
     clientSecret: 'default-client-secret',
     redirectUri: 'http://localhost:3000/auth/callback',

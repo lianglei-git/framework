@@ -4,7 +4,7 @@ import tokenRefreshService from './tokenRefreshService'
 
 // 创建axios实例
 const apiClient = axios.create({
-    baseURL: (import.meta as any).env?.DEV ? "http://localhost:8080" : "https://sparrowui.cn/translate",
+    baseURL: import.meta.env.VITE_SSO_SERVER_URL,
     timeout: 10000,
 })
 

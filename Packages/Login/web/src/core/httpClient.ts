@@ -8,8 +8,7 @@ import {
 } from '../utils/oauthRefreshOn401'
 import { recoverOAuthSessionAfterRefreshFailure } from '../utils/oauthSessionRecovery'
 
-export const basicUrl = import.meta.env.DEV ? "http://localhost:8080" : "https://sparrowui.cn/translate"
-
+export const basicUrl = import.meta.env.VITE_SSO_SERVER_URL
 export const getCommonHeaders = (token?: string) => {
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
