@@ -42,7 +42,7 @@ func CreateSSOClient(db *gorm.DB) gin.HandlerFunc {
 // GetSSOClients 获取所有SSO客户端
 func GetSSOClients(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		clients, err := models.GetSSOClients(db)
+		clients, err := models.GetAllSSOClients(db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.Response{
 				Code:    500,

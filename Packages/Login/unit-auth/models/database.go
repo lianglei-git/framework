@@ -213,39 +213,55 @@ func seedDefaultAdminUser(db *gorm.DB) {
 // seedSubprojectSSOClients 种子数据：a_sso / b_sso 联调客户端（固定 ID 与 secret，便于本地 BFF 配置）
 func seedSubprojectSSOClients(db *gorm.DB) {
 	type seedClient struct {
-		id, secret, name, description, redirect string
+		id, secret, name, appID, description, redirect string
+		port, bffPort                                 int
 	}
 	seeds := []seedClient{
 		{
 			id:          "8c1dd65d-7d2a-4ba4-aff1-610960a295e7",
 			secret:      "client_secret_a4121ad0-bc7e-4b59-8ab1-e29544060fc4",
 			name:        "sso_test_a",
+			appID:       "sso_test_a",
 			description: "Sub-project a_sso (localhost:5173)",
 			redirect:    "http://localhost:5173",
+			port:        5173,
+			bffPort:     5555,
 		},
 		{
 			id:          "6a7db4e5-1c21-4cf1-92c9-507a0f924e29",
 			secret:      "client_secret_22e58ccf-c367-4ead-b517-3be17f796211",
 			name:        "sso_test_b",
+			appID:       "sso_test_b",
 			description: "Sub-project b_sso (localhost:5174)",
 			redirect:    "http://localhost:5174",
+			port:        5174,
+			bffPort:     5556,
 		},
 		{
 			id:          "f3e8a2b1-9c4d-4e5f-a6b7-c8d9e0f1a2b3",
 			secret:      "client_secret_f3e8c2b1-c9c4-4ead-c517-c8175517c5cc",
 			name:        "sso_test_c",
+			appID:       "sso_test_c",
 			description: "Sub-project c_sso (localhost:5175)",
 			redirect:    "http://localhost:5175",
+			port:        5175,
+			bffPort:     5557,
 		},
 	}
 	for _, s := range seeds {
 		var existing SSOClient
 		err := db.Where("id = ?", s.id).First(&existing).Error
 		if err == nil {
-			// 已存在：同步 redirect_uri（便于本地端口变更后仍能通过校验）
-			if err := existing.SetRedirectURIs([]string{s.redirect}); err == nil {
-				db.Model(&existing).Update("redirect_uris", existing.RedirectURIs)
+			// 已存在：同步 redirect_uri 与 app_id（便于本地联调）
+			updates := map[string]interface{}{
+				"app_id":         s.appID,
+				"frontend_port":  s.port,
+				"bff_port":       s.bffPort,
 			}
+			if err := existing.SetRedirectURIs([]string{s.redirect}); err == nil {
+				updates["redirect_uris"] = existing.RedirectURIs
+			}
+			db.Model(&existing).Updates(updates)
 			continue
 		}
 		if err != gorm.ErrRecordNotFound {
@@ -253,12 +269,15 @@ func seedSubprojectSSOClients(db *gorm.DB) {
 			continue
 		}
 		client := &SSOClient{
-			ID:          s.id,
-			Name:        s.name,
-			Description: s.description,
-			Secret:      s.secret,
-			IsActive:    true,
-			AutoApprove: true,
+			ID:           s.id,
+			Name:         s.name,
+			AppID:        s.appID,
+			Description:  s.description,
+			Secret:       s.secret,
+			FrontendPort: s.port,
+			BffPort:      s.bffPort,
+			IsActive:     true,
+			AutoApprove:  true,
 		}
 		if err := client.SetRedirectURIs([]string{s.redirect}); err != nil {
 			log.Printf("Warning: seed SSO client %s redirect: %v", s.name, err)

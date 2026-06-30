@@ -155,11 +155,14 @@ export interface LoginLogsResponse {
 export interface SSOClient {
   id: string
   name: string
+  app_id: string
   description: string
   redirect_uris: string
   grant_types: string
   response_types: string
   scope: string
+  frontend_port: number
+  bff_port: number
   auto_approve: boolean
   is_active: boolean
   created_at: string
@@ -168,25 +171,37 @@ export interface SSOClient {
 
 export interface SSOClientCreateRequest {
   name: string
+  app_id?: string
   description?: string
   redirect_uris: string[]
   grant_types?: string[]
   response_types?: string[]
   scope?: string[]
+  frontend_port?: number
+  bff_port?: number
   auto_approve?: boolean
 }
 
 export interface SSOClientUpdateRequest {
   name?: string
+  app_id?: string
   description?: string
   redirect_uris?: string[]
   grant_types?: string[]
   response_types?: string[]
   scope?: string[]
+  frontend_port?: number
+  bff_port?: number
   auto_approve?: boolean
   is_active?: boolean
 }
 
 export interface SSOClientCreateResponse extends SSOClient {
   secret: string
+}
+
+export interface SSOClientStats {
+  total_clients: number
+  active_clients: number
+  inactive_clients: number
 }

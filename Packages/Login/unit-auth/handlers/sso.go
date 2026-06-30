@@ -45,13 +45,16 @@ var WEB_CENTER_URL = os.Getenv("WEB_CENTER_URL")
 type SSOClient struct {
 	ID            string    `json:"id" gorm:"primaryKey;type:varchar(36)"`
 	Name          string    `json:"name" gorm:"not null;size:100"`
+	AppID         string    `json:"app_id" gorm:"size:64;index"`
 	Description   string    `json:"description" gorm:"size:500"`
-	Secret        string    `json:"-" gorm:"not null;size:255"`        // 客户端密钥，响应时不返回
-	RedirectURIs  string    `json:"redirect_uris" gorm:"type:text"`    // 回调URI，JSON数组
-	GrantTypes    string    `json:"grant_types" gorm:"type:text"`      // 支持的授权类型
-	ResponseTypes string    `json:"response_types" gorm:"type:text"`   // 支持的响应类型
-	Scope         string    `json:"scope" gorm:"type:text"`            // 支持的权限范围
-	AutoApprove   bool      `json:"auto_approve" gorm:"default:false"` // 自动批准
+	Secret        string    `json:"-" gorm:"not null;size:255"`
+	RedirectURIs  string    `json:"redirect_uris" gorm:"type:text"`
+	GrantTypes    string    `json:"grant_types" gorm:"type:text"`
+	ResponseTypes string    `json:"response_types" gorm:"type:text"`
+	Scope         string    `json:"scope" gorm:"type:text"`
+	FrontendPort  int       `json:"frontend_port"`
+	BffPort       int       `json:"bff_port"`
+	AutoApprove   bool      `json:"auto_approve" gorm:"default:false"`
 	IsActive      bool      `json:"is_active" gorm:"default:true"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`

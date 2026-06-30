@@ -114,11 +114,14 @@ export default function SubProjectsPage() {
         setRegistering(true)
         const res = await createSSOClient({
           name: config.displayName || config.projectName,
+          app_id: config.appId,
           description: config.description || `子项目 ${config.appId}`,
           redirect_uris: [config.redirectUri],
           grant_types: config.grantTypes,
           response_types: config.responseTypes,
           scope: config.allowedScopes,
+          frontend_port: config.frontendPort,
+          bff_port: config.bffPort,
           auto_approve: config.autoApprove,
         })
         config = {

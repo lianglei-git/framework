@@ -72,12 +72,15 @@ func (r *UnifiedOAuthLoginRequest) Validate() error {
 type SSOClient struct {
 	ID            string    `json:"id" gorm:"primaryKey;type:varchar(36)"`
 	Name          string    `json:"name" gorm:"not null;size:100"`
+	AppID         string    `json:"app_id" gorm:"size:64;index"` // 子项目运行时 app_id（BFF APP_ID）
 	Description   string    `json:"description" gorm:"size:500"`
-	Secret        string    `json:"-" gorm:"not null;size:255"`        // 客户端密钥，响应时不返回
-	RedirectURIs  string    `json:"redirect_uris" gorm:"type:text"`    // 回调URI，JSON数组
-	GrantTypes    string    `json:"grant_types" gorm:"type:text"`      // 支持的授权类型
+	Secret        string    `json:"-" gorm:"not null;size:255"`      // 客户端密钥，响应时不返回
+	RedirectURIs  string    `json:"redirect_uris" gorm:"type:text"`  // 回调URI，JSON数组
+	GrantTypes    string    `json:"grant_types" gorm:"type:text"`    // 支持的授权类型
 	ResponseTypes string    `json:"response_types" gorm:"type:text"`   // 支持的响应类型
-	Scope         string    `json:"scope" gorm:"type:text"`            // 支持的权限范围
+	Scope         string    `json:"scope" gorm:"type:text"`          // 支持的权限范围
+	FrontendPort  int       `json:"frontend_port"`                   // 子项目前端端口（管理用）
+	BffPort       int       `json:"bff_port"`                        // 子项目 BFF 端口（管理用）
 	AutoApprove   bool      `json:"auto_approve" gorm:"default:false"` // 自动批准
 	IsActive      bool      `json:"is_active" gorm:"default:true"`
 	CreatedAt     time.Time `json:"created_at"`
@@ -88,11 +91,14 @@ type SSOClient struct {
 type SSOClientResponse struct {
 	ID            string    `json:"id"`
 	Name          string    `json:"name"`
+	AppID         string    `json:"app_id"`
 	Description   string    `json:"description"`
 	RedirectURIs  string    `json:"redirect_uris"`
 	GrantTypes    string    `json:"grant_types"`
 	ResponseTypes string    `json:"response_types"`
 	Scope         string    `json:"scope"`
+	FrontendPort  int       `json:"frontend_port"`
+	BffPort       int       `json:"bff_port"`
 	AutoApprove   bool      `json:"auto_approve"`
 	IsActive      bool      `json:"is_active"`
 	CreatedAt     time.Time `json:"created_at"`
@@ -102,22 +108,28 @@ type SSOClientResponse struct {
 // CreateSSOClientRequest 创建SSO客户端请求
 type CreateSSOClientRequest struct {
 	Name          string   `json:"name" binding:"required"`
+	AppID         string   `json:"app_id"`
 	Description   string   `json:"description"`
 	RedirectURIs  []string `json:"redirect_uris" binding:"required"`
 	GrantTypes    []string `json:"grant_types"`
 	ResponseTypes []string `json:"response_types"`
 	Scope         []string `json:"scope"`
+	FrontendPort  int      `json:"frontend_port"`
+	BffPort       int      `json:"bff_port"`
 	AutoApprove   bool     `json:"auto_approve"`
 }
 
 // UpdateSSOClientRequest 更新SSO客户端请求
 type UpdateSSOClientRequest struct {
 	Name          string   `json:"name"`
+	AppID         string   `json:"app_id"`
 	Description   string   `json:"description"`
 	RedirectURIs  []string `json:"redirect_uris"`
 	GrantTypes    []string `json:"grant_types"`
 	ResponseTypes []string `json:"response_types"`
 	Scope         []string `json:"scope"`
+	FrontendPort  *int     `json:"frontend_port"`
+	BffPort       *int     `json:"bff_port"`
 	AutoApprove   *bool    `json:"auto_approve"`
 	IsActive      *bool    `json:"is_active"`
 }
@@ -214,11 +226,14 @@ func (c *SSOClient) ToResponse() SSOClientResponse {
 	return SSOClientResponse{
 		ID:            c.ID,
 		Name:          c.Name,
+		AppID:         c.AppID,
 		Description:   c.Description,
 		RedirectURIs:  c.RedirectURIs,
 		GrantTypes:    c.GrantTypes,
 		ResponseTypes: c.ResponseTypes,
 		Scope:         c.Scope,
+		FrontendPort:  c.FrontendPort,
+		BffPort:       c.BffPort,
 		AutoApprove:   c.AutoApprove,
 		IsActive:      c.IsActive,
 		CreatedAt:     c.CreatedAt,
@@ -236,11 +251,14 @@ func (c *SSOClient) ToResponseForCreate() SSOClientResponseForCreate {
 		SSOClientResponse: SSOClientResponse{
 			ID:            c.ID,
 			Name:          c.Name,
+			AppID:         c.AppID,
 			Description:   c.Description,
 			RedirectURIs:  c.RedirectURIs,
 			GrantTypes:    c.GrantTypes,
 			ResponseTypes: c.ResponseTypes,
 			Scope:         c.Scope,
+			FrontendPort:  c.FrontendPort,
+			BffPort:       c.BffPort,
 			AutoApprove:   c.AutoApprove,
 			IsActive:      c.IsActive,
 			CreatedAt:     c.CreatedAt,
@@ -407,14 +425,43 @@ func GenerateClientSecret() string {
 	return "client_secret_" + uuid.New().String()
 }
 
+func deriveAppIDFromName(name string) string {
+	slug := strings.ToLower(name)
+	var b strings.Builder
+	lastUnderscore := false
+	for _, r := range slug {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastUnderscore = false
+			continue
+		}
+		if !lastUnderscore {
+			b.WriteByte('_')
+			lastUnderscore = true
+		}
+	}
+	out := strings.Trim(b.String(), "_")
+	if out == "" {
+		out = "my_sso"
+	}
+	return "sso_" + out
+}
+
 // CreateSSOClient 创建SSO客户端
 // Zayne: 应该在创建的时候返回serect
 func CreateSSOClient(db *gorm.DB, req *CreateSSOClientRequest) (*SSOClient, error) {
+	appID := strings.TrimSpace(req.AppID)
+	if appID == "" {
+		appID = deriveAppIDFromName(req.Name)
+	}
 	client := &SSOClient{
-		Name:        req.Name,
-		Description: req.Description,
-		AutoApprove: req.AutoApprove,
-		IsActive:    true,
+		Name:         req.Name,
+		AppID:        appID,
+		Description:  req.Description,
+		FrontendPort: req.FrontendPort,
+		BffPort:      req.BffPort,
+		AutoApprove:  req.AutoApprove,
+		IsActive:     true,
 	}
 
 	// 设置数组字段
@@ -453,19 +500,28 @@ func CreateSSOClient(db *gorm.DB, req *CreateSSOClientRequest) (*SSOClient, erro
 	return client, nil
 }
 
-// GetSSOClientByID 根据ID获取SSO客户端
+// GetSSOClientByID 根据ID获取SSO客户端（管理端，含已禁用）
 func GetSSOClientByID(db *gorm.DB, id string) (*SSOClient, error) {
 	var client SSOClient
-	if err := db.Where("id = ? AND is_active = ?", id, true).First(&client).Error; err != nil {
+	if err := db.Where("id = ?", id).First(&client).Error; err != nil {
 		return nil, err
 	}
 	return &client, nil
 }
 
-// GetSSOClients 获取所有活跃的SSO客户端
+// GetSSOClients 获取活跃 SSO 客户端（OAuth 校验等场景）
 func GetSSOClients(db *gorm.DB) ([]SSOClient, error) {
 	var clients []SSOClient
-	if err := db.Where("is_active = ?", true).Find(&clients).Error; err != nil {
+	if err := db.Where("is_active = ?", true).Order("created_at DESC").Find(&clients).Error; err != nil {
+		return nil, err
+	}
+	return clients, nil
+}
+
+// GetAllSSOClients 管理端：返回全部 SSO 客户端（含已禁用）
+func GetAllSSOClients(db *gorm.DB) ([]SSOClient, error) {
+	var clients []SSOClient
+	if err := db.Order("created_at DESC").Find(&clients).Error; err != nil {
 		return nil, err
 	}
 	return clients, nil
@@ -482,8 +538,17 @@ func UpdateSSOClient(db *gorm.DB, id string, req *UpdateSSOClientRequest) (*SSOC
 	if req.Name != "" {
 		client.Name = req.Name
 	}
+	if req.AppID != "" {
+		client.AppID = strings.TrimSpace(req.AppID)
+	}
 	if req.Description != "" {
 		client.Description = req.Description
+	}
+	if req.FrontendPort != nil {
+		client.FrontendPort = *req.FrontendPort
+	}
+	if req.BffPort != nil {
+		client.BffPort = *req.BffPort
 	}
 	if req.AutoApprove != nil {
 		client.AutoApprove = *req.AutoApprove

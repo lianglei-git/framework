@@ -16,6 +16,7 @@ import type {
   SSOClientCreateRequest,
   SSOClientUpdateRequest,
   SSOClientCreateResponse,
+  SSOClientStats,
 } from '../types'
 
 // ==================== 认证 ====================
@@ -123,6 +124,12 @@ export async function regenerateSSOClientSecret(id: string): Promise<SSOClient> 
   const res = await httpClient.post<ApiResponse<SSOClient>>(
     `/api/v1/admin/sso-clients/${id}/regenerate-secret`
   )
+  if (res.code !== 200) throw new Error(res.message)
+  return res.data!
+}
+
+export async function getSSOClientStats(): Promise<SSOClientStats> {
+  const res = await httpClient.get<ApiResponse<SSOClientStats>>('/api/v1/admin/sso-clients/stats')
   if (res.code !== 200) throw new Error(res.message)
   return res.data!
 }

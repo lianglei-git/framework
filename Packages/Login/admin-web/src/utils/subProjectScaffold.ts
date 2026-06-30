@@ -82,26 +82,29 @@ export function slugProjectName(name: string): string {
 export function scaffoldConfigFromSSOClient(client: {
   id: string
   name: string
+  app_id?: string
   description?: string
   redirect_uris: string
   grant_types: string
   response_types: string
   scope: string
+  frontend_port?: number
+  bff_port?: number
   auto_approve: boolean
 }, extra?: Partial<SubProjectScaffoldConfig> & { clientSecret?: string }): SubProjectScaffoldConfig {
   const uris = parseJsonArray(client.redirect_uris)
   const redirectUri = uris[0] || 'http://localhost:5176'
-  const frontendPort = parseRedirectPort(redirectUri)
+  const frontendPort = client.frontend_port || parseRedirectPort(redirectUri)
   const projectName = slugProjectName(client.name)
   return syncDerivedUrls(
     defaultScaffoldConfig({
       projectName,
       displayName: client.name,
-      appId: `sso_${projectName}`,
+      appId: client.app_id || `sso_${projectName}`,
       clientId: client.id,
       clientSecret: extra?.clientSecret ?? '',
       frontendPort,
-      bffPort: inferBffPort(frontendPort),
+      bffPort: client.bff_port || inferBffPort(frontendPort),
       redirectUri,
       description: client.description || '',
       allowedScopes: parseJsonArray(client.scope).length
