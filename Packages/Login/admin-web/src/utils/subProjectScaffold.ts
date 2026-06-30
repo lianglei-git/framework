@@ -28,6 +28,18 @@ export interface SavedSubProject {
 }
 
 const STORAGE_KEY = 'admin_subproject_scaffolds'
+
+/** HTTP 等非安全上下文下 crypto.randomUUID 不可用 */
+function createRecordId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === 'x' ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
 export const SCAFFOLD_NAV_LOAD_KEY = 'admin_scaffold_load_id'
 
 function parseJsonArray(str: string): string[] {
@@ -174,7 +186,7 @@ export function saveSubProject(config: SubProjectScaffoldConfig, id?: string): S
     }
   }
   const record: SavedSubProject = {
-    id: crypto.randomUUID(),
+    id: createRecordId(),
     createdAt: now,
     updatedAt: now,
     config: normalized,
