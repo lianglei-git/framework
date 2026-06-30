@@ -1,6 +1,6 @@
 import { makeAutoObservable } from "mobx"
 import { User, UserRole, type SSOSession, type SSOUser } from '../types'
-import { authApi, userApi } from '../services/api'
+import { authApi, userApi } from '../core'
 import { storageManager } from "../utils"
 import { storage } from '../utils/storage'
 import { clearOriginAppUri } from '../utils/ssoOriginRedirect'

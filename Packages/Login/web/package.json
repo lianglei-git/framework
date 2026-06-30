@@ -9,7 +9,9 @@
     ".": "./src/index.ts",
     "./core": "./src/core/index.ts",
     "./sso": "./src/sso/index.ts",
-    "./ui": "./src/ui/index.ts"
+    "./ui": "./src/ui/index.ts",
+    "./hooks": "./src/hooks/index.ts",
+    "./utils": "./src/utils/index.ts"
   },
   "scripts": {
     "start": "vite --host --config vite.config.dev.ts",

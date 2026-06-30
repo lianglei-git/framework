@@ -29,6 +29,9 @@ import {
 import { SSOTokenManager } from './tokenManager'
 import { SSOSessionManager } from './sessionManager'
 import { SSOError, createDefaultSSOConfig, getSSOConfig, setSSOConfig } from './config'
+import { extractConfigFromURL } from './urlConfig'
+import { generatePKCE, generateOAuthState } from './pkce'
+import { applyDiscoveryEndpoints, resolveOAuthEndpoint as resolveOAuthEndpointUrl } from './oauthEndpoints'
 
 export class SSOService extends ApiService {
     private config: SSOConfig
@@ -50,13 +53,13 @@ export class SSOService extends ApiService {
         // 如果没有提供配置，尝试从URL参数中获取
         // 配置应该融合，url配置权限更高。
 
-        const extrace = SSOService.extractConfigFromURL();
-        const finalConfig = config;
+        const extrace = extractConfigFromURL();
+        const finalConfig = { ...config };
 
-        for (let k in extrace) {
-            if (extrace[k]) {
-                console.log("警告： 字段【", k, "】将由", finalConfig[k], "被替换为: ", extrace[k],)
-                finalConfig[k] = extrace[k]
+        for (const k of Object.keys(extrace) as (keyof SSOConfig)[]) {
+            const v = extrace[k];
+            if (v !== undefined && v !== null && v !== '') {
+                (finalConfig as Record<string, unknown>)[k as string] = v;
             }
         }
         super(finalConfig.ssoServerUrl)
@@ -93,57 +96,10 @@ export class SSOService extends ApiService {
     }
 
     /**
-     * 从URL参数中提取SSO配置
-     * 用于支持外部应用通过URL跳转进入的场景
+     * 从URL参数中提取SSO配置 — 见 urlConfig.ts
      */
-    private static extractConfigFromURL(): Partial<SSOConfig> {
-        const urlParams = new URLSearchParams(window.location.search)
-
-        // 子应用经 IdP 转到登录中心：redirect_uri 是完整 authorize URL，不能写入 SSO 配置
-        if (urlParams.get('app_origin') === 'true') {
-            return {
-                additionalParams: Object.fromEntries(urlParams.entries()),
-            }
-        }
-
-        // 尝试获取issuer（发行者标识）
-        const issuer = urlParams.get('issuer')
-
-        // 获取客户端信息
-        const clientId = urlParams.get('client_id')
-        const appId = urlParams.get('app_id')
-        const redirectUri = urlParams.get('redirect_uri')
-
-        // 获取响应类型
-        const responseType = urlParams.get('response_type')
-
-        // 获取作用域
-        const scopeParam = urlParams.get('scope') || ""
-        const scope = scopeParam.split(' ').filter(s => s.trim())
-
-        // 获取状态参数
-        const state = urlParams.get('state')
-
-        // 检查是否是回调模式
-        const isCallbackMode = urlParams.has('code') || urlParams.has('error')
-
-        return {
-            ssoServerUrl: issuer,
-            clientId: clientId,
-            clientSecret: '', // 通常不需要客户端密钥
-            redirectUri: redirectUri,
-            scope: scope,
-            responseType: responseType as 'code' | 'token' | 'id_token',
-            grantType: 'authorization_code',
-            sessionTimeout: 3600,
-            autoRefresh: true,
-            storageType: StorageType.LOCAL,
-            cookieSameSite: 'lax',
-            // 存储原始URL参数用于回调处理
-            additionalParams: Object.fromEntries(urlParams.entries()),
-            state: state || undefined,
-            appId
-        } as Partial<SSOConfig>
+    private resolveOAuthEndpoint(pathOrUrl?: string, fallback = '/api/v1/auth/oauth/token'): string {
+        return resolveOAuthEndpointUrl(this.config.ssoServerUrl, pathOrUrl || this.config.tokenEndpoint, this.isSubProjectApp(), fallback)
     }
 
     /**
@@ -169,7 +125,7 @@ export class SSOService extends ApiService {
             redirect_uri: this.config.redirectUri,
             response_type: this.config.responseType || 'code',
             scope: this.config.scope || ['openid', 'profile'],
-            state: this.config.state || this.generateState(),
+            state: this.config.state || generateOAuthState(),
             // 其他URL参数
             ...this.config.additionalParams
         }
@@ -198,7 +154,7 @@ export class SSOService extends ApiService {
 
             // 加载服务发现文档
             const discovery = await this.loadDiscoveryDocument()
-            this.updateEndpointsFromDiscovery(discovery)
+            applyDiscoveryEndpoints(this.config, discovery, this.isSubProjectApp())
 
             // 加载支持的提供商
             await this.loadProviders()
@@ -296,59 +252,6 @@ export class SSOService extends ApiService {
                 claims_supported: ['sub', 'name', 'email', 'profile', 'picture']
             }
         }
-    }
-
-    /**
-     * 子项目只能走 BFF（ssoServerUrl）换 token；IdP discovery 里的 8080 地址不可用
-     */
-    private discoveryEndpointAllowed(url?: string): boolean {
-        if (!url) return false
-        if (!this.isSubProjectApp()) return true
-        try {
-            const epOrigin = new URL(url).origin
-            const bffOrigin = new URL(this.config.ssoServerUrl).origin
-            return epOrigin === bffOrigin
-        } catch {
-            return false
-        }
-    }
-
-    /**
-     * 从发现文档更新端点配置
-     */
-    private updateEndpointsFromDiscovery(discovery: SSODiscoveryDocument): void {
-        if (discovery.token_endpoint && this.discoveryEndpointAllowed(discovery.token_endpoint)) {
-            this.config.tokenEndpoint = discovery.token_endpoint
-        }
-        if (discovery.userinfo_endpoint && this.discoveryEndpointAllowed(discovery.userinfo_endpoint)) {
-            this.config.userInfoEndpoint = discovery.userinfo_endpoint
-        }
-        if (discovery.end_session_endpoint && this.discoveryEndpointAllowed(discovery.end_session_endpoint)) {
-            this.config.logoutEndpoint = discovery.end_session_endpoint
-        }
-        if (discovery.check_session_iframe && this.discoveryEndpointAllowed(discovery.check_session_iframe)) {
-            this.config.checkSessionEndpoint = discovery.check_session_iframe
-        }
-    }
-
-    /** 解析 OAuth 端点（支持相对路径或 discovery 返回的绝对 URL） */
-    private resolveOAuthEndpoint(pathOrUrl?: string, fallback = '/api/v1/auth/oauth/token'): string {
-        let ep = pathOrUrl || fallback
-        if (this.isSubProjectApp() && /^https?:\/\//i.test(ep)) {
-            try {
-                if (new URL(ep).origin !== new URL(this.config.ssoServerUrl).origin) {
-                    ep = fallback
-                }
-            } catch {
-                ep = fallback
-            }
-        }
-        if (/^https?:\/\//i.test(ep)) {
-            return ep
-        }
-        const base = (this.config.ssoServerUrl || '').replace(/\/$/, '')
-        const path = ep.startsWith('/') ? ep : `/${ep}`
-        return `${base}${path}`
     }
 
     /**
@@ -699,7 +602,7 @@ export class SSOService extends ApiService {
 
         // 构建URL参数
         const params: Record<string, string> = {
-            state: this.generateState(),
+            state: generateOAuthState(),
         }
 
         // 添加可选参数
@@ -728,7 +631,7 @@ export class SSOService extends ApiService {
 
         if (shouldUsePKCE) {
             // 自动生成PKCE参数（使用S256方法，这是GitHub等服务支持的标准方法）
-            const pkceParams = await this.generatePKCE()
+            const pkceParams = await generatePKCE()
             console.log('🔐 自动生成PKCE参数:', {
                 code_challenge: pkceParams.code_challenge,
                 code_challenge_method: 'S256',
@@ -779,102 +682,6 @@ export class SSOService extends ApiService {
 
     //     return `${this.baseURL}/api/v1/auth/oauth/authorize?${params.toString()}`
     // }
-
-    /**
-     * 生成PKCE参数
-     */
-    private async generatePKCE(): Promise<{ code_verifier: string; code_challenge: string }> {
-        // 生成code_verifier (43-128字符的随机字符串)
-        const codeVerifier = this.generateRandomString(128)
-
-        // 生成code_challenge (SHA256哈希并进行Base64URL编码)
-        const codeChallenge = this.base64URLEncode(await this.sha256Sync(codeVerifier))
-
-        return {
-            code_verifier: codeVerifier,
-            code_challenge: codeChallenge
-        }
-    }
-
-    /**
-     * SHA256哈希 (同步版本)
-     */
-    private async sha256Sync(message: string): Promise<ArrayBuffer> {
-        // 使用Web Crypto API进行真正的SHA256哈希
-        const msgBuffer = new TextEncoder().encode(message)
-        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer)
-
-        // 确保返回正确的ArrayBuffer
-        if (hashBuffer instanceof ArrayBuffer) {
-            return hashBuffer
-        } else {
-            // 某些环境下返回Promise，需要特殊处理
-            throw new Error('SHA256 digest should return ArrayBuffer')
-        }
-    }
-
-    /**
-     * 生成随机字符串（符合PKCE规范）
-     * 按照RFC 7636规范，只使用安全的URL字符
-     */
-    private generateRandomString(length: number): string {
-        const array = new Uint8Array(length)
-        crypto.getRandomValues(array)
-
-        // 按照RFC 7636规范，code_verifier只能包含：
-        // A-Z, a-z, 0-9, -, ., _, ~
-        const allowedChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~'
-        let result = ''
-
-        for (let i = 0; i < length; i++) {
-            // 将随机字节映射到允许的字符集
-            const byte = array[i] % allowedChars.length
-            result += allowedChars.charAt(byte)
-        }
-
-        return result
-    }
-
-    /**
-     * SHA256哈希
-     */
-    private async sha256(message: string): Promise<ArrayBuffer> {
-        const msgBuffer = new TextEncoder().encode(message)
-        return crypto.subtle.digest('SHA-256', msgBuffer)
-    }
-
-    /**
-     * Base64URL编码
-     * 确保正确处理ArrayBuffer并生成43字符的code_challenge
-     */
-    private base64URLEncode(buffer: ArrayBuffer): string {
-        // 确保buffer是ArrayBuffer
-        const uint8Array = new Uint8Array(buffer)
-
-        // 转换为base64
-        let binaryString = ''
-        for (let i = 0; i < uint8Array.length; i++) {
-            binaryString += String.fromCharCode(uint8Array[i])
-        }
-        const base64 = btoa(binaryString)
-
-        // Base64URL编码（替换+和/为-和_，移除=）
-        const base64url = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
-
-        // 验证长度（SHA256应该产生32字节的哈希，base64编码后应该是43字符）
-        if (base64url.length !== 43) {
-            console.warn(`PKCE code_challenge长度异常: ${base64url.length}, 期望43字符`)
-        }
-
-        return base64url
-    }
-
-    /**
-     * 生成状态参数
-     */
-    private generateState(): string {
-        return Math.random().toString(36).substring(2) + Date.now().toString(36)
-    }
 
     /**
      * 处理OAuth回调

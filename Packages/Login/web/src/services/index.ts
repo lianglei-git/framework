@@ -1,4 +1,11 @@
-// API服务
+// API 与 SSO 服务（re-export from core/sso）
 export { ApiService, AuthApiService, UserApiService, authApi, userApi } from '../core'
-export { SSOService, SSOTokenManager, SSOSessionManager, SSOError, createDefaultSSOConfig, getSSOConfig, setSSOConfig } from '../sso'
-export { SSOConfigManager, ssoConfigManager } from './ssoConfig'
+export {
+    SSOService,
+    SSOTokenManager,
+    SSOSessionManager,
+    SSOError,
+    createDefaultSSOConfig,
+    getSSOConfig,
+    setSSOConfig,
+} from '../sso'

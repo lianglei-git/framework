@@ -14,11 +14,9 @@ export * from './hooks'
 export * from './components/common'
 
 // 页面组件
-export { LoginForm } from './components/LoginForm'
 export { LoginPage, Login } from './ui/LoginPage'
 export { AuthLogin } from './components/auth/AuthLogin'
 export { AuthRegister } from './components/auth/AuthRegister'
-export { ThirdPartyLogin } from './components/auth/ThirdPartyLogin'
 export { TermsOfService } from './components/legal/TermsOfService'
 export { PrivacyPolicy } from './components/legal/PrivacyPolicy'
 

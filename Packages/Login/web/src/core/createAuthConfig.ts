@@ -8,8 +8,14 @@ export type AuthConfigInput = Partial<SSOConfig> & Partial<SubProjectConfig>
  * 合并环境变量、默认 SSO 配置与运行时 override（URL 参数优先级更高）
  */
 export function createAuthConfig(overrides: AuthConfigInput = {}): SSOConfig {
-    const base = createDefaultSSOConfig()
-    const merged: SSOConfig = { ...base, ...overrides }
+    const defaults = createDefaultSSOConfig()
+    const previous = getSSOConfig()
+    // 保留子项目 sso.ts 等已写入的全局配置，避免 useAuth 二次 createAuthConfig() 冲掉
+    const merged: SSOConfig = {
+        ...defaults,
+        ...(previous?.ssoServerUrl ? previous : {}),
+        ...overrides,
+    }
 
     if (overrides.allowedScopes?.length) {
         merged.scope = overrides.allowedScopes

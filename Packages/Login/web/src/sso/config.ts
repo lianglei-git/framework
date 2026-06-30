@@ -28,12 +28,16 @@ export class SSOError extends Error {
  * 创建默认SSO配置
  */
 export function createDefaultSSOConfig(): SSOConfig {
+    const ssoServerUrl =
+        import.meta.env.VITE_SSO_SERVER_URL ||
+        (import.meta.env.DEV ? 'http://localhost:8080' : '')
+    const redirectUri =
+        import.meta.env.VITE_SSO_REDIRECT_URI ||
+        (typeof window !== 'undefined' ? window.location.origin : '')
+
     return {
-        ssoServerUrl: import.meta.env.VITE_SSO_SERVER_URL,
-        // clientId: 'your-client-id',
-        // clientSecret: 'your-client-secret',
-        // redirectUri: window.location.origin + '/auth/callback',
-        redirectUri: import.meta.env.VITE_SSO_REDIRECT_URI,
+        ssoServerUrl,
+        redirectUri,
         scope: ['openid', 'profile', 'email'],
         responseType: 'code',
         // 默认应用ID

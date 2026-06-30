@@ -15,12 +15,6 @@ import './LoginPage.less'
 // 页面加载时立即保存回跳地址（早于 SSO 初始化，避免竞态丢失）
 saveOriginAppUriFromUrl()
 
-const urlParams = new URLSearchParams(window.location.search)
-const githubAccessCode = urlParams.get('code')
-const githubState = urlParams.get('state')
-let githubAccess = window.localStorage.getItem('github_access')
-let isGithubAccess = !!(githubAccessCode && githubAccess)
-
 const getSessionFromCookies = (): { sessionId: string | null; appId: string | null } => {
     try {
         const cookies = document.cookie.split(';').map(cookie => cookie.trim())
@@ -143,7 +137,6 @@ export const LoginPage: React.FC = observer(() => {
                             <AuthLogin
                                 onSwitchToRegister={() => setMode('register')}
                                 onForgotPassword={() => setMode('forgot-password')}
-                                onOpenThirdparty={() => {}}
                                 ssoService={auth.ssoService}
                                 ssoProviders={auth.ssoProviders ?? []}
                                 onSSOLogin={handleSSOLogin}

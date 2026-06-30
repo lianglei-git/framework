@@ -9,7 +9,7 @@ import {
     type PhoneResetPasswordRequest,
     type unifiedNormalLocalLoginRequest,
 } from '../types'
-import { authApi, userApi } from '../services/api'
+import { authApi, userApi, createAuthConfig } from '../core'
 import { storage } from '../utils/storage'
 import { clearOriginAppUri } from '../utils/ssoOriginRedirect'
 import { formatAuthError, isUnauthorizedError } from '../utils/authError'
@@ -23,7 +23,7 @@ import {
     type OAuthLoadingInfo,
 } from '../utils/oauthLoading'
 import { globalUserStore } from '../stores/UserStore'
-import { SSOService, getSSOConfig } from '../services/sso'
+import { SSOService } from '../sso'
 
 
 export const storageKeys = {
@@ -38,7 +38,7 @@ const useSSOService = () => {
     useEffect(() => {
         const init = async () => {
             try {
-                const ssoConfig = getSSOConfig()
+                const ssoConfig = createAuthConfig()
                 const service = await SSOService.getInstance(ssoConfig)
                 const providers = service.getProviders()
                 setSSOProviders(providers)

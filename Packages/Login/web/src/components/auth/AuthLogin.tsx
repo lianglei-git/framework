@@ -10,7 +10,7 @@ import {
     VerificationType,
     validateLoginAccount,
 } from '../../'
-import { getOAuthURLAPI } from '../../services/api'
+import { getOAuthURLAPI } from '../../core'
 
 import { RiGithubFill, RiGoogleFill, RiUserFill, RiWechatFill } from 'react-icons/ri'
 import { handleSSOCallbackResult } from '../../utils/handleSSOCallbackResult'
@@ -20,7 +20,6 @@ import { pickSocialProviders } from '../../sso/socialProviders'
 interface AuthLoginProps {
     onSwitchToRegister: () => void
     onForgotPassword: () => void
-    onOpenThirdparty: () => void
     ssoService?: any
     ssoProviders?: any[]
     onSSOLogin?: (provider: string) => void
@@ -29,7 +28,6 @@ interface AuthLoginProps {
 const AuthLogin: React.FC<AuthLoginProps> = ({
     onSwitchToRegister,
     onForgotPassword,
-    onOpenThirdparty,
     ssoService,
     ssoProviders = [],
     onSSOLogin

@@ -112,7 +112,7 @@ export class AuthApiService extends ApiService {
             device_id: deviceId  // 添加设备ID
         }
 
-        const response = await this.post<SSOToken>(`${this.ssoConfig!.ssoServerUrl}/oauth/token`, tokenData, {
+        const response = await this.post<SSOToken>(`${this.ssoConfig!.ssoServerUrl}/api/v1/auth/oauth/token`, tokenData, {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
             }
@@ -161,7 +161,7 @@ export class AuthApiService extends ApiService {
             state: request.state
         }
 
-        const response = await this.post<SSOToken>(`${this.ssoConfig.ssoServerUrl}/oauth/token`, tokenData, {
+        const response = await this.post<SSOToken>(`${this.ssoConfig.ssoServerUrl}/api/v1/auth/oauth/token`, tokenData, {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
             }

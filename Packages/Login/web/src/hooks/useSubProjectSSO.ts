@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { setSSOConfig, SSOService } from '../services/sso'
+import { setSSOConfig, SSOService } from '../sso'
+import { createAuthConfig } from '../core'
 import { getSubProjectConfig, SubProjectConfig } from '../config/subproject-integration'
 import { type SSOToken, type SSOUser, type SSOSession, StorageType } from '../types'
 import {useAuth, useAuthEvents} from "./useAuth"
@@ -107,30 +108,11 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
             setIsLoading(true)
             setError(null)
 
-            // // 获取子项目配置
-            // let subProjectConfig = null
-            // if (subProjectId) {
-            //     subProjectConfig = getSubProjectConfig(subProjectId)
-            // }
+            if (subProjectId || customConfig) {
+                createAuthConfig(finalConfig as any)
+            }
 
-            // if (!subProjectConfig && !customConfig) {
-            //     throw new Error('必须提供子项目ID或自定义配置')
-            // }
-
-            // // 合并配置
-            // const finalConfig = {
-            //     ...subProjectConfig,
-            //     ...customConfig
-            // } as SubProjectConfig
-
-            // 创建SSO服务实例
-            // await service.initialize()
-            // ssoService.setCurrentProvider('local')
-
-            // setSsoService(service)
-            // setConfig(finalConfig)
             setIsInitialized(true)
-
             console.log('子项目SSO服务初始化完成', { subProjectId, config: finalConfig })
 
         } catch (err: any) {
