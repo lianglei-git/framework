@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"regexp"
 	"unit-auth/config"
 
@@ -147,6 +148,7 @@ func InitDB() (*gorm.DB, error) {
 	}
 
 	seedDefaultAdminUser(db)
+	upgradeWeakDefaultAdminPassword(db)
 	seedSubprojectSSOClients(db)
 
 	// 创建跨项目统计视图
@@ -178,10 +180,23 @@ func InitDB() (*gorm.DB, error) {
 	return db, nil
 }
 
-// seedDefaultAdminUser 首次初始化时创建默认超级管理员（用户名/密码均为 zayne）
+const defaultAdminUsername = "zayne"
+
+// defaultAdminInitialPassword 开发环境默认管理员初始密码（可通过 ADMIN_INITIAL_PASSWORD 覆盖）
+func defaultAdminInitialPassword() string {
+	if p := os.Getenv("ADMIN_INITIAL_PASSWORD"); p != "" {
+		return p
+	}
+	return "Sparrow@Admin2026"
+}
+
+// seedDefaultAdminUser 首次初始化时创建默认超级管理员
 func seedDefaultAdminUser(db *gorm.DB) {
-	const username = "zayne"
-	const password = "zayne"
+	username := os.Getenv("ADMIN_USERNAME")
+	if username == "" {
+		username = defaultAdminUsername
+	}
+	password := defaultAdminInitialPassword()
 
 	var cnt int64
 	db.Model(&User{}).Where("username = ?", username).Count(&cnt)
@@ -189,7 +204,7 @@ func seedDefaultAdminUser(db *gorm.DB) {
 		return
 	}
 
-	email := "zayne@local"
+	email := username + "@local"
 	user := &User{
 		Email:         &email,
 		Username:      username,
@@ -207,7 +222,34 @@ func seedDefaultAdminUser(db *gorm.DB) {
 		log.Printf("Warning: failed to seed default admin user: %v", err)
 		return
 	}
-	log.Printf("Default admin user '%s' seeded (login with username or email)", username)
+	log.Printf("Default admin user '%s' seeded (password from ADMIN_INITIAL_PASSWORD or built-in dev default)", username)
+}
+
+// upgradeWeakDefaultAdminPassword 将仍为弱口令 zayne 的默认管理员升级为强口令（仅执行一次）
+func upgradeWeakDefaultAdminPassword(db *gorm.DB) {
+	username := os.Getenv("ADMIN_USERNAME")
+	if username == "" {
+		username = defaultAdminUsername
+	}
+
+	var user User
+	if err := db.Where("username = ? AND role = ?", username, "admin").First(&user).Error; err != nil {
+		return
+	}
+	if !user.CheckPassword("zayne") {
+		return
+	}
+
+	user.Password = defaultAdminInitialPassword()
+	if err := user.HashPassword(); err != nil {
+		log.Printf("Warning: failed to upgrade weak admin password: %v", err)
+		return
+	}
+	if err := db.Model(&user).Update("password", user.Password).Error; err != nil {
+		log.Printf("Warning: failed to save upgraded admin password: %v", err)
+		return
+	}
+	log.Printf("Admin user '%s' password upgraded from weak default; set ADMIN_INITIAL_PASSWORD in .env for custom value", username)
 }
 
 // seedSubprojectSSOClients 种子数据：a_sso / b_sso 联调客户端（固定 ID 与 secret，便于本地 BFF 配置）

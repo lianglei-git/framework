@@ -180,6 +180,8 @@ export interface SSOClientCreateRequest {
   frontend_port?: number
   bff_port?: number
   auto_approve?: boolean
+  /** 留空则服务端随机生成；仅在创建成功弹窗展示一次 */
+  secret?: string
 }
 
 export interface SSOClientUpdateRequest {

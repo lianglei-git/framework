@@ -2,6 +2,10 @@
 # W-92: Cross-app SSO — session cookie + B session-check / silent authorize
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/admin-credentials.sh
+source "$ROOT/scripts/lib/admin-credentials.sh"
+
 BASE="${BASE_URL:-http://localhost:8080}"
 BFF_A="${BFF_A_URL:-http://localhost:5555}"
 BFF_B="${BFF_B_URL:-http://localhost:5556}"
@@ -14,7 +18,7 @@ fail() { echo "  FAIL $1 — $2"; FAIL=$((FAIL + 1)); }
 echo "==> W-92-01 Login and obtain session_id"
 LOGIN=$(curl -s -X POST "$BASE/api/v1/auth/oauth-login" \
   -H "Content-Type: application/json" \
-  -d '{"provider":"local","username":"zayne","password":"zayne"}')
+  -d "{\"provider\":\"local\",\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASS\"}")
 SESSION_ID=$(echo "$LOGIN" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))")
 [[ -n "$SESSION_ID" ]] && pass "session_id from login" || fail "session_id" "$LOGIN"
 

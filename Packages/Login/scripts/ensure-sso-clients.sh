@@ -2,9 +2,11 @@
 # Ensure SSO clients for a_sso / b_sso have correct redirect URIs
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/admin-credentials.sh
+source "$ROOT/scripts/lib/admin-credentials.sh"
+
 BASE="${BASE_URL:-http://localhost:8080}"
-ADMIN_USER="${ADMIN_USER:-zayne}"
-ADMIN_PASS="${ADMIN_PASS:-zayne}"
 
 login() {
   curl -s -X POST "$BASE/api/v1/auth/oauth-login" \

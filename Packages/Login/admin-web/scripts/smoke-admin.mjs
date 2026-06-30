@@ -2,12 +2,12 @@
 /**
  * Admin API 冒烟测试脚本
  * 用法: node scripts/smoke-admin.mjs [username] [password]
- * 默认账号: zayne / zayne
+ * 默认账号: ADMIN_USER / ADMIN_PASS 环境变量，或 Sparrow@Admin2026
  */
 
 const BASE_URL = process.env.VITE_API_BASE_URL || 'http://localhost:8080'
-const USERNAME = process.argv[2] || 'zayne'
-const PASSWORD = process.argv[3] || 'zayne'
+const USERNAME = process.argv[2] || process.env.ADMIN_USER || process.env.ADMIN_USERNAME || 'zayne'
+const PASSWORD = process.argv[3] || process.env.ADMIN_PASS || process.env.ADMIN_INITIAL_PASSWORD || 'Sparrow@Admin2026'
 
 let accessToken = ''
 

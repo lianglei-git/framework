@@ -2,6 +2,10 @@
 # Packages/Login cross-module tests (plan section X)
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/admin-credentials.sh
+source "$ROOT/scripts/lib/admin-credentials.sh"
+
 BASE="${BASE_URL:-http://localhost:8080}"
 PASS=0
 FAIL=0
@@ -28,7 +32,7 @@ section "X-02 3040 vs 3033 token isolation (different storage keys)"
 # Admin token from separate login
 ADMIN_LOGIN=$(curl -s -X POST "$BASE/api/v1/auth/oauth-login" \
   -H "Content-Type: application/json" \
-  -d '{"provider":"local","username":"zayne","password":"zayne"}')
+  -d "{\"provider\":\"local\",\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASS\"}")
 ADMIN_TOKEN=$(echo "$ADMIN_LOGIN" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))")
 if [[ -n "$WEB_TOKEN" && -n "$ADMIN_TOKEN" ]]; then
   # Both should work independently (same user but separate client sessions)

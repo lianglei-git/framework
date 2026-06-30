@@ -120,9 +120,21 @@ export async function deleteSSOClient(id: string): Promise<void> {
   if (res.code !== 200) throw new Error(res.message)
 }
 
-export async function regenerateSSOClientSecret(id: string): Promise<SSOClient> {
-  const res = await httpClient.post<ApiResponse<SSOClient>>(
+export async function regenerateSSOClientSecret(id: string): Promise<SSOClientCreateResponse> {
+  const res = await httpClient.post<ApiResponse<SSOClientCreateResponse>>(
     `/api/v1/admin/sso-clients/${id}/regenerate-secret`
+  )
+  if (res.code !== 200) throw new Error(res.message)
+  return res.data!
+}
+
+export async function setSSOClientSecret(
+  id: string,
+  secret?: string
+): Promise<SSOClientCreateResponse> {
+  const res = await httpClient.put<ApiResponse<SSOClientCreateResponse>>(
+    `/api/v1/admin/sso-clients/${id}/secret`,
+    { secret: secret ?? '' }
   )
   if (res.code !== 200) throw new Error(res.message)
   return res.data!

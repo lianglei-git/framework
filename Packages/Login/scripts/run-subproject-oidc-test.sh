@@ -2,6 +2,10 @@
 # X-05: Sub-project OIDC chain (BFF token exchange)
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/admin-credentials.sh
+source "$ROOT/scripts/lib/admin-credentials.sh"
+
 BASE="${BASE_URL:-http://localhost:8080}"
 BFF_A="${BFF_A_URL:-http://localhost:5555}"
 PASS=0
@@ -27,7 +31,7 @@ AUTH_URL=$(echo "$AUTH_JSON" | python3 -c "import sys,json; d=json.load(sys.stdi
 echo "==> X-05-03 Login + authorize (session cookie)"
 LOGIN=$(curl -s -X POST "$BASE/api/v1/auth/oauth-login" \
   -H "Content-Type: application/json" \
-  -d '{"provider":"local","username":"zayne","password":"zayne"}')
+  -d "{\"provider\":\"local\",\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASS\"}")
 SESSION_ID=$(echo "$LOGIN" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))")
 [[ -n "$SESSION_ID" ]] && pass "local login (session_id)" || fail "local login" "$LOGIN"
 

@@ -171,9 +171,8 @@ func RegenerateSSOClientSecret(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// 获取现有客户端
-		var client models.SSOClient
-		if err := db.Where("id = ?", clientID).First(&client).Error; err != nil {
+		client, err := models.RegenerateSSOClientSecret(db, clientID)
+		if err != nil {
 			c.JSON(http.StatusNotFound, models.Response{
 				Code:    404,
 				Message: "SSO client not found",
@@ -181,23 +180,48 @@ func RegenerateSSOClientSecret(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// 生成新密钥
-		client.Secret = models.GenerateClientSecret()
+		c.JSON(http.StatusOK, models.Response{
+			Code:    200,
+			Message: "Client secret regenerated successfully. Save it now — it will not be shown again.",
+			Data:    client.ToResponseForCreate(),
+		})
+	}
+}
 
-		if err := db.Save(&client).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, models.Response{
-				Code:    500,
-				Message: "Failed to regenerate client secret: " + err.Error(),
+// SetSSOClientSecret 设置自定义客户端密钥（留空则随机生成）
+func SetSSOClientSecret(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clientID := c.Param("id")
+		if clientID == "" {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Client ID is required",
 			})
 			return
 		}
 
-		// 返回响应（不包含新密钥）
-		response := client.ToResponse()
+		var req models.SetSSOClientSecretRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid request data: " + err.Error(),
+			})
+			return
+		}
+
+		client, err := models.SetSSOClientSecret(db, clientID, &req)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: err.Error(),
+			})
+			return
+		}
+
 		c.JSON(http.StatusOK, models.Response{
 			Code:    200,
-			Message: "Client secret regenerated successfully. Please note the new secret.",
-			Data:    response,
+			Message: "Client secret updated. Save it now — it will not be shown again.",
+			Data:    client.ToResponseForCreate(),
 		})
 	}
 }

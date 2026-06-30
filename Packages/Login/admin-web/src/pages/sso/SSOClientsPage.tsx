@@ -43,8 +43,15 @@ import {
   deleteSSOClient,
   regenerateSSOClientSecret,
   getSSOClientStats,
+  setSSOClientSecret,
 } from '../../core/adminApi'
-import type { SSOClient, SSOClientCreateRequest, SSOClientUpdateRequest, SSOClientStats } from '../../types'
+import type {
+  SSOClient,
+  SSOClientCreateRequest,
+  SSOClientUpdateRequest,
+  SSOClientCreateResponse,
+  SSOClientStats,
+} from '../../types'
 import { formatAuthError } from '../../utils/authError'
 import {
   saveSubProject,
@@ -190,6 +197,16 @@ interface ClientFormValues {
   scope?: string[]
   auto_approve: boolean
   is_active?: boolean
+  /** 创建时可选自定义 secret */
+  custom_secret?: string
+}
+
+interface SecretRevealState {
+  open: boolean
+  title: string
+  secret: string
+  clientId: string
+  client?: SSOClient
 }
 
 export default function SSOClientsPage() {
@@ -206,21 +223,16 @@ export default function SSOClientsPage() {
   const [editingClient, setEditingClient] = useState<SSOClient | null>(null)
   const [form] = Form.useForm<ClientFormValues>()
   const [saveLoading, setSaveLoading] = useState(false)
+  const [setSecretModalOpen, setSetSecretModalOpen] = useState(false)
+  const [customSecretInput, setCustomSecretInput] = useState('')
+  const [setSecretLoading, setSetSecretLoading] = useState(false)
 
-  // New secret display
-  const [newSecretModal, setNewSecretModal] = useState<{
-    open: boolean
-    clientId: string
-    secret: string
-  }>({ open: false, clientId: '', secret: '' })
-
-  // Created client secret
-  const [createdSecretModal, setCreatedSecretModal] = useState<{
-    open: boolean
-    secret: string
-    clientId: string
-    client?: SSOClient
-  }>({ open: false, secret: '', clientId: '' })
+  const [secretRevealModal, setSecretRevealModal] = useState<SecretRevealState>({
+    open: false,
+    title: '',
+    secret: '',
+    clientId: '',
+  })
 
   const fetchClients = useCallback(async () => {
     setLoading(true)
@@ -241,6 +253,26 @@ export default function SSOClientsPage() {
   useEffect(() => {
     fetchClients()
   }, [fetchClients])
+
+  const showSecretOnce = (res: SSOClientCreateResponse, title: string) => {
+    if (!res?.secret) {
+      message.error(
+        '服务端未返回 client_secret。请确认 unit-auth 已重新编译并重启（go run .），然后重试。',
+      )
+      return
+    }
+    setSecretRevealModal({
+      open: true,
+      title,
+      secret: res.secret,
+      clientId: res.id,
+      client: res,
+    })
+  }
+
+  const closeSecretReveal = () => {
+    setSecretRevealModal({ open: false, title: '', secret: '', clientId: '' })
+  }
 
   const openCreateDrawer = () => {
     const nextFrontend = 5176 + clients.length
@@ -307,6 +339,7 @@ export default function SSOClientsPage() {
         .filter(Boolean)
 
       if (drawerMode === 'create') {
+        const customSecret = values.custom_secret?.trim()
         const req: SSOClientCreateRequest = {
           name: values.name,
           app_id: values.app_id?.trim(),
@@ -318,16 +351,12 @@ export default function SSOClientsPage() {
           frontend_port: values.frontend_port,
           bff_port: values.bff_port,
           auto_approve: values.auto_approve,
+          ...(customSecret ? { secret: customSecret } : {}),
         }
         const res = await createSSOClient(req)
         setDrawerOpen(false)
         fetchClients()
-        setCreatedSecretModal({
-          open: true,
-          secret: res.secret,
-          clientId: res.id,
-          client: res,
-        })
+        showSecretOnce(res, '客户端创建成功 — 请保存密钥')
       } else if (editingClient) {
         const req: SSOClientUpdateRequest = {
           name: values.name,
@@ -382,14 +411,43 @@ export default function SSOClientsPage() {
       okType: 'danger',
       onOk: async () => {
         try {
-          await regenerateSSOClientSecret(client.id)
-          message.success('密钥已重置，请通过管理员渠道获取新密钥')
+          const res = await regenerateSSOClientSecret(client.id)
           fetchClients()
+          showSecretOnce(res, '密钥已重置 — 请保存新密钥')
         } catch (err) {
           message.error(formatAuthError(err, '重置密钥失败'))
         }
       },
     })
+  }
+
+  const openSetSecretModal = () => {
+    setCustomSecretInput('')
+    setSetSecretModalOpen(true)
+  }
+
+  const handleSetCustomSecret = async () => {
+    if (!editingClient) return
+    const secret = customSecretInput.trim()
+    if (secret && secret.length < 8) {
+      message.warning('自定义密钥至少 8 个字符')
+      return
+    }
+    try {
+      setSetSecretLoading(true)
+      const res = await setSSOClientSecret(editingClient.id, secret)
+      setSetSecretModalOpen(false)
+      setDrawerOpen(false)
+      fetchClients()
+      showSecretOnce(
+        res,
+        secret ? '自定义密钥已设置 — 请保存' : '密钥已随机生成 — 请保存',
+      )
+    } catch (err) {
+      message.error(formatAuthError(err, '设置密钥失败'))
+    } finally {
+      setSetSecretLoading(false)
+    }
   }
 
   const copyToClipboard = (text: string) => {
@@ -693,7 +751,7 @@ export default function SSOClientsPage() {
               <Descriptions.Item label="auto_approve">
                 {record.auto_approve ? 'true' : 'false'}
               </Descriptions.Item>
-              <Descriptions.Item label="secret">（已隐藏，仅创建/重置时返回）</Descriptions.Item>
+              <Descriptions.Item label="secret">已设置（不可查看；创建/重置/设置时展示一次）</Descriptions.Item>
               <Descriptions.Item label="redirect_uris" span={3}>
                 <pre style={{ margin: 0, fontSize: 11, whiteSpace: 'pre-wrap' }}>
                   {JSON.stringify(parseJsonArray(record.redirect_uris), null, 2)}
@@ -815,6 +873,39 @@ export default function SSOClientsPage() {
             OAuth 参数
           </Divider>
 
+          {drawerMode === 'create' ? (
+            <Form.Item
+              name="custom_secret"
+              label="client_secret（可选）"
+              extra="留空则由服务端随机生成；创建成功后仅在弹窗展示一次，之后不可查看"
+            >
+              <Input.Password
+                placeholder="联调可填固定密钥，如 client_secret_xxx"
+                autoComplete="new-password"
+                style={{ fontFamily: 'monospace', fontSize: 12 }}
+              />
+            </Form.Item>
+          ) : (
+            <Form.Item label="client_secret">
+              <Alert
+                type="info"
+                showIcon
+                message="已设置（不可查看）"
+                description="密钥仅保存在 unit-auth 数据库，用于 BFF config.json。可重置或设置自定义密钥，新值仅在操作成功弹窗展示一次。"
+                style={{ marginBottom: 8 }}
+              />
+              <Space wrap>
+                <Button
+                  icon={<KeyOutlined />}
+                  onClick={() => editingClient && handleRegenerate(editingClient)}
+                >
+                  重置密钥（随机）
+                </Button>
+                <Button onClick={openSetSecretModal}>设置自定义密钥</Button>
+              </Space>
+            </Form.Item>
+          )}
+
           <Form.Item name="grant_types" label="授权类型 (grant_types)">
             <Select mode="multiple" placeholder="选择授权类型">
               <Select.Option value="authorization_code">authorization_code</Select.Option>
@@ -858,23 +949,23 @@ export default function SSOClientsPage() {
         </Form>
       </Drawer>
 
-      {/* Created secret modal */}
+      {/* 密钥一次性展示弹窗（创建 / 重置 / 设置自定义） */}
       <Modal
-        title="🔑 客户端创建成功 — 请保存密钥"
-        open={createdSecretModal.open}
-        onCancel={() => setCreatedSecretModal({ open: false, secret: '', clientId: '' })}
+        title={`🔑 ${secretRevealModal.title}`}
+        open={secretRevealModal.open}
+        onCancel={closeSecretReveal}
         footer={[
           <Button
             key="scaffold"
             icon={<FolderOpenOutlined />}
             onClick={() => {
               const client =
-                createdSecretModal.client ||
-                clients.find((c) => c.id === createdSecretModal.clientId)
+                secretRevealModal.client ||
+                clients.find((c) => c.id === secretRevealModal.clientId)
               if (client) {
-                goToScaffold(client, createdSecretModal.secret)
+                goToScaffold(client, secretRevealModal.secret)
               }
-              setCreatedSecretModal({ open: false, secret: '', clientId: '' })
+              closeSecretReveal()
             }}
           >
             生成脚手架
@@ -882,15 +973,11 @@ export default function SSOClientsPage() {
           <Button
             key="copy"
             icon={<CopyOutlined />}
-            onClick={() => copyToClipboard(createdSecretModal.secret)}
+            onClick={() => copyToClipboard(secretRevealModal.secret)}
           >
             复制密钥
           </Button>,
-          <Button
-            key="close"
-            type="primary"
-            onClick={() => setCreatedSecretModal({ open: false, secret: '', clientId: '' })}
-          >
+          <Button key="close" type="primary" onClick={closeSecretReveal}>
             我已保存，关闭
           </Button>,
         ]}
@@ -900,69 +987,67 @@ export default function SSOClientsPage() {
         <Alert
           type="warning"
           showIcon
-          message="密钥只显示一次，关闭后无法再次查看！"
+          message="密钥只显示一次，关闭后无法再次查看！请写入 BFF server/config.json。"
           style={{ marginBottom: 16 }}
         />
-        {createdSecretModal.client && (
+        {secretRevealModal.client && (
           <Descriptions bordered size="small" column={1} style={{ marginBottom: 16 }}>
             <Descriptions.Item label="client_id">
-              <code>{createdSecretModal.clientId}</code>
+              <code>{secretRevealModal.clientId}</code>
             </Descriptions.Item>
             <Descriptions.Item label="app_id">
-              {resolveAppId(createdSecretModal.client)}
+              {resolveAppId(secretRevealModal.client)}
             </Descriptions.Item>
             <Descriptions.Item label="前端 / BFF 端口">
-              {createdSecretModal.client.frontend_port || '—'} /{' '}
-              {createdSecretModal.client.bff_port || '—'}
+              {secretRevealModal.client.frontend_port || '—'} /{' '}
+              {secretRevealModal.client.bff_port || '—'}
             </Descriptions.Item>
             <Descriptions.Item label="redirect_uri">
-              {parseJsonArray(createdSecretModal.client.redirect_uris).join(', ') || '—'}
+              {parseJsonArray(secretRevealModal.client.redirect_uris).join(', ') || '—'}
             </Descriptions.Item>
           </Descriptions>
         )}
         <Paragraph>
-          <Text strong>client_id：</Text>
-          <br />
-          <code style={{ fontSize: 12 }}>{createdSecretModal.clientId}</code>
-        </Paragraph>
-        <Paragraph>
           <Text strong>client_secret：</Text>
-          <br />
           <div
             style={{
-              background: '#f5f5f5',
-              padding: '8px 12px',
-              borderRadius: 4,
+              background: '#fff7e6',
+              border: '1px solid #ffd591',
+              padding: '10px 12px',
+              borderRadius: 6,
               fontFamily: 'monospace',
               fontSize: 12,
               wordBreak: 'break-all',
-              marginTop: 4,
+              marginTop: 6,
             }}
           >
-            {createdSecretModal.secret}
+            {secretRevealModal.secret}
           </div>
         </Paragraph>
       </Modal>
 
-      {/* Regenerated secret info */}
+      {/* 设置自定义密钥 */}
       <Modal
-        title="密钥已重置"
-        open={newSecretModal.open}
-        onCancel={() => setNewSecretModal({ open: false, clientId: '', secret: '' })}
-        footer={[
-          <Button
-            key="close"
-            type="primary"
-            onClick={() => setNewSecretModal({ open: false, clientId: '', secret: '' })}
-          >
-            关闭
-          </Button>,
-        ]}
+        title="设置自定义 client_secret"
+        open={setSecretModalOpen}
+        onCancel={() => setSetSecretModalOpen(false)}
+        onOk={handleSetCustomSecret}
+        confirmLoading={setSecretLoading}
+        okText="保存并展示一次"
       >
         <Alert
-          type="info"
+          type="warning"
           showIcon
-          message="密钥已成功重置，请联系开发人员通过安全渠道获取新密钥。"
+          message="旧密钥将立即失效"
+          description="留空则随机生成。新密钥仅在下一步弹窗展示一次。"
+          style={{ marginBottom: 12 }}
+        />
+        <Input.Password
+          value={customSecretInput}
+          onChange={(e) => setCustomSecretInput(e.target.value)}
+          placeholder="至少 8 个字符；留空则随机生成"
+          autoComplete="new-password"
+          style={{ fontFamily: 'monospace' }}
         />
       </Modal>
     </div>

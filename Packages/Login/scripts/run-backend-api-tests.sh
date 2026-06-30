@@ -2,6 +2,10 @@
 # Packages/Login backend API test runner (plan section B)
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/admin-credentials.sh
+source "$ROOT/scripts/lib/admin-credentials.sh"
+
 BASE="${BASE_URL:-http://localhost:8080}"
 PASS=0
 FAIL=0
@@ -39,7 +43,7 @@ code=$(curl -s -o /dev/null -w "%{http_code}" -X OPTIONS "$BASE/api/v1/auth/oaut
 section "B-10 oauth-login success"
 LOGIN_JSON=$(curl -s -X POST "$BASE/api/v1/auth/oauth-login" \
   -H "Content-Type: application/json" \
-  -d '{"provider":"local","username":"zayne","password":"zayne"}')
+  -d "{\"provider\":\"local\",\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASS\"}")
 ADMIN_TOKEN=$(echo "$LOGIN_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('access_token',''))" 2>/dev/null || true)
 if [[ -n "$ADMIN_TOKEN" ]]; then
   pass "B-10"
@@ -51,7 +55,7 @@ fi
 section "B-11 wrong password"
 code=$(curl -s -o /tmp/b-bad.json -w "%{http_code}" -X POST "$BASE/api/v1/auth/oauth-login" \
   -H "Content-Type: application/json" \
-  -d '{"provider":"local","username":"zayne","password":"wrong"}')
+  -d "{\"provider\":\"local\",\"username\":\"$ADMIN_USER\",\"password\":\"wrong\"}")
 [[ "$code" == "401" ]] && pass "B-11" || fail "B-11" "status=$code expected 401"
 
 # --- B-12 unknown user ---
@@ -65,7 +69,7 @@ code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$BASE/api/v1/auth/oauth-l
 section "B-13 login by username"
 code=$(curl -s -o /tmp/b-u.json -w "%{http_code}" -X POST "$BASE/api/v1/auth/oauth-login" \
   -H "Content-Type: application/json" \
-  -d '{"provider":"local","username":"zayne","password":"zayne"}')
+  -d "{\"provider\":\"local\",\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASS\"}")
 [[ "$code" == "200" ]] && pass "B-13 username" || fail "B-13 username" "status=$code"
 
 # --- B-30 profile with RS256 token ---

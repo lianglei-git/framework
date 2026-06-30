@@ -323,6 +323,7 @@ func main() {
 			admin.PUT("/sso-clients/:id", handlers.UpdateSSOClient(db))
 			admin.DELETE("/sso-clients/:id", handlers.DeleteSSOClient(db))
 			admin.POST("/sso-clients/:id/regenerate-secret", handlers.RegenerateSSOClientSecret(db))
+			admin.PUT("/sso-clients/:id/secret", handlers.SetSSOClientSecret(db))
 			admin.GET("/sso-clients/stats", handlers.GetSSOClientStats(db))
 
 			// SSO会话管理

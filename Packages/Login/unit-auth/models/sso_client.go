@@ -117,6 +117,8 @@ type CreateSSOClientRequest struct {
 	FrontendPort  int      `json:"frontend_port"`
 	BffPort       int      `json:"bff_port"`
 	AutoApprove   bool     `json:"auto_approve"`
+	/** 可选；留空则服务端随机生成，仅在创建响应中返回一次 */
+	Secret string `json:"secret"`
 }
 
 // UpdateSSOClientRequest 更新SSO客户端请求
@@ -132,6 +134,11 @@ type UpdateSSOClientRequest struct {
 	BffPort       *int     `json:"bff_port"`
 	AutoApprove   *bool    `json:"auto_approve"`
 	IsActive      *bool    `json:"is_active"`
+}
+
+// SetSSOClientSecretRequest 设置客户端密钥（留空则随机生成）
+type SetSSOClientSecretRequest struct {
+	Secret string `json:"secret"`
 }
 
 // SSOSession SSO会话模型
@@ -425,6 +432,20 @@ func GenerateClientSecret() string {
 	return "client_secret_" + uuid.New().String()
 }
 
+func normalizeClientSecret(secret string) (string, error) {
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		return "", nil
+	}
+	if len(secret) < 8 {
+		return "", fmt.Errorf("client secret must be at least 8 characters")
+	}
+	if len(secret) > 255 {
+		return "", fmt.Errorf("client secret must be at most 255 characters")
+	}
+	return secret, nil
+}
+
 func deriveAppIDFromName(name string) string {
 	slug := strings.ToLower(name)
 	var b strings.Builder
@@ -491,6 +512,12 @@ func CreateSSOClient(db *gorm.DB, req *CreateSSOClientRequest) (*SSOClient, erro
 	}
 	if err := client.SetScope(scope); err != nil {
 		return nil, err
+	}
+
+	if customSecret, err := normalizeClientSecret(req.Secret); err != nil {
+		return nil, err
+	} else if customSecret != "" {
+		client.Secret = customSecret
 	}
 
 	if err := db.Create(client).Error; err != nil {
@@ -589,6 +616,34 @@ func UpdateSSOClient(db *gorm.DB, id string, req *UpdateSSOClientRequest) (*SSOC
 // DeleteSSOClient 删除SSO客户端
 func DeleteSSOClient(db *gorm.DB, id string) error {
 	return db.Where("id = ?", id).Delete(&SSOClient{}).Error
+}
+
+// SetSSOClientSecret 设置或轮换客户端密钥；secret 留空则随机生成
+func SetSSOClientSecret(db *gorm.DB, id string, req *SetSSOClientSecretRequest) (*SSOClient, error) {
+	var client SSOClient
+	if err := db.Where("id = ?", id).First(&client).Error; err != nil {
+		return nil, err
+	}
+
+	customSecret, err := normalizeClientSecret(req.Secret)
+	if err != nil {
+		return nil, err
+	}
+	if customSecret != "" {
+		client.Secret = customSecret
+	} else {
+		client.Secret = GenerateClientSecret()
+	}
+
+	if err := db.Save(&client).Error; err != nil {
+		return nil, err
+	}
+	return &client, nil
+}
+
+// RegenerateSSOClientSecret 随机生成新密钥
+func RegenerateSSOClientSecret(db *gorm.DB, id string) (*SSOClient, error) {
+	return SetSSOClientSecret(db, id, &SetSSOClientSecretRequest{})
 }
 
 // CreateSSOSession 创建SSO会话

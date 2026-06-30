@@ -123,6 +123,7 @@ export default function SubProjectsPage() {
           frontend_port: config.frontendPort,
           bff_port: config.bffPort,
           auto_approve: config.autoApprove,
+          ...(config.clientSecret?.trim() ? { secret: config.clientSecret.trim() } : {}),
         })
         config = {
           ...config,
