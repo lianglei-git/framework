@@ -9,6 +9,7 @@ import { ForgotPassword } from '../components/ForgotPassword'
 import { useAuth } from '../hooks/useAuth'
 import { readSsoSessionCookies } from '../utils/ssoSessionCookie'
 import { hasSubAppRedirectInUrl } from '../utils/ssoOriginRedirect'
+import { consumeSsoErrorFromUrl } from '../utils/ssoErrorHint'
 import type { LoginEntryMode } from '../routes/loginEntry'
 import './LoginPage.less'
 
@@ -20,7 +21,15 @@ export const LoginPage: React.FC<LoginPageProps> = observer(({ entryMode = 'dire
     const [mode, setMode] = useState<'login' | 'register' | 'forgot-password'>('login')
     const [showTerms, setShowTerms] = useState(false)
     const [showPrivacy, setShowPrivacy] = useState(false)
+    const [ssoErrorHint, setSsoErrorHint] = useState<string | null>(null)
     const auth = useAuth()
+
+    useEffect(() => {
+        const message = consumeSsoErrorFromUrl()
+        if (message) {
+            setSsoErrorHint(message)
+        }
+    }, [])
 
     useEffect(() => {
         if (entryMode !== 'subapp_redirect') return
@@ -82,6 +91,11 @@ export const LoginPage: React.FC<LoginPageProps> = observer(({ entryMode = 'dire
             <div className="login-card">
                 <main>
                     <h1 className="title">{mode === 'login' ? 'Sign in to your account' : '创建新账户'}</h1>
+                    {ssoErrorHint && (
+                        <p className="sso-error-hint" role="status">
+                            {ssoErrorHint}
+                        </p>
+                    )}
                     {entryMode === 'subapp_redirect' && hasSubAppRedirectInUrl(window.location.search) && (
                         <p style={{ color: '#64748b', fontSize: 14, marginBottom: 16 }}>
                             登录后将返回来源应用

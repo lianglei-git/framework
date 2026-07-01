@@ -8,6 +8,7 @@ import { globalUserStore } from '../stores/UserStore'
 import { storage } from '../utils'
 import { formatAuthError, isUnauthorizedError } from '../utils/authError'
 import { recoverFromOAuthUnauthorized } from '../utils/oauthSessionRecovery'
+import { buildLoginCenterReturnUrl } from '../utils/ssoOriginRedirect'
 export {
     setSSOConfig
 }
@@ -220,7 +221,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         const cfg = config || finalConfig
         const loginUrl = await _buildLoginUrl()
         const home = (cfg as any).ssoHomeUrl || 'http://localhost:3033'
-        const postLogout = `${home}?app_origin=true&redirect_uri=${encodeURIComponent(loginUrl)}`
+        const postLogout = buildLoginCenterReturnUrl(home, loginUrl)
 
         ssoLogout({
             post_logout_redirect_uri: postLogout,

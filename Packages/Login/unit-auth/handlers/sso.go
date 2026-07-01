@@ -390,6 +390,48 @@ func getFullURL(c *gin.Context, includeQueryString bool) string {
 	return fmt.Sprintf("%s://%s%s", scheme, host, path)
 }
 
+func loginWebURL() string {
+	u := os.Getenv("LOGIN_WEB_URL")
+	if u == "" {
+		return "http://localhost:3033"
+	}
+	return u
+}
+
+// redirectAuthorizeToLoginWeb 浏览器 authorize：清失效 cookie 后跳登录中心，保留完整 authorize URL
+func redirectAuthorizeToLoginWeb(c *gin.Context, ssoError string) {
+	utils.ClearSSOSessionCookies(c)
+	authorizeURL := getFullURL(c, true)
+	target := buildLoginCenterReturnURL(loginWebURL(), authorizeURL, ssoError)
+	log.Printf("Redirecting to login web (sso_error=%q)", ssoError)
+	c.Redirect(http.StatusFound, target)
+}
+
+// buildLoginCenterReturnURL 登录中心入口 URL（authorize_url 为 IdP authorize 完整地址，非 OAuth redirect_uri）
+func buildLoginCenterReturnURL(loginWebBase, authorizeURL, ssoError string) string {
+	q := url.Values{}
+	q.Set("app_origin", "true")
+	q.Set("authorize_url", authorizeURL)
+	if ssoError != "" {
+		q.Set("sso_error", ssoError)
+	}
+	return strings.TrimRight(loginWebBase, "/") + "/?" + q.Encode()
+}
+
+// handleAuthorizeLoginRequired session 无效或未登录：浏览器跳登录，API 场景返回 JSON
+func handleAuthorizeLoginRequired(c *gin.Context, ssoError string) {
+	if utils.WantsAuthorizeJSONResponse(c) {
+		switch ssoError {
+		case "user_not_found":
+			utils.ReturnUserNotFound(c)
+		default:
+			utils.ReturnSessionNotFound(c)
+		}
+		return
+	}
+	redirectAuthorizeToLoginWeb(c, ssoError)
+}
+
 func GetToken(c *gin.Context) string {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
@@ -476,24 +518,7 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 		sessionID = GetSessionIDFromCookie(c)
 		if sessionID == "" {
 			log.Println("No sso_session_id found in cookie, user not logged in")
-			// 保存授权请求参数到session
-			sessionData := map[string]string{
-				"client_id":             clientID,
-				"redirect_uri":          redirectURI,
-				"scope":                 scope,
-				"app_id":                appId,
-				"state":                 state,
-				"code_challenge":        codeChallenge,
-				"code_challenge_method": codeChallengeMethod,
-			}
-			// 这里应该重定向到登录页面，携带这些参数
-			log.Println("Redirecting to login page with parameters:", sessionData, getFullURL(c, true))
-			// 这里要修改为环境变量
-			loginWebURL := os.Getenv("LOGIN_WEB_URL")
-			if loginWebURL == "" {
-				loginWebURL = "http://localhost:3033"
-			}
-			c.Redirect(http.StatusFound, loginWebURL+"/?app_origin=true&redirect_uri="+url.QueryEscape(getFullURL(c, true)))
+			handleAuthorizeLoginRequired(c, "")
 			return
 		}
 
@@ -504,7 +529,7 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 		if err := db.Where("id = ? AND status = ? AND expires_at > ?",
 			sessionID, "active", time.Now()).First(&ssoSession).Error; err != nil {
 			log.Printf("Session not found or expired: %v", err)
-			utils.ReturnSessionNotFound(c)
+			handleAuthorizeLoginRequired(c, "session_not_found")
 			return
 		}
 
@@ -514,7 +539,7 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 		var user models.User
 		if err := db.Where("id = ?", ssoSession.UserID).First(&user).Error; err != nil {
 			log.Printf("User not found: %v", err)
-			utils.ReturnUserNotFound(c)
+			handleAuthorizeLoginRequired(c, "user_not_found")
 			return
 		}
 

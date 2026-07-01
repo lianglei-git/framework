@@ -42,6 +42,22 @@ if [[ "$LOC" == *"code="* ]]; then
 fi
 [[ -n "$CODE" ]] && pass "authorization code issued" || fail "authorization code" "location=$LOC"
 
+echo "==> X-05-03b Stale session cookie redirects to login web"
+STALE_LOC=$(curl -s -b "sso_session_id=invalid-stale-uuid" -D - -o /dev/null "$AUTH_URL" | awk 'tolower($1)=="location:" {print $2}' | tr -d '\r')
+if [[ "$STALE_LOC" == *"app_origin=true"* && "$STALE_LOC" == *"sso_error="* && "$STALE_LOC" == *"authorize_url="* ]]; then
+  pass "stale cookie redirects to login"
+else
+  fail "stale cookie redirect" "location=$STALE_LOC"
+fi
+
+echo "==> X-05-03c Stale session returns JSON when Accept application/json"
+STALE_JSON=$(curl -s -b "sso_session_id=invalid-stale-uuid" -H "Accept: application/json" "$AUTH_URL")
+if echo "$STALE_JSON" | grep -q 'SESSION_NOT_FOUND'; then
+  pass "stale cookie JSON error (api)"
+else
+  fail "stale cookie JSON" "$STALE_JSON"
+fi
+
 echo "==> X-05-04 Token exchange via BFF"
 if [[ -n "$CODE" ]]; then
   TOKEN_RESP=$(curl -s -X POST "$BFF_A/api/v1/auth/oauth/token" \

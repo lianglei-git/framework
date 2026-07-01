@@ -3,9 +3,10 @@ import { getSSOConfig } from "../sso/config"
 import { globalUserStore } from "../stores/UserStore"
 import { readSsoSessionCookies } from "./ssoSessionCookie"
 import {
-    consumeOriginAppUri,
     getOriginAppUri,
+    getSubAppAuthorizeUrl,
     isValidAuthorizeUrl,
+    rememberSubAppAuthorizeUrl,
     redirectToOriginAppUriIfPresent,
     resolveAuthorizeUrlForBrowser,
     saveOriginAppUriFromUrl,
@@ -55,6 +56,10 @@ function canRedirectToOriginAuthorize(opts?: SSOCallbackOptions): boolean {
     return globalUserStore.isLogin
 }
 
+export function clearAuthorizeRedirectGuard(): void {
+    sessionStorage.removeItem(REDIRECT_GUARD_KEY)
+}
+
 // 处理SSO回调结果
 export const handleSSOCallbackResult = async (opts?: SSOCallbackOptions) => {
     // 子应用已在 redirect_uri 落地并带 code：本地换 token，勿再跳 authorize
@@ -77,7 +82,7 @@ export const handleSSOCallbackResult = async (opts?: SSOCallbackOptions) => {
 
     saveOriginAppUriFromUrl()
 
-    const origin_app_uri = getOriginAppUri()
+    const origin_app_uri = getSubAppAuthorizeUrl()
     console.log("origin_app_uri::", origin_app_uri)
 
     if (!origin_app_uri) {
@@ -104,7 +109,7 @@ export const handleSSOCallbackResult = async (opts?: SSOCallbackOptions) => {
     }
 
     markRedirectAttempt(resolvedAuthorizeUrl)
-    consumeOriginAppUri()
+    rememberSubAppAuthorizeUrl(resolvedAuthorizeUrl)
     stripSubAppRedirectParamsFromUrl()
     window.location.href = resolvedAuthorizeUrl
     return true

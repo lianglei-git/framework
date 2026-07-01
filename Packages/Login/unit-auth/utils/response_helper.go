@@ -2,6 +2,7 @@ package utils
 
 import (
 	"net/http"
+	"strings"
 	"unit-auth/models"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +20,18 @@ func SetSSOSessionCookies(c *gin.Context, sessionID, appID string) {
 	if appID != "" {
 		c.SetCookie("sso_app_id", appID, ssoSessionCookieMaxAge, "/", "", false, false)
 	}
+}
+
+// ClearSSOSessionCookies 清除 IdP session cookie（失效 session 回登录前调用）
+func ClearSSOSessionCookies(c *gin.Context) {
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("sso_session_id", "", -1, "/", "", false, false)
+	c.SetCookie("sso_app_id", "", -1, "/", "", false, false)
+}
+
+// WantsAuthorizeJSONResponse 联调/API 场景显式要求 JSON 时保留错误体
+func WantsAuthorizeJSONResponse(c *gin.Context) bool {
+	return strings.Contains(c.GetHeader("Accept"), "application/json")
 }
 
 // ReturnTokenSuccess 返回标准的 Token 成功响应

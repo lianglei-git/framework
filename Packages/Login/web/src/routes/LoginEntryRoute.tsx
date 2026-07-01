@@ -3,13 +3,16 @@ import { observer } from 'mobx-react-lite'
 import { useNavigate } from 'react-router-dom'
 import { LoginPage } from '../ui/LoginPage'
 import { useAuth } from '../hooks/useAuth'
-import { handleSSOCallbackResult } from '../utils/handleSSOCallbackResult'
+import { clearAuthorizeRedirectGuard, handleSSOCallbackResult } from '../utils/handleSSOCallbackResult'
 import {
     getLoginEntryMode,
     hasSubAppRedirectContext,
     routeAuthenticatedEntry,
     syncLoginEntryContext,
 } from './loginEntry'
+import { getSubAppAuthorizeUrl, rememberSubAppAuthorizeUrl } from '../utils/ssoOriginRedirect'
+import { clearSsoSessionCookies } from '../utils/ssoSessionCookie'
+import { globalUserStore } from '../stores/UserStore'
 import styles from './LoginEntryRoute.module.less'
 
 /**
@@ -28,6 +31,23 @@ export const LoginEntryRoute: React.FC = observer(() => {
         routeAuthenticatedEntry(navigate)
     }, [auth.isAuthenticated, navigate])
 
+    const handleReturnToApp = async () => {
+        clearAuthorizeRedirectGuard()
+        const ok = await handleSSOCallbackResult({ afterLogin: true })
+        if (!ok) setRedirectBlocked(true)
+    }
+
+    const handleRelogin = () => {
+        const origin = getSubAppAuthorizeUrl()
+        clearAuthorizeRedirectGuard()
+        clearSsoSessionCookies()
+        globalUserStore.clearAuthTokensOnly()
+        if (origin) {
+            rememberSubAppAuthorizeUrl(origin)
+        }
+        setRedirectBlocked(false)
+    }
+
     if (auth.loadingInfos?.status === 'loading') {
         return <LoginPage />
     }
@@ -38,18 +58,26 @@ export const LoginEntryRoute: React.FC = observer(() => {
                 <div className={styles.card}>
                     <h2>登录成功</h2>
                     <p>正在返回子应用，若未自动跳转请点击下方按钮。</p>
-                    <button
-                        type="button"
-                        className={styles.primary}
-                        onClick={async () => {
-                            const ok = await handleSSOCallbackResult({ afterLogin: true })
-                            if (!ok) setRedirectBlocked(true)
-                        }}
-                    >
-                        返回应用
-                    </button>
+                    <div className={styles.actions}>
+                        <button
+                            type="button"
+                            className={styles.primary}
+                            onClick={() => void handleReturnToApp()}
+                        >
+                            返回应用
+                        </button>
+                        <button
+                            type="button"
+                            className={styles.secondary}
+                            onClick={handleRelogin}
+                        >
+                            重新登录
+                        </button>
+                    </div>
                     {redirectBlocked && (
-                        <p className={styles.warn}>自动回跳已暂停，请稍后重试或联系管理员检查 SSO 配置。</p>
+                        <p className={styles.warn}>
+                            未能自动返回子应用，请重试「返回应用」或点击「重新登录」后再次输入账号密码。
+                        </p>
                     )}
                 </div>
             </div>
