@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unit-auth/config"
 	"unit-auth/models"
@@ -134,6 +135,7 @@ func RateLimit() gin.HandlerFunc {
 	}
 	skipLocalhost := os.Getenv("RATE_LIMIT_SKIP_LOCALHOST") != "false"
 
+	var mu sync.Mutex
 	requests := make(map[string][]time.Time)
 
 	return func(c *gin.Context) {
@@ -145,6 +147,7 @@ func RateLimit() gin.HandlerFunc {
 
 		now := time.Now()
 
+		mu.Lock()
 		if times, exists := requests[ip]; exists {
 			var validTimes []time.Time
 			for _, t := range times {
@@ -156,6 +159,7 @@ func RateLimit() gin.HandlerFunc {
 		}
 
 		if len(requests[ip]) >= maxRequests {
+			mu.Unlock()
 			c.JSON(http.StatusTooManyRequests, gin.H{
 				"code":    429,
 				"message": "Rate limit exceeded",
@@ -165,6 +169,7 @@ func RateLimit() gin.HandlerFunc {
 		}
 
 		requests[ip] = append(requests[ip], now)
+		mu.Unlock()
 		c.Next()
 	}
 }
