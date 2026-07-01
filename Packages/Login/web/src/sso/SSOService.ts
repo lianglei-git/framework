@@ -33,7 +33,12 @@ import { extractConfigFromURL } from './urlConfig'
 import { generatePKCE, generateOAuthState } from './pkce'
 import { applyDiscoveryEndpoints, resolveOAuthEndpoint as resolveOAuthEndpointUrl } from './oauthEndpoints'
 import { beginAuthorizeAttempt, getAuthorizeEpoch, isAuthorizeAttemptStale } from './oauthAuthorizeGuard'
-import { clearPkceState, readPkceState, storePkceState, verifyOAuthState } from './oauthState'
+import {
+    clearPkceBundle,
+    commitPkceBundle,
+    readPkceState,
+    validatePkceCallback,
+} from './oauthState'
 
 export class SSOService extends ApiService {
     private config: SSOConfig
@@ -635,6 +640,7 @@ export class SSOService extends ApiService {
 
         // PKCE双重验证支持 - 强制使用
         const shouldUsePKCE = true
+        let pendingPkce: { state: string; codeVerifier: string } | null = null
 
         if (shouldUsePKCE) {
             // 自动生成PKCE参数（使用S256方法，这是GitHub等服务支持的标准方法）
@@ -648,8 +654,7 @@ export class SSOService extends ApiService {
             Reflect.set(params, 'code_challenge', pkceParams.code_challenge)
             Reflect.set(params, 'code_challenge_method', pkceParams.code_challenge_method)
 
-            storePkceState(params.state, pkceParams.code_verifier)
-            console.log('✅ PKCE参数已存储到localStorage')
+            pendingPkce = { state: params.state, codeVerifier: pkceParams.code_verifier }
         }
 
         // 获取OAuth URL和相关参数
@@ -662,6 +667,11 @@ export class SSOService extends ApiService {
         if (isAuthorizeAttemptStale(attemptEpoch)) {
             console.warn('OAuth authorize 已被更新的登录请求取代，放弃本次跳转')
             throw new Error('OAuth authorize superseded')
+        }
+
+        if (pendingPkce) {
+            commitPkceBundle(pendingPkce.state, pendingPkce.codeVerifier)
+            console.log('✅ PKCE参数已存储到localStorage')
         }
 
         console.log(oauthParams.auth_url, 'oauthParamsoauthParams')
