@@ -25,6 +25,7 @@ export interface User {
     email_verified?: boolean
     phone_verified?: boolean
     linked_accounts?: LinkedAccount[]
+    has_password?: boolean
     meta?: UserMeta
 }
 
@@ -40,6 +41,17 @@ export interface UserMeta {
 export interface LinkedAccount {
     provider: string
     linked: boolean
+}
+
+export interface AccountPreview {
+    found: boolean
+    username?: string
+    nickname?: string
+    email?: string
+    phone?: string
+    avatar?: string
+    display_name?: string
+    subtitle?: string
 }
 
 export enum UserRole {
@@ -192,6 +204,7 @@ export interface AuthContextType extends AuthState {
     sendPhoneCode: (phone: string, type: VerificationType) => Promise<void>
     updateProfile: (data: Partial<User>) => Promise<void>
     changePassword: (oldPassword: string, newPassword: string) => Promise<void>
+    setPassword: (newPassword: string) => Promise<void>
     refreshUser: () => Promise<void>
     clearError: () => void
     hasRole: (role: string) => boolean
@@ -226,6 +239,7 @@ export interface UseAuthReturn {
     forgotPassword: (email: string) => Promise<void>
     updateProfile: (data: Partial<User>) => Promise<void>
     changePassword: (oldPassword: string, newPassword: string) => Promise<void>
+    setPassword: (newPassword: string) => Promise<void>
     refreshUser: () => Promise<void>
     hasRole: (role: string) => boolean
     clearError: () => void

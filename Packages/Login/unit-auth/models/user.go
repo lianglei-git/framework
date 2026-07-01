@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -341,6 +342,11 @@ type ChangePasswordRequest struct {
 	NewPassword string `json:"new_password" binding:"required,min=6"`
 }
 
+// SetPasswordRequest 首次设置密码（无旧密码）
+type SetPasswordRequest struct {
+	NewPassword string `json:"new_password" binding:"required,min=6"`
+}
+
 // UpdateProfileRequest 更新用户信息请求
 type UpdateProfileRequest struct {
 	Username string    `json:"username" binding:"omitempty,min=3,max=20"`
@@ -370,6 +376,7 @@ type UserResponse struct {
 	LastLoginAt    *time.Time      `json:"last_login_at"`
 	CreatedAt      time.Time       `json:"created_at"`
 	LinkedAccounts []LinkedAccount `json:"linked_accounts,omitempty"`
+	HasPassword    bool            `json:"has_password"`
 }
 
 // LoginResponse 登录响应
@@ -503,6 +510,11 @@ func (u *User) buildLinkedAccounts() []LinkedAccount {
 	}
 }
 
+// HasPassword 是否已设置本地登录密码
+func (u *User) HasPassword() bool {
+	return strings.TrimSpace(u.Password) != ""
+}
+
 // ToResponse 转换为响应格式
 func (u *User) ToResponse() UserResponse {
 	meta, _ := u.GetMeta()
@@ -534,6 +546,7 @@ func (u *User) ToResponse() UserResponse {
 		LastLoginAt:    u.LastLoginAt,
 		CreatedAt:      u.CreatedAt,
 		LinkedAccounts: u.buildLinkedAccounts(),
+		HasPassword:    u.HasPassword(),
 	}
 }
 

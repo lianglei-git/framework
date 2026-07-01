@@ -461,6 +461,18 @@ export class AuthApiService extends ApiService {
         }
     }
 
+    async getAccountPreview(account: string): Promise<import('../types').AccountPreview> {
+        const response = await this.post<{ code: number, data: import('../types').AccountPreview, message?: string }>(
+            `${this.baseURL}/api/v1/auth/account-preview`,
+            { account },
+            { headers: getCommonHeaders() },
+        )
+        if (response.code === 200) {
+            return response.data
+        }
+        throw new Error(response.message || '获取账号信息失败')
+    }
+
     async checkWechatLoginStatus(state: string): Promise<any> {
         const response = await this.get<{ code: number, data: { status: string, scanned: boolean, used: boolean, user: any, token: string }, message?: string }>(`${this.baseURL}/api/v1/auth/wechat/status/${state}`, undefined, {
             headers: getCommonHeaders()

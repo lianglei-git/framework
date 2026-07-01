@@ -180,3 +180,58 @@ func ChangePassword(db *gorm.DB) gin.HandlerFunc {
 		})
 	}
 }
+
+// SetPassword 首次设置密码（验证码/OAuth 用户无旧密码）
+func SetPassword(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+
+		var req models.SetPasswordRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid request data: " + err.Error(),
+			})
+			return
+		}
+
+		var user models.User
+		if err := db.Where("id = ?", userID).First(&user).Error; err != nil {
+			c.JSON(http.StatusNotFound, models.Response{
+				Code:    404,
+				Message: "User not found",
+			})
+			return
+		}
+
+		if user.HasPassword() {
+			c.JSON(http.StatusConflict, models.Response{
+				Code:    409,
+				Message: "Password already set, use change-password instead",
+			})
+			return
+		}
+
+		user.Password = req.NewPassword
+		if err := user.HashPassword(); err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to hash password",
+			})
+			return
+		}
+
+		if err := db.Save(&user).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to set password",
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, models.Response{
+			Code:    200,
+			Message: "Password set successfully",
+		})
+	}
+}

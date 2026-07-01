@@ -40,6 +40,18 @@ export class UserApiService extends ApiService {
         }
     }
 
+    async setPassword(newPassword: string): Promise<void> {
+        const response = await this.post<{ code: number, message?: string }>(`${this.baseURL}/api/v1/user/set-password`, {
+            new_password: newPassword
+        }, {
+            headers: getCommonHeaders(localStorage.getItem('auth_token') || undefined)
+        })
+
+        if (response.code !== 200) {
+            throw new Error(response.message || '设置密码失败')
+        }
+    }
+
     async uploadAvatar(file: File): Promise<{ avatar_url: string }> {
         const formData = new FormData()
         formData.append('file', file)

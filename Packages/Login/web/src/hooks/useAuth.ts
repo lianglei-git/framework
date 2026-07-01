@@ -383,6 +383,27 @@ export const useAuth = () => {
         }
     }, [])
 
+    const setPassword = useCallback(async (newPassword: string) => {
+        store.isLoading = true
+        store.error = null
+        try {
+            await userApi.setPassword(newPassword)
+            const userProfile = await userApi.getProfile()
+            const authData = storage.getAuth()
+            if (authData) {
+                storage.saveAuth({ ...authData, user: userProfile })
+            }
+            store.setUserInfo(userProfile, store.tokenPayload)
+            store.detailsUserInfo = userProfile
+            window.dispatchEvent(new CustomEvent('auth:password-changed'))
+        } catch (err: any) {
+            failWith(err, '设置密码失败')
+            throw err
+        } finally {
+            store.isLoading = false
+        }
+    }, [])
+
     const refreshUser = useCallback(async () => {
         if (!store.token) return
         store.isLoading = true
@@ -439,6 +460,7 @@ export const useAuth = () => {
         forgotPassword,
         updateProfile,
         changePassword,
+        setPassword,
         refreshUser,
         clearError,
         loadingInfos,

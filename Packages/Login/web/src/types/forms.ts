@@ -105,6 +105,7 @@ export interface UseAuthReturn {
     forgotPassword: (email: string) => Promise<void>
     updateProfile: (data: Partial<User>) => Promise<void>
     changePassword: (oldPassword: string, newPassword: string) => Promise<void>
+    setPassword: (newPassword: string) => Promise<void>
     refreshUser: () => Promise<void>
     hasRole: (role: string) => boolean
     clearError: () => void

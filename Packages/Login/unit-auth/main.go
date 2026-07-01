@@ -254,12 +254,13 @@ func main() {
 			auth.POST("/verify-email", handlers.VerifyEmail(db))
 			auth.POST("/forgot-password", handlers.ForgotPassword(db, mailer))
 			auth.POST("/reset-password", handlers.ResetPassword(db))
+			auth.POST("/account-preview", handlers.AccountPreview(db))
 
 			// 统一登录接口
 			// auth.POST("/login", handlers.UnifiedLogin(db))
 
 			// 手机号认证接口
-			auth.POST("/phone-login", unifiedAuthHandler.UnifiedPhoneLogin()) // 使用统一处理器
+			auth.POST("/phone-login", handlers.PhoneLogin(db))
 			auth.POST("/phone-direct-login", handlers.PhoneDirectLogin(db))   // 直接登录（自动注册）
 			auth.POST("/phone-reset-password", handlers.PhoneResetPassword(db))
 
@@ -285,6 +286,7 @@ func main() {
 			protected.GET("/profile", handlers.GetProfile(db))
 			protected.PUT("/profile", handlers.UpdateProfile(db))
 			protected.POST("/change-password", handlers.ChangePassword(db))
+			protected.POST("/set-password", handlers.SetPassword(db))
 		}
 
 		// 统计相关路由

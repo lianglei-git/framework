@@ -1,18 +1,27 @@
-import React, { useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
     useAuth,
     useForm,
     Button,
     Input,
-    validatePhone,
-    identifyAccountType,
-    AccountType,
     VerificationType,
     validateLoginAccount,
+    getCodeLoginChannels,
+    resolveCodeContact,
+    formatMaskedContact,
+    formatCodeDeliveryHint,
+    resolveLoginStepMode,
+    isOtpSigninMode,
 } from '../../'
-import { getOAuthURLAPI } from '../../core'
+import type { CodeChannel } from '../../utils/codeLoginContact'
+import type { PreviewStatus } from '../../utils/loginStepMode'
+import { authApi } from '../../core'
+import { LoginAccountSummary } from './LoginAccountSummary'
+import { LoginCodeChannelModal } from './LoginCodeChannelModal'
+import { UnknownAccountNotice } from './UnknownAccountNotice'
+import type { AccountPreview } from '../../types'
 
-import { RiGithubFill, RiGoogleFill, RiUserFill, RiWechatFill } from 'react-icons/ri'
+import { RiGithubFill, RiGoogleFill, RiWechatFill } from 'react-icons/ri'
 import { useNavigate } from 'react-router-dom'
 import { routeAfterLogin } from '../../routes/loginEntry'
 import { formatAuthError } from '../../utils/authError'
@@ -36,17 +45,20 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
     const auth = useAuth()
     const navigate = useNavigate()
     const [loginStep, setLoginStep] = useState<'account' | 'password'>('account')
-    const [loginType, setLoginType] = useState<'email' | 'phone'>('account');
-    // 验证类型 默认是密码输入
     const [verifyType, setVerifyType] = useState<'password' | 'code'>('password')
-    const [isSendingCode, setIsSendingCode] = useState(false)
-    const [countdown, setCountdown] = useState(0)
     const [codeLoginHint, setCodeLoginHint] = useState<string>('')
-    const [emailCode, setEmailCode] = useState('')
-    const [emailSending, setEmailSending] = useState(false)
-    const [emailCountdown, setEmailCountdown] = useState(0)
+    const [accountPreview, setAccountPreview] = useState<AccountPreview | null>(null)
+    const [previewStatus, setPreviewStatus] = useState<PreviewStatus>('idle')
+    const [previewLoading, setPreviewLoading] = useState(false)
+    const [codeChannel, setCodeChannel] = useState<CodeChannel | null>(null)
+    const [channelPickerOpen, setChannelPickerOpen] = useState(false)
+    const [pickerChannel, setPickerChannel] = useState<CodeChannel>('email')
+    const [verificationCode, setVerificationCode] = useState('')
+    const [codeSending, setCodeSending] = useState(false)
+    const [codeCountdown, setCodeCountdown] = useState(0)
+    const countdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+    const autoOtpSentRef = useRef<string | null>(null)
 
-    // 账号密码登录表单（两步）
     const accountForm = useForm({
         initialValues: {
             account: '',
@@ -64,40 +76,140 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
         }
     })
 
-    // 手机验证码登录表单
-    const phoneForm = useForm({
-        initialValues: { phone: '', code: '', remember_me: false },
-        validate: (values) => {
-            const errors: Record<string, string> = {}
-            if (!values.phone.trim()) {
-                errors.phone = '请输入手机号'
-            } else if (!validatePhone(values.phone)) {
-                errors.phone = '请输入正确的手机号'
-            }
-            if (!values.code.trim()) {
-                errors.code = '请输入验证码'
-            } else if (values.code.length !== 6) {
-                errors.code = '验证码为6位数字'
-            }
-            return errors
-        }
-    })
+    const account = accountForm.values.account.trim()
+    const loginStepMode = useMemo(
+        () => resolveLoginStepMode(previewStatus, account),
+        [previewStatus, account],
+    )
+    const channels = useMemo(
+        () => getCodeLoginChannels(accountPreview, account),
+        [accountPreview, account],
+    )
+    const isOtpSignin = isOtpSigninMode(loginStepMode)
+    const canUseCodeLogin = loginStepMode === 'existing_user' && channels.length > 0 && !previewLoading
 
-    // 步骤：校验账号进入密码阶段
+    const clearCountdown = () => {
+        if (countdownTimerRef.current) {
+            clearInterval(countdownTimerRef.current)
+            countdownTimerRef.current = null
+        }
+        setCodeCountdown(0)
+    }
+
+    const resetCodeLoginState = () => {
+        clearCountdown()
+        setCodeChannel(null)
+        setChannelPickerOpen(false)
+        setPickerChannel('email')
+        setVerificationCode('')
+        setCodeSending(false)
+        setCodeLoginHint('')
+        autoOtpSentRef.current = null
+    }
+
+    const startCountdown = () => {
+        clearCountdown()
+        setCodeCountdown(60)
+        countdownTimerRef.current = setInterval(() => {
+            setCodeCountdown((prev) => {
+                if (prev <= 1) {
+                    if (countdownTimerRef.current) {
+                        clearInterval(countdownTimerRef.current)
+                        countdownTimerRef.current = null
+                    }
+                    return 0
+                }
+                return prev - 1
+            })
+        }, 1000)
+    }
+
+    const sendLoginCode = async (channel: CodeChannel) => {
+        const contact = resolveCodeContact(channel, accountPreview, account)
+        if (!contact) {
+            setCodeLoginHint('无法获取验证方式，请使用密码登录')
+            return
+        }
+
+        setCodeSending(true)
+        if (!isOtpSignin) {
+            setCodeLoginHint('')
+        }
+        try {
+            if (channel === 'email') {
+                await auth.sendEmailCode(contact, VerificationType.LOGIN)
+            } else {
+                await auth.sendPhoneCode(contact, VerificationType.LOGIN)
+            }
+            setCodeChannel(channel)
+            startCountdown()
+            setCodeLoginHint(`验证码已发送至 ${formatMaskedContact(channel, contact)}`)
+        } catch (error: any) {
+            setCodeLoginHint(formatAuthError(error, '验证码发送失败'))
+        } finally {
+            setCodeSending(false)
+        }
+    }
+
+    const beginCodeLogin = async (channel: CodeChannel) => {
+        setVerifyType('code')
+        setVerificationCode('')
+        await sendLoginCode(channel)
+    }
+
     const handleCheckAccount = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!accountForm.validate()) return
+        resetCodeLoginState()
+        setVerifyType('password')
+        setPreviewLoading(true)
+        setAccountPreview(null)
+        setPreviewStatus('loading')
+        try {
+            const preview = await authApi.getAccountPreview(account)
+            if (preview.found) {
+                setAccountPreview(preview)
+                setPreviewStatus('found')
+            } else {
+                setAccountPreview(null)
+                setPreviewStatus('not_found')
+            }
+        } catch {
+            setAccountPreview(null)
+            setPreviewStatus('error')
+        } finally {
+            setPreviewLoading(false)
+        }
         setLoginStep('password')
     }
 
     const handleBackToAccount = () => {
         setLoginStep('account')
+        setAccountPreview(null)
+        setPreviewStatus('idle')
+        setVerifyType('password')
+        resetCodeLoginState()
         accountForm.setValue('password', '')
         accountForm.resetErrors()
-        setCodeLoginHint('')
     }
 
-    // 有效
+    useEffect(() => {
+        if (loginStep !== 'password' || previewLoading) {
+            return
+        }
+        if (loginStepMode !== 'email_otp_signin' && loginStepMode !== 'phone_otp_signin') {
+            return
+        }
+
+        const channel: CodeChannel = loginStepMode === 'email_otp_signin' ? 'email' : 'phone'
+        const key = `${account}:${loginStepMode}`
+        if (autoOtpSentRef.current === key) {
+            return
+        }
+        autoOtpSentRef.current = key
+        void beginCodeLogin(channel)
+    }, [loginStep, previewLoading, loginStepMode, account])
+
     const handleAccountLogin = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!accountForm.values.password.trim()) {
@@ -111,179 +223,191 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
                 username: accountForm.values.account,
             })
             routeAfterLogin(navigate)
-            console.log("登录成功！")
-
         } catch (error: any) {
-            accountForm.setError('password', formatAuthError(error, '登录失败'))
+            accountForm.setError('password', formatAuthError(error, '账号或密码错误'))
         }
     }
 
-    const handlePhoneLogin = async (e: React.FormEvent) => {
+    const handleCodeLogin = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (!phoneForm.validate()) return
-        try {
-            await auth.phoneLogin({
-                phone: phoneForm.values.phone,
-                code: phoneForm.values.code,
-                remember_me: phoneForm.values.remember_me
-            })
-            routeAfterLogin(navigate)
-        } catch (error: any) {
-            phoneForm.setError('code', formatAuthError(error, '登录失败'))
-        }
-    }
-
-    const handleSendCode = async () => {
-        const phone = phoneForm.values.phone
-        if (!validatePhone(phone)) {
-            phoneForm.setError('phone', '请输入正确的手机号')
+        if (!codeChannel) {
+            setCodeLoginHint('请先选择验证方式')
             return
         }
-        setIsSendingCode(true)
-        try {
-            await auth.sendPhoneCode(phone, VerificationType.LOGIN)
-            setCountdown(60)
-            const timer = setInterval(() => {
-                setCountdown(prev => {
-                    if (prev <= 1) {
-                        clearInterval(timer)
-                        return 0
-                    }
-                    return prev - 1
-                })
-            }, 1000)
-        } catch (error: any) {
-            phoneForm.setError('phone', formatAuthError(error, '发送验证码失败'))
-        } finally {
-            setIsSendingCode(false)
-        }
-    }
-
-    // 切换到验证码登录：手机号走短信验证码；邮箱暂不支持，给出提示
-    const switchToCodeLogin = () => {
-        setVerifyType(verifyType === 'password' ? 'code' : 'password')
-        const type = identifyAccountType(accountForm.values.account)
-        // setCodeLoginHint('')
-        if (type === AccountType.PHONE) {
-            //     // 预填手机号
-            phoneForm.setValue('phone', accountForm.values.account)
-        } else if (type === AccountType.EMAIL) {
-            //     // 展示邮箱验证码输入区域
-            // setCodeLoginHint('我们已为您的邮箱发送验证码，请输入6位验证码完成登录')
-            handleSendEmailLoginCode()
-        } else {
-            accountForm.setError('account', '验证码登录仅支持邮箱或手机号')
-        }
-    }
-    // 有效
-    const handleSendEmailLoginCode = async () => {
-        const email = accountForm.values.account
-        if (identifyAccountType(email) !== AccountType.EMAIL) {
-            accountForm.setError('account', '请输入有效的邮箱')
-            return
-        }
-        try {
-            setEmailSending(true)
-            await auth.sendEmailCode(email, VerificationType.LOGIN)
-            setEmailCountdown(60)
-            const timer = setInterval(() => {
-                setEmailCountdown(prev => {
-                    if (prev <= 1) { clearInterval(timer); return 0 }
-                    return prev - 1
-                })
-            }, 1000)
-        } catch (e: any) {
-            setCodeLoginHint(formatAuthError(e, '验证码发送失败'))
-        } finally {
-            setEmailSending(false)
-        }
-    }
-
-    // 有效
-    const handleEmailCodeLogin = async (e: React.FormEvent) => {
-        e.preventDefault()
-        if (emailCode.trim().length !== 6) {
+        if (verificationCode.trim().length !== 6) {
             setCodeLoginHint('请输入6位验证码')
             return
         }
-        try {
-            await auth.unifiedNormalLocalLogin({
-                email: accountForm.values.account, 
-                code: emailCode,
-                provider: 'email',
-            })
-            routeAfterLogin(navigate)
-            console.log("登录成功！")
 
+        const contact = resolveCodeContact(codeChannel, accountPreview, account)
+        if (!contact) {
+            setCodeLoginHint('无法获取验证方式，请使用密码登录')
+            return
+        }
+
+        try {
+            if (codeChannel === 'email') {
+                await auth.unifiedNormalLocalLogin({
+                    email: contact,
+                    code: verificationCode,
+                    provider: 'email',
+                })
+            } else {
+                await auth.phoneLogin({
+                    phone: contact,
+                    code: verificationCode,
+                    remember_me: accountForm.values.remember_me,
+                })
+            }
+            routeAfterLogin(navigate)
         } catch (error: any) {
-            accountForm.setError('password', formatAuthError(error, '登录失败'))
+            setCodeLoginHint(formatAuthError(error, '登录失败'))
         }
     }
 
-
-    const handleGithubLogin = async () => {
-        // 临时存储sessionStorage
-        window.sessionStorage.setItem('github_access', 'true')
-        //   = 'https://github.com/login/oauth/authorize?client_id=Ov23li5H25mAnW2AWrr1&scope=read:user';
-        const uri = await getOAuthURLAPI('github', location.search.split('?')?.[1])
-        console.log('github login: uri----->>> ', uri);
-        // window.location.href 
-    }
-
-    const verifyForComponent = () => {
-        if (verifyType === 'password') {
-            return <form onSubmit={handleAccountLogin} className="password-form">
-                <Input
-                    type="password"
-                    placeholder="请输入密码"
-                    value={accountForm.values.password}
-                    onChange={(value) => accountForm.setValue('password', value)}
-                    error={accountForm.errors.password}
-                    fullWidth
-                    required
-                    autoFocus
-                    showPasswordToggle
-                />
-                <Button type="submit" variant="primary" fullWidth loading={auth.isLoading} disabled={!accountForm.isValid}>登录</Button>
-            </form>
+    const switchToCodeLogin = () => {
+        if (loginStepMode !== 'existing_user') {
+            return
         }
 
         if (verifyType === 'code') {
-
-            if (identifyAccountType(accountForm.values.account) === AccountType.EMAIL) {
-                return (
-                    <form onSubmit={handleEmailCodeLogin} className="password-form" style={{ marginTop: 8 }}>
-                        <div className="code-field">
-                            <Input type="text" placeholder="邮箱验证码" value={emailCode} onChange={setEmailCode} fullWidth maxLength={6} required />
-                            <Button type="button" variant="secondary" onClick={handleSendEmailLoginCode} disabled={emailSending || emailCountdown > 0}>
-                                {emailCountdown > 0 ? `${emailCountdown}s` : emailSending ? '发送中...' : '发送验证码'}
-                            </Button>
-                        </div>
-                        <Button type="submit" variant="primary" fullWidth loading={auth.isLoading}>验证码登录</Button>
-                    </form>
-                )
-            }
-
-            return <form onSubmit={handlePhoneLogin} className="phone-form">
-                {/* <Input type="tel" placeholder="手机号" value={phoneForm.values.phone} onChange={(value) => phoneForm.setValue('phone', value)} error={phoneForm.errors.phone} fullWidth required /> */}
-                <div className="code-field">
-                    <Input type="text" placeholder="验证码" value={phoneForm.values.code} onChange={(value) => phoneForm.setValue('code', value)} error={phoneForm.errors.code} fullWidth maxLength={6} required />
-                    <Button type="button" variant="secondary" onClick={handleSendCode} disabled={isSendingCode || countdown > 0}>
-                        {countdown > 0 ? `${countdown}s` : isSendingCode ? '发送中...' : '发送验证码'}
-                    </Button>
-                </div>
-                <Button type="submit" variant="primary" fullWidth loading={auth.isLoading} disabled={!phoneForm.isValid}>验证码登录</Button>
-            </form>
-
-
+            setVerifyType('password')
+            resetCodeLoginState()
+            return
         }
+
+        if (!canUseCodeLogin) {
+            setCodeLoginHint('该账号未绑定邮箱或手机号，请使用密码登录')
+            return
+        }
+
+        if (channels.length === 1) {
+            void beginCodeLogin(channels[0])
+            return
+        }
+
+        const emailContact = resolveCodeContact('email', accountPreview, account)
+        const phoneContact = resolveCodeContact('phone', accountPreview, account)
+        if (!emailContact || !phoneContact) {
+            void beginCodeLogin(channels[0])
+            return
+        }
+
+        setPickerChannel('email')
+        setChannelPickerOpen(true)
+    }
+
+    const handleChannelPickerConfirm = () => {
+        setChannelPickerOpen(false)
+        void beginCodeLogin(pickerChannel)
+    }
+
+    const handleChannelPickerCancel = () => {
+        setChannelPickerOpen(false)
+    }
+
+    const handleChangeCodeChannel = () => {
+        if (channels.length !== 2) {
+            return
+        }
+        setPickerChannel(codeChannel || 'email')
+        clearCountdown()
+        setVerificationCode('')
+        setChannelPickerOpen(true)
+    }
+
+    const otpChannel: CodeChannel | undefined = loginStepMode === 'phone_otp_signin'
+        ? 'phone'
+        : loginStepMode === 'email_otp_signin'
+            ? 'email'
+            : undefined
+
+    const codeDeliveryHint = codeChannel
+        ? formatCodeDeliveryHint(codeChannel, resolveCodeContact(codeChannel, accountPreview, account))
+        : undefined
+
+    const emailPickerLabel = formatMaskedContact(
+        'email',
+        resolveCodeContact('email', accountPreview, account),
+    )
+    const phonePickerLabel = formatMaskedContact(
+        'phone',
+        resolveCodeContact('phone', accountPreview, account),
+    )
+
+    const renderCodeForm = () => (
+        <form onSubmit={handleCodeLogin} className="password-form" style={{ marginTop: 8 }}>
+            <div className="code-field">
+                <Input
+                    type="text"
+                    placeholder="验证码"
+                    value={verificationCode}
+                    onChange={setVerificationCode}
+                    fullWidth
+                    maxLength={6}
+                    required
+                />
+                <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => codeChannel && void sendLoginCode(codeChannel)}
+                    disabled={!codeChannel || codeSending || codeCountdown > 0}
+                >
+                    {codeCountdown > 0 ? `${codeCountdown}s` : codeSending ? '发送中...' : '发送验证码'}
+                </Button>
+            </div>
+            <Button type="submit" variant="primary" fullWidth loading={auth.isLoading}>
+                验证码登录
+            </Button>
+            {loginStepMode === 'existing_user' && channels.length === 2 && (
+                <div className="password-actions" style={{ marginTop: 8 }}>
+                    <button type="button" className="action-link" onClick={handleChangeCodeChannel}>
+                        更换验证方式
+                    </button>
+                </div>
+            )}
+        </form>
+    )
+
+    const renderPasswordForm = () => (
+        <form onSubmit={handleAccountLogin} className="password-form">
+            <Input
+                type="password"
+                placeholder="请输入密码"
+                value={accountForm.values.password}
+                onChange={(value) => accountForm.setValue('password', value)}
+                error={accountForm.errors.password}
+                fullWidth
+                required
+                autoFocus
+                showPasswordToggle
+            />
+            <Button type="submit" variant="primary" fullWidth loading={auth.isLoading} disabled={!accountForm.isValid}>
+                登录
+            </Button>
+        </form>
+    )
+
+    const renderStepTwoForm = () => {
+        if (loginStepMode === 'unknown_account') {
+            return <UnknownAccountNotice onCreateAccount={onSwitchToRegister} />
+        }
+
+        if (isOtpSignin) {
+            return renderCodeForm()
+        }
+
+        if (verifyType === 'password') {
+            return renderPasswordForm()
+        }
+
+        return renderCodeForm()
     }
 
     const socialProviders = pickSocialProviders(ssoProviders)
 
     return (
         <div className="login-content">
-            {/* {loginType === 'account' ? ( */}
             {loginStep === 'account' ? (
                 <>
                     <form onSubmit={handleCheckAccount} className="account-login-form">
@@ -303,7 +427,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
 
                     <div className="register-link">
                         <span>还没有账户？</span>
-                        <button className="link-btn" onClick={onSwitchToRegister}>创建账户</button>
+                        <button type="button" className="link-btn" onClick={onSwitchToRegister}>创建账户</button>
                     </div>
 
                     <div className="divider"><span>or</span></div>
@@ -326,66 +450,52 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
                                 <span></span>
                             </Button>
                         ))}
-
-                        {/* <Button variant="secondary" fullWidth className="social-btn github-btn" onClick={handleGithubLogin}>
-                            <span className="social-icon"> <RiGithubFill /></span>
-                            <span>使用 GitHub 登录</span>
-                            <span></span>
-                        </Button>
-                        <Button variant="secondary" fullWidth className="social-btn wechat-btn" onClick={onOpenThirdparty}>
-                            <span className="social-icon"><RiWechatFill style={{ color: "#07c160" }} /></span>
-                            <span>使用微信登录</span>
-                            <span></span>
-                        </Button> */}
                     </div>
                 </>
             ) : (
                 <>
                     <div className="password-step">
-                        <div className="user-info">
-                            <div className="user-avatar">{accountForm.values.account?.charAt(0) || 'U'}</div>
-                            <div className="user-details">
-                                <div className="user-name">{accountForm.values.account}</div>
-                                <div className="user-email">{accountForm.values.account}</div>
+                        <LoginAccountSummary
+                            account={accountForm.values.account}
+                            preview={accountPreview}
+                            loading={previewLoading}
+                            mode={isOtpSignin ? 'otp_signin' : 'default'}
+                            otpChannel={otpChannel}
+                            codeDeliveryHint={verifyType === 'code' ? codeDeliveryHint : undefined}
+                            onSwitchAccount={handleBackToAccount}
+                        />
+
+                        {renderStepTwoForm()}
+
+                        {loginStepMode === 'existing_user' && (
+                            <div className="password-actions" style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                                <button type="button" className="action-link" onClick={onForgotPassword}>忘记密码？</button>
+                                {canUseCodeLogin && (
+                                    <button type="button" className="action-link" onClick={switchToCodeLogin}>
+                                        {verifyType === 'password' ? '使用验证码登录' : '使用密码登录'}
+                                    </button>
+                                )}
                             </div>
-                            <button className="back-btn" onClick={handleBackToAccount}>切换账号</button>
-                        </div>
-
-                        {verifyForComponent()}
-
-                        <div className="password-actions" style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                            <button className="action-link" onClick={onForgotPassword}>忘记密码？</button>
-                            <button className="action-link" onClick={switchToCodeLogin}>{verifyType === 'password' ? '使用验证码登录' : '使用密码登录'}</button>
-                        </div>
-
-
+                        )}
 
                         {codeLoginHint && (
                             <div className="error-message" style={{ marginTop: 12 }}>{codeLoginHint}</div>
                         )}
                     </div>
+
+                    <LoginCodeChannelModal
+                        visible={channelPickerOpen}
+                        emailLabel={emailPickerLabel}
+                        phoneLabel={phonePickerLabel}
+                        selectedChannel={pickerChannel}
+                        onSelect={setPickerChannel}
+                        onConfirm={handleChannelPickerConfirm}
+                        onCancel={handleChannelPickerCancel}
+                    />
                 </>
             )}
-            {/* // ) : (
-            //     // <form onSubmit={handlePhoneLogin} className="phone-form">
-            //     //     <Input type="tel" placeholder="手机号" value={phoneForm.values.phone} onChange={(value) => phoneForm.setValue('phone', value)} error={phoneForm.errors.phone} fullWidth required />
-            //     //     <div className="code-field">
-            //     //         <Input type="text" placeholder="验证码" value={phoneForm.values.code} onChange={(value) => phoneForm.setValue('code', value)} error={phoneForm.errors.code} fullWidth maxLength={6} required />
-            //     //         <Button type="button" variant="secondary" onClick={handleSendCode} disabled={isSendingCode || countdown > 0 || !validatePhone(phoneForm.values.phone)}>
-            //     //             {countdown > 0 ? `${countdown}s` : isSendingCode ? '发送中...' : '发送验证码'}
-            //     //         </Button>
-            //     //     </div>
-            //     //     <Button type="submit" variant="primary" fullWidth loading={auth.isLoading} disabled={!phoneForm.isValid}>登录</Button>
-            //     //     <div className="password-actions" style={{ marginTop: 8 }}>
-            //     //         <button className="action-link" onClick={() => setLoginType('account')}>使用密码登录</button>
-            //     //     </div>
-            //     // </form>
-            // )} */}
-
-            {/* 登录方式切换 - 预留 */}
-            {/* <div className="login-switch">...</div> */}
         </div>
     )
 }
 
-export { AuthLogin } 
+export { AuthLogin }
