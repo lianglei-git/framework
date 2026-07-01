@@ -171,24 +171,7 @@ func main() {
 	// Session检查接口 - 用于通过session_id自动恢复登录
 	r.POST("/api/v1/auth/oauth/session-check", handlers.CheckSessionAndGetToken(db))
 
-	r.GET("/api/v1/sso/session/check", func(c *gin.Context) {
-		c.JSON(200, gin.H{
-			"code":    200,
-			"message": "Session is valid",
-			"data": gin.H{
-				"is_authenticated": true,
-				"session": gin.H{
-					"session_id":       "sso_session_" + "12345",
-					"user_id":          "sso_user_" + "67890",
-					"is_active":        true,
-					"authenticated_at": "2025-09-23T17:15:00Z",
-					"expires_at":       "2025-09-23T18:15:00Z",
-					"last_activity":    "2025-09-23T17:15:00Z",
-					"remember_me":      false,
-				},
-			},
-		})
-	})
+	r.GET("/api/v1/sso/session/check", handlers.GetSSOSessionCheck(db))
 
 	r.POST("/api/v1/sso/session/destroy", func(c *gin.Context) {
 		c.JSON(200, gin.H{

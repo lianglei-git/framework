@@ -398,12 +398,14 @@ func loginWebURL() string {
 	return u
 }
 
-// redirectAuthorizeToLoginWeb 浏览器 authorize：清失效 cookie 后跳登录中心，保留完整 authorize URL
-func redirectAuthorizeToLoginWeb(c *gin.Context, ssoError string) {
-	utils.ClearSSOSessionCookies(c)
+// redirectAuthorizeToLoginWeb 浏览器 authorize：跳登录中心，保留完整 authorize URL
+func redirectAuthorizeToLoginWeb(c *gin.Context, ssoError string, clearCookies bool) {
+	if clearCookies {
+		utils.ClearSSOSessionCookies(c)
+	}
 	authorizeURL := getFullURL(c, true)
 	target := buildLoginCenterReturnURL(loginWebURL(), authorizeURL, ssoError)
-	log.Printf("Redirecting to login web (sso_error=%q)", ssoError)
+	log.Printf("Redirecting to login web (sso_error=%q, clear_cookies=%v)", ssoError, clearCookies)
 	c.Redirect(http.StatusFound, target)
 }
 
@@ -418,10 +420,21 @@ func buildLoginCenterReturnURL(loginWebBase, authorizeURL, ssoError string) stri
 	return strings.TrimRight(loginWebBase, "/") + "/?" + q.Encode()
 }
 
+// handleAuthorizeSessionRevoked cookie 对应 session 已被撤销（其他设备登录）
+func handleAuthorizeSessionRevoked(c *gin.Context) {
+	if utils.WantsAuthorizeJSONResponse(c) {
+		utils.ReturnSessionRevoked(c)
+		return
+	}
+	redirectAuthorizeToLoginWeb(c, "session_revoked", true)
+}
+
 // handleAuthorizeLoginRequired session 无效或未登录：浏览器跳登录，API 场景返回 JSON
-func handleAuthorizeLoginRequired(c *gin.Context, ssoError string) {
+func handleAuthorizeLoginRequired(c *gin.Context, ssoError string, clearCookies bool) {
 	if utils.WantsAuthorizeJSONResponse(c) {
 		switch ssoError {
+		case "session_revoked":
+			utils.ReturnSessionRevoked(c)
 		case "user_not_found":
 			utils.ReturnUserNotFound(c)
 		default:
@@ -429,7 +442,7 @@ func handleAuthorizeLoginRequired(c *gin.Context, ssoError string) {
 		}
 		return
 	}
-	redirectAuthorizeToLoginWeb(c, ssoError)
+	redirectAuthorizeToLoginWeb(c, ssoError, clearCookies)
 }
 
 func GetToken(c *gin.Context) string {
@@ -518,7 +531,7 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 		sessionID = GetSessionIDFromCookie(c)
 		if sessionID == "" {
 			log.Println("No sso_session_id found in cookie, user not logged in")
-			handleAuthorizeLoginRequired(c, "")
+			handleAuthorizeLoginRequired(c, "", false)
 			return
 		}
 
@@ -526,10 +539,19 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 
 		// 根据 session ID 查询 sso_sessions 表
 		var ssoSession models.SSOSession
-		if err := db.Where("id = ? AND status = ? AND expires_at > ?",
-			sessionID, "active", time.Now()).First(&ssoSession).Error; err != nil {
-			log.Printf("Session not found or expired: %v", err)
-			handleAuthorizeLoginRequired(c, "session_not_found")
+		if err := db.Where("id = ?", sessionID).First(&ssoSession).Error; err != nil {
+			log.Printf("Session not found: %v", err)
+			handleAuthorizeLoginRequired(c, "session_not_found", true)
+			return
+		}
+		if ssoSession.Status == "revoked" {
+			log.Printf("Session revoked: %s", sessionID)
+			handleAuthorizeSessionRevoked(c)
+			return
+		}
+		if ssoSession.Status != "active" || ssoSession.ExpiresAt.Before(time.Now()) {
+			log.Printf("Session not active or expired: %s status=%s", sessionID, ssoSession.Status)
+			handleAuthorizeLoginRequired(c, "session_not_found", true)
 			return
 		}
 
@@ -539,7 +561,7 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 		var user models.User
 		if err := db.Where("id = ?", ssoSession.UserID).First(&user).Error; err != nil {
 			log.Printf("User not found: %v", err)
-			handleAuthorizeLoginRequired(c, "user_not_found")
+			handleAuthorizeLoginRequired(c, "user_not_found", true)
 			return
 		}
 
@@ -1498,9 +1520,8 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 
 		// 🚀 性能优化：只查询 session 验证所需的字段
 		var session models.SSOSession
-		if err := db.Where("refresh_token_hash = ? AND status = ? AND expires_at > ?",
-			refreshTokenHash, "active", time.Now()).
-			Select("id, user_id, client_id, refresh_token_hash, expires_at").
+		if err := db.Where("refresh_token_hash = ?", refreshTokenHash).
+			Select("id, user_id, client_id, refresh_token_hash, expires_at, status").
 			First(&session).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				log.Printf("⚠️ Refresh token hash不存在或session已失效")
@@ -1511,6 +1532,16 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 			}
 			log.Printf("❌ 查询session失败: %v", err)
 			utils.ReturnDatabaseError(c)
+			return
+		}
+		if session.Status == "revoked" {
+			log.Printf("⚠️ Session revoked for refresh: id=%s", session.ID)
+			utils.ReturnSessionRevoked(c)
+			return
+		}
+		if session.Status != "active" || session.ExpiresAt.Before(time.Now()) {
+			log.Printf("⚠️ Session inactive or expired for refresh: id=%s", session.ID)
+			utils.ReturnTokenHashMismatch(c)
 			return
 		}
 

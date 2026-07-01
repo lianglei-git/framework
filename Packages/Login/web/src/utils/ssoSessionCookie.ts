@@ -8,6 +8,10 @@ export function getSsoCookieDomain(): string | undefined {
     if (host === 'localhost' || host === '127.0.0.1') {
         return undefined
     }
+    // IP 地址不写 domain，与后端 host-only cookie 一致
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.startsWith('[')) {
+        return undefined
+    }
     const parts = host.split('.')
     if (parts.length >= 2) {
         return '.' + parts.slice(-2).join('.')

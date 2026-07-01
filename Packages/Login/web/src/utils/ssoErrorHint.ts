@@ -2,6 +2,7 @@ import { clearSsoSessionCookies } from './ssoSessionCookie'
 
 const SSO_ERROR_MESSAGES: Record<string, string> = {
     session_not_found: '登录状态已失效，请重新登录',
+    session_revoked: '您已在其他设备登录，请重新登录',
     user_not_found: '账号状态异常，请重新登录',
 }
 

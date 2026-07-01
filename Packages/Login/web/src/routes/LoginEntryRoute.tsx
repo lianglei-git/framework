@@ -11,7 +11,8 @@ import {
     syncLoginEntryContext,
 } from './loginEntry'
 import { getSubAppAuthorizeUrl, rememberSubAppAuthorizeUrl } from '../utils/ssoOriginRedirect'
-import { clearSsoSessionCookies } from '../utils/ssoSessionCookie'
+import { clearSsoSessionCookies, readSsoSessionCookies } from '../utils/ssoSessionCookie'
+import { SESSION_REVOKED_EVENT } from '../utils/forcedLogout'
 import { globalUserStore } from '../stores/UserStore'
 import styles from './LoginEntryRoute.module.less'
 
@@ -25,6 +26,25 @@ export const LoginEntryRoute: React.FC = observer(() => {
     const navigate = useNavigate()
     const entryMode = useMemo(() => syncLoginEntryContext(), [])
     const [redirectBlocked, setRedirectBlocked] = useState(false)
+    const [sessionRevokedMsg, setSessionRevokedMsg] = useState<string | null>(null)
+
+    useEffect(() => {
+        const onRevoked = (event: Event) => {
+            const detail = (event as CustomEvent<{ reason?: string }>).detail
+            setSessionRevokedMsg(detail?.reason || '您已在其他设备登录，请重新登录')
+        }
+        window.addEventListener(SESSION_REVOKED_EVENT, onRevoked)
+        return () => window.removeEventListener(SESSION_REVOKED_EVENT, onRevoked)
+    }, [])
+
+    useEffect(() => {
+        if (!auth.isAuthenticated) return
+        if (window.location.port !== '3033') return
+        const { sessionId } = readSsoSessionCookies()
+        if (!sessionId) {
+            globalUserStore.clearLocalAuth()
+        }
+    }, [auth.isAuthenticated])
 
     useEffect(() => {
         if (!auth.isAuthenticated) return
@@ -88,5 +108,5 @@ export const LoginEntryRoute: React.FC = observer(() => {
         return null
     }
 
-    return <LoginPage entryMode={entryMode} />
+    return <LoginPage entryMode={entryMode} sessionRevokedHint={sessionRevokedMsg} />
 })

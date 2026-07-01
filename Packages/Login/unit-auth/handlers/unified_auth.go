@@ -625,6 +625,10 @@ func generateAndReturnTokensCore(db *gorm.DB, c *gin.Context, user *models.User,
 		}
 	}
 
+	if sessionID != "" {
+		revokeOtherUserSessions(db, user.ID, sessionID)
+	}
+
 	// 构建响应
 	response := &models.TokenResponse{
 		AccessToken:  accessToken,
@@ -1083,6 +1087,10 @@ func (h *UnifiedAuthHandler) UnifiedPhoneLogin() gin.HandlerFunc {
 			}
 		}
 
+		if sessionID != "" {
+			revokeOtherUserSessions(h.db, user.ID, sessionID)
+		}
+
 		// 构建响应
 		response := gin.H{
 			"access_token":  accessToken,
@@ -1105,6 +1113,7 @@ func (h *UnifiedAuthHandler) UnifiedPhoneLogin() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, response)
+		appUtils.SetSSOSessionCookies(c, sessionID, req.AppID)
 	}
 }
 
@@ -1342,11 +1351,15 @@ func (h *UnifiedAuthHandler) UnifiedDoubleVerification() gin.HandlerFunc {
 					fmt.Printf("❌ Failed to update existing session: %v\n", err)
 				} else {
 					fmt.Printf("✅ 复用已有session(double_verification): %s (device=%s)\n", sessionID, deviceFingerprint[:8]+"...")
-				}
 			}
+		}
 
-			// 构建响应
-			response := gin.H{
+		if sessionID != "" {
+			revokeOtherUserSessions(h.db, user.ID, sessionID)
+		}
+
+		// 构建响应
+		response := gin.H{
 				"access_token":        accessToken,
 				"id_token":            idToken,
 				"refresh_token":       refreshToken,
@@ -1368,6 +1381,7 @@ func (h *UnifiedAuthHandler) UnifiedDoubleVerification() gin.HandlerFunc {
 			}
 
 			c.JSON(http.StatusOK, response)
+			appUtils.SetSSOSessionCookies(c, sessionID, appID)
 		} else {
 			// 处理本地认证的双重验证
 			// 这里可以添加本地认证的双重验证逻辑

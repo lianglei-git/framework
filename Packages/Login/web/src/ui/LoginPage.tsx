@@ -15,9 +15,10 @@ import './LoginPage.less'
 
 interface LoginPageProps {
     entryMode?: LoginEntryMode
+    sessionRevokedHint?: string | null
 }
 
-export const LoginPage: React.FC<LoginPageProps> = observer(({ entryMode = 'direct' }) => {
+export const LoginPage: React.FC<LoginPageProps> = observer(({ entryMode = 'direct', sessionRevokedHint = null }) => {
     const [mode, setMode] = useState<'login' | 'register' | 'forgot-password'>('login')
     const [showTerms, setShowTerms] = useState(false)
     const [showPrivacy, setShowPrivacy] = useState(false)
@@ -30,6 +31,12 @@ export const LoginPage: React.FC<LoginPageProps> = observer(({ entryMode = 'dire
             setSsoErrorHint(message)
         }
     }, [])
+
+    useEffect(() => {
+        if (sessionRevokedHint) {
+            setSsoErrorHint(sessionRevokedHint)
+        }
+    }, [sessionRevokedHint])
 
     useEffect(() => {
         if (entryMode !== 'subapp_redirect') return

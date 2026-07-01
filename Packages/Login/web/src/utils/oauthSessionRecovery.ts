@@ -56,6 +56,10 @@ async function doRecoverOAuthSession(): Promise<OAuthRecoveryResult> {
         return 'recovered'
     }
 
+    if (!globalUserStore.isLogin && !service.hasValidSessionCookie()) {
+        return 'relogin'
+    }
+
     if (service.hasValidSessionCookie()) {
         await service.trySilentAuthorize()
         return 'silent_redirect'

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 	"unit-auth/models"
+	appUtils "unit-auth/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -15,6 +16,24 @@ import (
 type SessionCheckRequest struct {
 	SessionID string `json:"session_id" binding:"required"`
 	AppID     string `json:"app_id" binding:"required"`
+}
+
+// revokeOtherUserSessions 全局单会话：新登录后撤销该用户其余 active session
+func revokeOtherUserSessions(db *gorm.DB, userID, keepSessionID string) {
+	if userID == "" || keepSessionID == "" {
+		return
+	}
+	now := time.Now()
+	result := db.Model(&models.SSOSession{}).
+		Where("user_id = ? AND id != ? AND status = ?", userID, keepSessionID, "active").
+		Updates(map[string]interface{}{"status": "revoked", "last_activity": now})
+	if result.Error != nil {
+		fmt.Printf("⚠️ revoke other sessions failed for user %s: %v\n", userID, result.Error)
+		return
+	}
+	if result.RowsAffected > 0 {
+		fmt.Printf("🔒 revoked %d other session(s) for user %s (keep=%s)\n", result.RowsAffected, userID, keepSessionID)
+	}
 }
 
 // CheckSessionAndGetToken 验证session并返回新token
@@ -34,7 +53,19 @@ func CheckSessionAndGetToken(db *gorm.DB) gin.HandlerFunc {
 
 		// 查找SSO会话
 		var ssoSession models.SSOSession
-		if err := db.Where("id = ? AND status = ? AND expires_at > ?", req.SessionID, "active", time.Now()).First(&ssoSession).Error; err != nil {
+		if err := db.Where("id = ?", req.SessionID).First(&ssoSession).Error; err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"code":             200,
+				"message":          "Session not found or expired",
+				"is_authenticated": false,
+			})
+			return
+		}
+		if ssoSession.Status == "revoked" {
+			appUtils.ReturnSessionRevoked(c)
+			return
+		}
+		if ssoSession.Status != "active" || ssoSession.ExpiresAt.Before(time.Now()) {
 			c.JSON(http.StatusOK, gin.H{
 				"code":             200,
 				"message":          "Session not found or expired",

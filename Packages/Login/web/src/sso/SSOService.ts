@@ -40,6 +40,7 @@ import {
     readPkceState,
     validatePkceCallback,
 } from './oauthState'
+import { handleForcedLogout, isSessionRevokedError } from '../utils/forcedLogout'
 
 export class SSOService extends ApiService {
     private config: SSOConfig
@@ -140,15 +141,24 @@ export class SSOService extends ApiService {
     }
 
     static instance: SSOService | null = null;
+    private static initPromise: Promise<SSOService> | null = null;
+
     static getInstance = async (config: any): Promise<SSOService> => {
-        if (SSOService.instance) return SSOService.instance;
-        const ins = new SSOService(config);
-        let rescb: any;
-        SSOService.instance = new Promise(res => (rescb = res)) as any
-        await ins.initialize();
-        rescb(ins);
-        SSOService.instance = ins
-        return SSOService.instance
+        if (SSOService.instance instanceof SSOService) {
+            return SSOService.instance;
+        }
+        if (!SSOService.initPromise) {
+            SSOService.initPromise = (async () => {
+                const ins = new SSOService(config);
+                await ins.initialize();
+                SSOService.instance = ins;
+                return ins;
+            })().catch((err) => {
+                SSOService.initPromise = null;
+                throw err;
+            });
+        }
+        return SSOService.initPromise;
     }
 
 
@@ -164,8 +174,12 @@ export class SSOService extends ApiService {
             const discovery = await this.loadDiscoveryDocument()
             applyDiscoveryEndpoints(this.config, discovery, this.isSubProjectApp())
 
-            // 加载支持的提供商
-            await this.loadProviders()
+            // 加载支持的提供商（登录中心仅本地 provider，社交登录按需再拉）
+            if (this.isLoginCenterApp()) {
+                this.setupDefaultProviders()
+            } else {
+                await this.loadProviders()
+            }
 
             // 检查现有会话和session cookies
             await this.checkSession()
@@ -1191,6 +1205,12 @@ export class SSOService extends ApiService {
         return `${this.config.logoutEndpoint}?${params.toString()}`
     }
 
+    /** 登录中心 Web（3033） */
+    isLoginCenterApp(): boolean {
+        if (typeof window === 'undefined') return false
+        return window.location.port === '3033'
+    }
+
     /**
      * 检查会话状态
      */
@@ -1208,11 +1228,21 @@ export class SSOService extends ApiService {
             // 检查服务端会话
             if (this.config.checkSessionEndpoint) {
                 try {
-                    const serverSession = await this.get<SSOSessionCheckResponse>('/api/v1/sso/session/check')
+                    const raw = await this.get<{ data?: SSOSessionCheckResponse } | SSOSessionCheckResponse>(
+                        '/api/v1/sso/session/check'
+                    )
+                    const serverSession = (raw as { data?: SSOSessionCheckResponse })?.data ?? (raw as SSOSessionCheckResponse)
+                    if (serverSession?.is_authenticated === false) {
+                        return { is_authenticated: false }
+                    }
                     return serverSession
-                } catch (error) {
+                } catch (error: unknown) {
+                    const errData = (error as { response?: { data?: unknown } })?.response?.data ?? error
+                    if (isSessionRevokedError(errData)) {
+                        handleForcedLogout()
+                        return { is_authenticated: false, error: 'SESSION_REVOKED' }
+                    }
                     console.warn('Server session check failed:', error)
-                    // 如果服务端检查失败，但本地会话存在，返回本地会话信息
                     return {
                         is_authenticated: true,
                         session: localSession
@@ -1424,7 +1454,12 @@ export class SSOService extends ApiService {
                 clearSsoSessionCookies()
             }
             return null
-        } catch (error) {
+        } catch (error: unknown) {
+            const errData = (error as { response?: { data?: unknown } })?.response?.data ?? error
+            if (isSessionRevokedError(errData)) {
+                handleForcedLogout()
+                return null
+            }
             console.error('❌ Session 恢复失败:', error)
             return null
         }

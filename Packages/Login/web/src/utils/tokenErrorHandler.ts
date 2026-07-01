@@ -4,11 +4,12 @@
  */
 
 import { 
-    TokenErrorResponse, 
+    TokenErrorResponse,
     TokenErrorCode,
     ERROR_HANDLING_MAP,
     SuggestAction
 } from '../types/token'
+import { handleForcedLogout } from './forcedLogout'
 
 // 错误处理回调类型
 export interface TokenErrorHandlers {
@@ -74,6 +75,10 @@ export async function handleTokenError(
             break
 
         case 'relogin':
+            if (error_code === TokenErrorCode.SESSION_REVOKED) {
+                handleForcedLogout(getUserFriendlyMessage(error))
+                return true
+            }
             if (handlers.onRelogin) {
                 console.log('🔄 跳转到登录页面')
                 handlers.onRelogin()

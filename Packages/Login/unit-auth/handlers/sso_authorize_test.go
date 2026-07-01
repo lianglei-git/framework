@@ -51,7 +51,7 @@ func TestRedirectAuthorizeToLoginWeb(t *testing.T) {
 	)
 	c.Request.Host = "localhost:8080"
 
-	redirectAuthorizeToLoginWeb(c, "session_not_found")
+	redirectAuthorizeToLoginWeb(c, "session_not_found", true)
 
 	if w.Code != http.StatusFound {
 		t.Fatalf("status %d want %d", w.Code, http.StatusFound)
@@ -97,6 +97,44 @@ func TestRedirectAuthorizeToLoginWeb(t *testing.T) {
 	}
 }
 
+func TestRedirectAuthorizeToLoginWeb_NoClearWithoutCookie(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Setenv("LOGIN_WEB_URL", "http://localhost:3033")
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/auth/oauth/authorize?client_id=x", nil)
+
+	redirectAuthorizeToLoginWeb(c, "", false)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("status %d want %d", w.Code, http.StatusFound)
+	}
+	for _, cookie := range w.Result().Cookies() {
+		if cookie.Name == "sso_session_id" && cookie.MaxAge < 0 {
+			t.Fatal("should not clear cookie when clearCookies=false")
+		}
+	}
+}
+
+func TestHandleAuthorizeLoginRequired_SessionRevokedJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/auth/oauth/authorize", nil)
+	c.Request.Header.Set("Accept", "application/json")
+
+	handleAuthorizeLoginRequired(c, "session_revoked", true)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status %d want 401", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "SESSION_REVOKED") {
+		t.Fatalf("body %q", w.Body.String())
+	}
+}
+
 func TestHandleAuthorizeLoginRequired_JSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -105,7 +143,7 @@ func TestHandleAuthorizeLoginRequired_JSON(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/auth/oauth/authorize", nil)
 	c.Request.Header.Set("Accept", "application/json")
 
-	handleAuthorizeLoginRequired(c, "session_not_found")
+	handleAuthorizeLoginRequired(c, "session_not_found", true)
 
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("status %d want 401", w.Code)

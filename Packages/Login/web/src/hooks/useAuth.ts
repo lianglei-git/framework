@@ -12,6 +12,7 @@ import {
 import { authApi, userApi, createAuthConfig } from '../core'
 import { storage } from '../utils/storage'
 import { clearOriginAppUri } from '../utils/ssoOriginRedirect'
+import { readSsoSessionCookies } from '../utils/ssoSessionCookie'
 import { formatAuthError, isUnauthorizedError } from '../utils/authError'
 import {
     cleanOAuthParamsFromUrl,
@@ -25,6 +26,8 @@ import {
 import { globalUserStore } from '../stores/UserStore'
 import { SSOService } from '../sso'
 import { getSSOConfig } from '../sso/config'
+import { ensureSSOService } from '../sso/ssoBootstrap'
+import { handleForcedLogout, isSessionRevokedError } from '../utils/forcedLogout'
 
 
 export const storageKeys = {
@@ -33,23 +36,26 @@ export const storageKeys = {
 }
 
 const useSSOService = () => {
-    const [ssoService, setSSOService]: [SSOService, (k: any) => void] = useState(null)
+    const [ssoService, setSSOService]: [SSOService, (k: any) => void] = useState(
+        SSOService.instance instanceof SSOService ? SSOService.instance : null
+    )
     const [ssoProviders, setSSOProviders] = useState<any>([])
 
     useEffect(() => {
-        const init = async () => {
-            try {
-                const ssoConfig = createAuthConfig()
-                const service = await SSOService.getInstance(ssoConfig)
-                const providers = service.getProviders()
-                setSSOProviders(providers)
+        let cancelled = false
+        ensureSSOService()
+            .then((service) => {
+                if (cancelled) return
+                setSSOProviders(service.getProviders())
                 setSSOService(service)
-            } catch (err) {
-                console.error('SSO 服务初始化失败:', err)
-                setSSOProviders([])
-            }
-        }
-        init()
+            })
+            .catch((err) => {
+                if (!cancelled) {
+                    console.error('SSO 服务初始化失败:', err)
+                    setSSOProviders([])
+                }
+            })
+        return () => { cancelled = true }
     }, [])
 
     return {
