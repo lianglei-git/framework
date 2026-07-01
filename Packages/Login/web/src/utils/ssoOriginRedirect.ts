@@ -178,13 +178,14 @@ export function getOriginAppUri(): string | null {
 
 /** 从 localStorage、当前 URL 或 session 备份读取子应用 authorize URL */
 export function getSubAppAuthorizeUrl(): string | null {
-    const stored = getStoredOriginAppUri()
-    if (stored) return stored
-
     if (hasSubAppRedirectInUrl(window.location.search)) {
         saveOriginAppUriFromUrl()
-        return getStoredOriginAppUri()
+        const fromUrl = getStoredOriginAppUri()
+        if (fromUrl) return fromUrl
     }
+
+    const stored = getStoredOriginAppUri()
+    if (stored) return stored
 
     try {
         const pending = sessionStorage.getItem(PENDING_AUTHORIZE_SESSION_KEY)

@@ -155,8 +155,15 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
 
             if (options.redirect) {
                 // 重定向到SSO登录页面
-                const loginUrl = await _buildLoginUrl()
-                window.location.href = loginUrl
+                try {
+                    const loginUrl = await _buildLoginUrl()
+                    window.location.href = loginUrl
+                } catch (err: any) {
+                    if (err?.message === 'OAuth authorize superseded') {
+                        return
+                    }
+                    throw err
+                }
             } else {
                 // 直接调用登录API
                 console.log("⚠️ 无法执行：没有 options.redirect 参数")
@@ -319,9 +326,11 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
                 if (isAuthenticated) return
                 const recovered = await ssoService.tryRecoverSubProjectSession()
                 if (cancelled || recovered) return
-                if (ssoService.hasValidSessionCookie()) {
-                    await ssoService.trySilentAuthorize()
-                }
+                if (!ssoService.hasValidSessionCookie()) return
+                // 延迟静默免登，避免与用户点击「登录」并发覆盖 pkce_state
+                await new Promise((r) => setTimeout(r, 800))
+                if (cancelled || isAuthenticated) return
+                await ssoService.trySilentAuthorize()
             } catch (err) {
                 console.warn('跨应用 SSO 恢复失败:', err)
             }

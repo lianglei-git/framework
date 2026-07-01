@@ -32,6 +32,8 @@ import { SSOError, createDefaultSSOConfig, getSSOConfig, setSSOConfig } from './
 import { extractConfigFromURL } from './urlConfig'
 import { generatePKCE, generateOAuthState } from './pkce'
 import { applyDiscoveryEndpoints, resolveOAuthEndpoint as resolveOAuthEndpointUrl } from './oauthEndpoints'
+import { beginAuthorizeAttempt, getAuthorizeEpoch, isAuthorizeAttemptStale } from './oauthAuthorizeGuard'
+import { clearPkceState, readPkceState, storePkceState, verifyOAuthState } from './oauthState'
 
 export class SSOService extends ApiService {
     private config: SSOConfig
@@ -587,6 +589,7 @@ export class SSOService extends ApiService {
      * 支持PKCE双重验证和动态URL参数
      */
     async buildAuthorizationUrl(providerId: string, options: Partial<SSOAuthRequest> = {}): Promise<string> {
+        const attemptEpoch = beginAuthorizeAttempt()
         storage.set('login_provider', providerId, StorageType.LOCAL)
         // 设置当前使用的provider
         this.setCurrentProvider(providerId)
@@ -645,9 +648,7 @@ export class SSOService extends ApiService {
             Reflect.set(params, 'code_challenge', pkceParams.code_challenge)
             Reflect.set(params, 'code_challenge_method', pkceParams.code_challenge_method)
 
-            // 存储code_verifier用于后续双重验证token交换
-            localStorage.setItem('pkce_code_verifier', pkceParams.code_verifier)
-            localStorage.setItem('pkce_state', params.state)
+            storePkceState(params.state, pkceParams.code_verifier)
             console.log('✅ PKCE参数已存储到localStorage')
         }
 
@@ -656,6 +657,11 @@ export class SSOService extends ApiService {
 
         if (!oauthParams?.auth_url) {
             throw new Error('无法获取第三方登录地址')
+        }
+
+        if (isAuthorizeAttemptStale(attemptEpoch)) {
+            console.warn('OAuth authorize 已被更新的登录请求取代，放弃本次跳转')
+            throw new Error('OAuth authorize superseded')
         }
 
         console.log(oauthParams.auth_url, 'oauthParamsoauthParams')
@@ -710,35 +716,7 @@ export class SSOService extends ApiService {
             throw new Error('Authorization code not found')
         }
 
-        // 验证state参数 - 增强的双重验证
-        const storedState = localStorage.getItem('pkce_state') || localStorage.getItem('sso_state')
-
-        // 解析state参数（可能是JSON字符串）
-        let contextState = context.state
-        try {
-            if (contextState && typeof contextState === 'string') {
-                // 尝试解析为JSON对象
-                const parsedState = JSON.parse(contextState)
-                contextState = parsedState
-            }
-        } catch (error) {
-            // 如果不是有效的JSON，保持原样
-            console.log('State参数不是JSON格式:', contextState)
-        }
-
-        // 验证state参数
-        if (storedState) {
-            let storedStateObj
-            try {
-                storedStateObj = JSON.parse(storedState)
-            } catch (error) {
-                storedStateObj = storedState
-            }
-
-            if (contextState !== storedStateObj) {
-                throw new Error('Invalid state parameter - CSRF protection failed')
-            }
-        }
+        verifyOAuthState(context.state)
 
         // 验证必须的参数
         if (!context.code) {
@@ -749,9 +727,7 @@ export class SSOService extends ApiService {
             throw new Error('State parameter is required for security verification')
         }
 
-        // 清除存储的state（用于后续双重验证）
-        localStorage.removeItem('pkce_state')
-        localStorage.removeItem('sso_state')
+        clearPkceState()
 
         // 使用授权码获取token
         return this.exchangeCodeForToken(context.code, context.state)
@@ -855,15 +831,27 @@ export class SSOService extends ApiService {
         if (!this.hasValidSessionCookie()) {
             return
         }
-        const loginUrl = await this.buildAuthorizationUrl('sub_job', {
-            client_id: this.config.clientId,
-            app_id: this.resolveAppId(),
-            grant_type: 'authorization_code',
-            redirect_uri: this.config.redirectUri,
-            response_type: 'code',
-            scope: (this.config.scope || []).join?.(' ') || (Array.isArray(this.config.scope) ? this.config.scope.join(' ') : 'openid profile email'),
-        })
-        window.location.href = loginUrl
+        const epochBefore = getAuthorizeEpoch()
+        try {
+            const loginUrl = await this.buildAuthorizationUrl('sub_job', {
+                client_id: this.config.clientId,
+                app_id: this.resolveAppId(),
+                grant_type: 'authorization_code',
+                redirect_uri: this.config.redirectUri,
+                response_type: 'code',
+                scope: (this.config.scope || []).join?.(' ') || (Array.isArray(this.config.scope) ? this.config.scope.join(' ') : 'openid profile email'),
+            })
+            if (getAuthorizeEpoch() !== epochBefore + 1) {
+                console.log('静默免登已取消：用户发起了新的登录')
+                return
+            }
+            window.location.href = loginUrl
+        } catch (err) {
+            if (err instanceof Error && err.message === 'OAuth authorize superseded') {
+                return
+            }
+            throw err
+        }
     }
 
     /** @deprecated use tryRecoverSubProjectSession */
@@ -890,7 +878,7 @@ export class SSOService extends ApiService {
 
 
         // 构建token交换请求参数 - 双重验证模式
-        const finalState = state || localStorage.getItem('pkce_state')
+        const finalState = state || readPkceState()
 
         // 解析state参数（可能是JSON格式）
         let parsedState = finalState
