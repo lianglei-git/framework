@@ -339,7 +339,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         return () => { cancelled = true }
     }, [autoInit, isInitialized, ssoService, isLoading, isAuthenticated, isInCallback])
 
-    const getUserInfoFetch = async () => {
+    const getUserInfoFetch = useCallback(async () => {
         const accessToken = storage.getSSOAccessToken() || token?.access_token
         if (!accessToken) {
             throw new Error('未登录，请先登录')
@@ -365,7 +365,7 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
             }
             throw new Error(formatAuthError(err, '获取用户信息失败'))
         }
-    }
+    }, [ssoService, token?.access_token, recoverFromUnauthorized])
 
    
     return {
