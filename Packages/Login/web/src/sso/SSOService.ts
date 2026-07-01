@@ -142,23 +142,28 @@ export class SSOService extends ApiService {
 
     static instance: SSOService | null = null;
     private static initPromise: Promise<SSOService> | null = null;
+    private initialized = false;
 
     static getInstance = async (config: any): Promise<SSOService> => {
         if (SSOService.instance instanceof SSOService) {
-            return SSOService.instance;
+            return SSOService.instance
         }
-        if (!SSOService.initPromise) {
-            SSOService.initPromise = (async () => {
-                const ins = new SSOService(config);
-                await ins.initialize();
-                SSOService.instance = ins;
-                return ins;
-            })().catch((err) => {
-                SSOService.initPromise = null;
-                throw err;
-            });
+        if (SSOService.initPromise) {
+            return SSOService.initPromise
         }
-        return SSOService.initPromise;
+
+        SSOService.initPromise = (async () => {
+            const ins = new SSOService(config)
+            await ins.initialize()
+            SSOService.instance = ins
+            return ins
+        })()
+
+        try {
+            return await SSOService.initPromise
+        } finally {
+            SSOService.initPromise = null
+        }
     }
 
 
@@ -166,6 +171,9 @@ export class SSOService extends ApiService {
      * 初始化SSO服务
      */
     protected async initialize(): Promise<void> {
+        if (this.initialized) {
+            return
+        }
         try {
             // 验证配置
             await this.validateConfig()
@@ -230,6 +238,7 @@ export class SSOService extends ApiService {
 
 
             console.log('SSO service initialized successfully')
+            this.initialized = true
         } catch (error) {
             console.error('Failed to initialize SSO service:', error)
             throw error
