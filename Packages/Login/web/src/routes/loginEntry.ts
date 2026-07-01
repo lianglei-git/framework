@@ -1,11 +1,8 @@
 import type { NavigateFunction } from 'react-router-dom'
 import { handleSSOCallbackResult } from '../utils/handleSSOCallbackResult'
 import {
-    clearOriginAppUri,
-    clearPendingAuthorizeUrl,
+    clearSubAppRedirectContext,
     getOriginAppUri,
-    getStoredOriginAppUri,
-    getSubAppAuthorizeUrl,
     hasSubAppRedirectInUrl,
     saveOriginAppUriFromUrl,
 } from '../utils/ssoOriginRedirect'
@@ -22,26 +19,19 @@ export function getLoginEntryMode(search = typeof window !== 'undefined' ? windo
     if (hasSubAppRedirectInUrl(search)) {
         return 'subapp_redirect'
     }
-    if (getStoredOriginAppUri() || getSubAppAuthorizeUrl()) {
-        return 'subapp_redirect'
-    }
     return 'direct'
 }
 
-/** 当前是否处于「需要回跳子应用」上下文（URL 或已持久化的 origin） */
+/** 当前是否处于「需要回跳子应用」上下文（仅看 URL，不读持久化存储） */
 export function hasSubAppRedirectContext(search = typeof window !== 'undefined' ? window.location.search : ''): boolean {
-    if (hasSubAppRedirectInUrl(search)) {
-        return true
-    }
-    return !!getSubAppAuthorizeUrl()
+    return hasSubAppRedirectInUrl(search)
 }
 
 /** 应用启动 / 进入登录页时同步入口上下文 */
 export function syncLoginEntryContext(search = typeof window !== 'undefined' ? window.location.search : ''): LoginEntryMode {
     const mode = getLoginEntryMode(search)
     if (mode === 'direct') {
-        clearOriginAppUri()
-        clearPendingAuthorizeUrl()
+        clearSubAppRedirectContext()
     } else {
         saveOriginAppUriFromUrl(search)
     }
@@ -54,6 +44,7 @@ export function routeAfterLogin(navigate: NavigateFunction): void {
         void handleSSOCallbackResult({ afterLogin: true })
         return
     }
+    clearSubAppRedirectContext()
     navigate('/account', { replace: true })
 }
 
@@ -63,6 +54,7 @@ export function routeAuthenticatedEntry(navigate: NavigateFunction): void {
         void handleSSOCallbackResult({ afterLogin: true })
         return
     }
+    clearSubAppRedirectContext()
     navigate('/account', { replace: true })
 }
 

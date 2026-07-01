@@ -3,10 +3,10 @@ import { getSSOConfig } from "../sso/config"
 import { globalUserStore } from "../stores/UserStore"
 import { readSsoSessionCookies } from "./ssoSessionCookie"
 import {
+    clearSubAppRedirectContext,
     getOriginAppUri,
     getSubAppAuthorizeUrl,
     isValidAuthorizeUrl,
-    rememberSubAppAuthorizeUrl,
     redirectToOriginAppUriIfPresent,
     resolveAuthorizeUrlForBrowser,
     saveOriginAppUriFromUrl,
@@ -98,6 +98,9 @@ export const handleSSOCallbackResult = async (opts?: SSOCallbackOptions) => {
         return false
     }
 
+    // 已解析出回跳地址后清除持久化 origin，避免裸访问 3033 时误跳子项目（URL 参数仍可供重试）
+    clearSubAppRedirectContext()
+
     if (shouldBlockRedirectLoop(resolvedAuthorizeUrl)) {
         console.warn('⚠️ 检测到 authorize 回跳循环，已暂停自动跳转，请手动点击「返回应用」')
         return false
@@ -109,7 +112,6 @@ export const handleSSOCallbackResult = async (opts?: SSOCallbackOptions) => {
     }
 
     markRedirectAttempt(resolvedAuthorizeUrl)
-    rememberSubAppAuthorizeUrl(resolvedAuthorizeUrl)
     stripSubAppRedirectParamsFromUrl()
     window.location.href = resolvedAuthorizeUrl
     return true

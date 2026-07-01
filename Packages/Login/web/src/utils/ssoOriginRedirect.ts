@@ -138,6 +138,12 @@ export function clearOriginAppUri(): void {
     localStorage.removeItem(ORIGIN_KEY)
 }
 
+/** 清除登录中心保存的子应用回跳上下文（localStorage + sessionStorage） */
+export function clearSubAppRedirectContext(): void {
+    clearOriginAppUri()
+    clearPendingAuthorizeUrl()
+}
+
 /** 登录中心回跳 authorize 前清理 URL，避免 bounce-back 时从 query 再次写入 origin */
 export function stripSubAppRedirectParamsFromUrl(): void {
     if (typeof window === 'undefined') return
