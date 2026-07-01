@@ -287,7 +287,12 @@ func main() {
 			protected.PUT("/profile", handlers.UpdateProfile(db))
 			protected.POST("/change-password", handlers.ChangePassword(db))
 			protected.POST("/set-password", handlers.SetPassword(db))
+			protected.POST("/avatar", handlers.UploadAvatar(db))
+			protected.GET("/check-username", handlers.CheckUsername(db))
 		}
+
+		// 头像文件（公开读取）
+		api.GET("/user/avatar/:filename", handlers.GetAvatar(db))
 
 		// 统计相关路由
 		stats := api.Group("/stats")

@@ -81,7 +81,7 @@ export const identifyAccountType = (account: string): AccountType => {
     return AccountType.UNKNOWN
 }
 
-/** 登录账号校验：支持邮箱、手机号、用户名 */
+/** 登录账号校验：支持邮箱、手机号、用户ID */
 export function validateLoginAccount(account: string): string | null {
     const trimmed = account.trim()
     if (!trimmed) {
@@ -89,7 +89,7 @@ export function validateLoginAccount(account: string): string | null {
     }
     const accountType = identifyAccountType(trimmed)
     if (accountType === AccountType.UNKNOWN) {
-        return '请输入有效的邮箱、手机号或用户名'
+        return '请输入有效的邮箱、手机号或用户ID'
     }
     return null
 }
@@ -113,9 +113,9 @@ export const validateRegisterForm = (data: RegisterFormData): ValidationError[] 
     const errors: ValidationError[] = []
 
     if (!data.username.trim()) {
-        errors.push({ field: 'username', message: '请输入用户名' })
+        errors.push({ field: 'username', message: '请输入用户ID' })
     } else if (!validateUsername(data.username)) {
-        errors.push({ field: 'username', message: '用户名格式不正确，3-20位字母数字下划线' })
+        errors.push({ field: 'username', message: '用户ID格式不正确，3-20位字母数字下划线' })
     }
 
     if (!data.email.trim()) {

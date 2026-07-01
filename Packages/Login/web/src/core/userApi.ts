@@ -53,16 +53,28 @@ export class UserApiService extends ApiService {
     }
 
     async uploadAvatar(file: File): Promise<{ avatar_url: string }> {
-        const formData = new FormData()
-        formData.append('file', file)
-
-        const response = await this.upload<{ code: number, data: { avatar_url: string }, message?: string }>(`${this.baseURL}/api/v1/user/avatar`, file)
+        const response = await this.upload<{ code: number, data: { avatar_url: string, avatar_key?: string }, message?: string }>(`${this.baseURL}/api/v1/user/avatar`, file)
 
         if (response.code === 200) {
             return { avatar_url: response.data.avatar_url }
         } else {
             throw new Error(response.message || '上传头像失败')
         }
+    }
+
+    async checkUsername(username: string): Promise<boolean> {
+        const response = await this.get<{ code: number, data: { available: boolean }, message?: string }>(
+            `${this.baseURL}/api/v1/user/check-username`,
+            { username },
+            {
+                headers: getCommonHeaders(localStorage.getItem('auth_token') || undefined)
+            }
+        )
+
+        if (response.code === 200) {
+            return !!response.data.available
+        }
+        throw new Error(response.message || '检查用户ID失败')
     }
 
     async deleteAccount(password: string): Promise<void> {

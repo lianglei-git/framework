@@ -1,10 +1,29 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { observer } from 'mobx-react-lite'
 import { globalUserStore } from '../../stores/UserStore'
 import { useAuth } from '../../hooks/useAuth'
-import { ProfileHeader } from '../../components/account/ProfileHeader'
+import {
+    ProfileHeader,
+    ContactInfoPanel,
+    AccountMetaPanel,
+    DefaultUserIdBanner,
+} from '../../components/account'
 import { userApi } from '../../core'
+import {
+    USER_ID_LABEL,
+    USER_ID_HINT,
+    NICKNAME_HINT,
+} from '../../constants/userIdentity'
+import {
+    dismissDefaultUserIdBanner,
+    hasDefaultUserId,
+    isDefaultUserIdBannerDismissed,
+    shouldShowDefaultUserIdBanner,
+} from '../../utils/profileIdentity'
+import { validateUsername } from '../../utils/validation'
 import styles from './AccountPage.module.less'
+
+type UsernameCheckState = 'idle' | 'checking' | 'available' | 'taken' | 'invalid'
 
 export const ProfilePage: React.FC = observer(() => {
     const auth = useAuth()
@@ -14,6 +33,11 @@ export const ProfilePage: React.FC = observer(() => {
     const [bio, setBio] = useState('')
     const [statusMessage, setStatusMessage] = useState('')
     const [errorMessage, setErrorMessage] = useState('')
+    const [avatarError, setAvatarError] = useState('')
+    const [bannerDismissed, setBannerDismissed] = useState(false)
+    const [usernameCheck, setUsernameCheck] = useState<UsernameCheckState>('idle')
+    const usernameInputRef = useRef<HTMLInputElement>(null)
+    const checkTimerRef = useRef<number>()
 
     useEffect(() => {
         void globalUserStore.requestUserDetailsInfo()
@@ -24,16 +48,82 @@ export const ProfilePage: React.FC = observer(() => {
         setUsername(profile.username || '')
         setNickname(profile.nickname || '')
         setBio(profile.meta?.bio || '')
+        setBannerDismissed(isDefaultUserIdBannerDismissed(profile.username || ''))
+        setUsernameCheck('idle')
     }, [profile])
 
+    useEffect(() => {
+        if (!profile || bannerDismissed) return
+        if (!shouldShowDefaultUserIdBanner(profile)) return
+        if (!hasDefaultUserId(profile)) return
+        usernameInputRef.current?.focus()
+    }, [profile, bannerDismissed])
+
     const avatarUrl = useMemo(() => {
-        const stored = profile?.meta?.avatar
+        const stored = profile?.meta?.avatar || profile?.avatar
         return userApi.getAvatarSrc(stored) || globalUserStore.avatarSrc
-    }, [profile?.meta?.avatar, globalUserStore.avatarSrc])
+    }, [profile?.meta?.avatar, profile?.avatar, globalUserStore.avatarSrc])
 
     const canSubmit = useMemo(() => {
         return username.trim().length >= 3 && nickname.trim().length >= 2
     }, [username, nickname])
+
+    const showDefaultBanner = useMemo(() => {
+        if (!profile || bannerDismissed) return false
+        return shouldShowDefaultUserIdBanner(profile)
+    }, [profile, bannerDismissed])
+
+    const onAvatarUploaded = async () => {
+        setAvatarError('')
+        await globalUserStore.requestUserDetailsInfo()
+        setStatusMessage('头像已更新')
+    }
+
+    const runUsernameCheck = async (value: string) => {
+        const trimmed = value.trim()
+        if (!trimmed || trimmed === profile?.username) {
+            setUsernameCheck('idle')
+            return
+        }
+        if (!validateUsername(trimmed)) {
+            setUsernameCheck('invalid')
+            return
+        }
+        setUsernameCheck('checking')
+        try {
+            const available = await userApi.checkUsername(trimmed)
+            setUsernameCheck(available ? 'available' : 'taken')
+        } catch {
+            setUsernameCheck('idle')
+        }
+    }
+
+    const onUsernameBlur = () => {
+        void runUsernameCheck(username)
+    }
+
+    const onUsernameChange = (value: string) => {
+        setUsername(value)
+        setUsernameCheck('idle')
+        if (checkTimerRef.current) {
+            window.clearTimeout(checkTimerRef.current)
+        }
+        checkTimerRef.current = window.setTimeout(() => {
+            void runUsernameCheck(value)
+        }, 400)
+    }
+
+    const onDismissBanner = () => {
+        if (profile?.username) {
+            dismissDefaultUserIdBanner(profile.username)
+        }
+        setBannerDismissed(true)
+    }
+
+    const scrollToUserIdField = () => {
+        usernameInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        usernameInputRef.current?.focus()
+    }
 
     const onSave = async () => {
         setStatusMessage('')
@@ -52,12 +142,27 @@ export const ProfilePage: React.FC = observer(() => {
         } catch (error: any) {
             const msg = error?.message || ''
             if (msg.toLowerCase().includes('username already exists')) {
-                setErrorMessage('用户名已被占用，请换一个 3-20 位用户名')
+                setErrorMessage('用户ID已被占用，请换一个 3-20 位用户ID')
             } else {
                 setErrorMessage(msg || '保存失败，请稍后重试')
             }
         }
     }
+
+    const usernameCheckMessage = (() => {
+        switch (usernameCheck) {
+            case 'checking':
+                return <span className={styles.checking}>检查中…</span>
+            case 'available':
+                return <span className={styles.checkOk}>可以使用</span>
+            case 'taken':
+                return <span className={styles.checkBad}>已被占用</span>
+            case 'invalid':
+                return <span className={styles.checkBad}>格式不正确</span>
+            default:
+                return null
+        }
+    })()
 
     return (
         <div>
@@ -66,20 +171,40 @@ export const ProfilePage: React.FC = observer(() => {
                 nickname={profile?.nickname || globalUserStore.nickName}
                 username={profile?.username || globalUserStore.username}
                 email={profile?.email}
-                userId={profile?.id || globalUserStore.id}
+                phone={profile?.phone}
+                emailVerified={profile?.email_verified}
+                phoneVerified={profile?.phone_verified}
+                onAvatarUploaded={onAvatarUploaded}
+                onAvatarError={setAvatarError}
             />
+            {avatarError && <p className={styles.error}>{avatarError}</p>}
 
             <h1 className={styles.title}>个人资料</h1>
-            <p className={styles.subtitle}>管理你的用户名、昵称与基础个人信息。</p>
+            <p className={styles.subtitle}>管理你的用户ID、昵称与基础个人信息。</p>
+
+            {showDefaultBanner && profile && (
+                <DefaultUserIdBanner
+                    username={profile.username}
+                    onDismiss={onDismissBanner}
+                    onSetUserId={scrollToUserIdField}
+                    showSetUserIdCta={hasDefaultUserId(profile)}
+                />
+            )}
+
             <div className={styles.form}>
                 <label className={styles.field}>
-                    <span className={styles.label}>用户名（3-20 位）</span>
+                    <span className={styles.label}>{USER_ID_LABEL}（3-20 位）</span>
                     <input
+                        ref={usernameInputRef}
                         className={styles.input}
                         value={username}
-                        onChange={(event) => setUsername(event.target.value)}
-                        placeholder="请输入用户名"
+                        onChange={(event) => onUsernameChange(event.target.value)}
+                        onBlur={onUsernameBlur}
+                        placeholder={`请输入${USER_ID_LABEL}`}
                     />
+                    <span className={styles.helper}>{USER_ID_HINT}</span>
+                    <span className={styles.helper}>你的 @handle：@{username.trim() || '…'}</span>
+                    {usernameCheckMessage}
                 </label>
 
                 <label className={styles.field}>
@@ -90,6 +215,7 @@ export const ProfilePage: React.FC = observer(() => {
                         onChange={(event) => setNickname(event.target.value)}
                         placeholder="请输入昵称"
                     />
+                    <span className={styles.helper}>{NICKNAME_HINT}</span>
                 </label>
 
                 <label className={styles.field}>
@@ -111,6 +237,19 @@ export const ProfilePage: React.FC = observer(() => {
                     {errorMessage && <span className={styles.error}>{errorMessage}</span>}
                 </div>
             </div>
+
+            <ContactInfoPanel
+                email={profile?.email}
+                phone={profile?.phone}
+                emailVerified={profile?.email_verified}
+                phoneVerified={profile?.phone_verified}
+            />
+
+            <AccountMetaPanel
+                accountId={profile?.id || globalUserStore.id}
+                createdAt={profile?.created_at}
+                lastLoginAt={profile?.last_login_at}
+            />
         </div>
     )
 })

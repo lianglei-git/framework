@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 	"unit-auth/middleware"
 	"unit-auth/models"
 	"unit-auth/services"
@@ -232,6 +233,37 @@ func SetPassword(db *gorm.DB) gin.HandlerFunc {
 		c.JSON(http.StatusOK, models.Response{
 			Code:    200,
 			Message: "Password set successfully",
+		})
+	}
+}
+
+// CheckUsername 检查用户ID是否可用
+func CheckUsername(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID := c.GetString("user_id")
+		username := strings.TrimSpace(c.Query("username"))
+
+		if !usernamePattern.MatchString(username) {
+			c.JSON(http.StatusOK, models.Response{
+				Code:    200,
+				Message: "Username check completed",
+				Data: gin.H{
+					"available": false,
+				},
+			})
+			return
+		}
+
+		var existing models.User
+		err := db.Where("username = ? AND id != ?", username, userID).First(&existing).Error
+		available := err == gorm.ErrRecordNotFound
+
+		c.JSON(http.StatusOK, models.Response{
+			Code:    200,
+			Message: "Username check completed",
+			Data: gin.H{
+				"available": available,
+			},
 		})
 	}
 }

@@ -24,6 +24,9 @@ import type { AccountPreview } from '../../types'
 import { RiGithubFill, RiGoogleFill, RiWechatFill } from 'react-icons/ri'
 import { useNavigate } from 'react-router-dom'
 import { routeAfterLogin } from '../../routes/loginEntry'
+import { LOGIN_ACCOUNT_PLACEHOLDER } from '../../constants/userIdentity'
+import { scheduleProfileNudgeIfNeeded } from '../../utils/profileIdentity'
+import { globalUserStore } from '../../stores/UserStore'
 import { formatAuthError } from '../../utils/authError'
 import { pickSocialProviders } from '../../sso/socialProviders'
 
@@ -210,6 +213,16 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
         void beginCodeLogin(channel)
     }, [loginStep, previewLoading, loginStepMode, account])
 
+    const finishLogin = async () => {
+        try {
+            await globalUserStore.requestUserDetailsInfo()
+            scheduleProfileNudgeIfNeeded(globalUserStore.detailsUserInfo)
+        } catch {
+            // 登录已成功，资料拉取失败不阻断跳转
+        }
+        routeAfterLogin(navigate)
+    }
+
     const handleAccountLogin = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!accountForm.values.password.trim()) {
@@ -222,7 +235,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
                 provider: 'local',
                 username: accountForm.values.account,
             })
-            routeAfterLogin(navigate)
+            await finishLogin()
         } catch (error: any) {
             accountForm.setError('password', formatAuthError(error, '账号或密码错误'))
         }
@@ -259,7 +272,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
                     remember_me: accountForm.values.remember_me,
                 })
             }
-            routeAfterLogin(navigate)
+            await finishLogin()
         } catch (error: any) {
             setCodeLoginHint(formatAuthError(error, '登录失败'))
         }
@@ -413,7 +426,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
                     <form onSubmit={handleCheckAccount} className="account-login-form">
                         <Input
                             type="text"
-                            placeholder="邮箱 / 手机号 / 用户名"
+                            placeholder={LOGIN_ACCOUNT_PLACEHOLDER}
                             value={accountForm.values.account}
                             onChange={(value) => accountForm.setValue('account', value)}
                             error={accountForm.errors.account}

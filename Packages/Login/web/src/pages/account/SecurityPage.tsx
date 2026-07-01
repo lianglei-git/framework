@@ -24,7 +24,7 @@ function resolvePasswordDescription(profile: {
 
     const linked = profile?.linked_accounts?.some((item) => item.linked)
     if (linked && !profile?.email && !profile?.phone) {
-        return '设置密码后，可用用户名或邮箱作为备用登录方式。不设置也不影响当前登录。'
+        return '设置密码后，可用用户ID或邮箱作为备用登录方式。不设置也不影响当前登录。'
     }
     if (profile?.phone_verified && profile?.phone) {
         return '你通过手机号验证码登录。设置密码后，下次可直接输入密码，无需等待验证码。'

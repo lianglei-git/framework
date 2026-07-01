@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import { observer } from 'mobx-react-lite'
 import { hasSubAppRedirectContext } from '../../routes/loginEntry'
 import { handleSSOCallbackResult } from '../../utils/handleSSOCallbackResult'
+import { ProfileLoginNudge } from '../../components/account'
 import { useAuth } from '../../hooks/useAuth'
 import styles from './AccountLayout.module.less'
 
@@ -47,6 +48,7 @@ export const AccountLayout: React.FC = observer(() => {
                             退出登录
                         </button>
                     </div>
+                    <ProfileLoginNudge />
                     <Outlet />
                 </section>
             </div>

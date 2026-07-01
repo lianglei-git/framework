@@ -12,7 +12,7 @@ const PrivacyPolicy: React.FC<PrivacyPolicyProps> = ({ visible, onClose }) => {
             <section>
                 <h4>1. 我们收集的信息</h4>
                 <ul>
-                    <li>账户信息：邮箱、手机号、用户名等注册必要信息。</li>
+                    <li>账户信息：邮箱、手机号、用户ID 等注册必要信息。</li>
                     <li>使用数据：功能使用记录、设备信息、日志与崩溃信息，用于改进产品质量。</li>
                     <li>可选信息：你自愿提供的头像、昵称、偏好等个性化设置。</li>
                 </ul>

@@ -42,7 +42,7 @@ export class AuthApiService extends ApiService {
     }
 
     /**
-     * 统一登录接口 - 支持邮箱/用户名/手机号登录
+     * 统一登录接口 - 支持邮箱/用户ID/手机号登录
      * 兼容原有API和SSO模式
      */
     async unifiedLogin(data: { account: string, password: string }): Promise<any> {
