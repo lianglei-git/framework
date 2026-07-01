@@ -1,13 +1,24 @@
 /** PKCE (RFC 7636) helpers for OAuth authorization code flow */
 
+import { sha256Digest } from './sha256'
+
 async function sha256(message: string): Promise<ArrayBuffer> {
-    const msgBuffer = new TextEncoder().encode(message)
-    return crypto.subtle.digest('SHA-256', msgBuffer)
+    return sha256Digest(new TextEncoder().encode(message))
+}
+
+function fillRandomBytes(array: Uint8Array): void {
+    if (globalThis.crypto?.getRandomValues) {
+        crypto.getRandomValues(array)
+        return
+    }
+    for (let i = 0; i < array.length; i++) {
+        array[i] = Math.floor(Math.random() * 256)
+    }
 }
 
 function generateRandomString(length: number): string {
     const array = new Uint8Array(length)
-    crypto.getRandomValues(array)
+    fillRandomBytes(array)
     const allowedChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~'
     let result = ''
     for (let i = 0; i < length; i++) {
@@ -26,10 +37,20 @@ function base64URLEncode(buffer: ArrayBuffer): string {
     return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
 }
 
-export async function generatePKCE(): Promise<{ code_verifier: string; code_challenge: string }> {
+export interface PKCEParams {
+    code_verifier: string
+    code_challenge: string
+    code_challenge_method: 'S256'
+}
+
+export async function generatePKCE(): Promise<PKCEParams> {
     const codeVerifier = generateRandomString(128)
     const codeChallenge = base64URLEncode(await sha256(codeVerifier))
-    return { code_verifier: codeVerifier, code_challenge: codeChallenge }
+    return {
+        code_verifier: codeVerifier,
+        code_challenge: codeChallenge,
+        code_challenge_method: 'S256',
+    }
 }
 
 export function generateOAuthState(): string {

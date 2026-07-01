@@ -638,12 +638,12 @@ export class SSOService extends ApiService {
             const pkceParams = await generatePKCE()
             console.log('🔐 自动生成PKCE参数:', {
                 code_challenge: pkceParams.code_challenge,
-                code_challenge_method: 'S256',
+                code_challenge_method: pkceParams.code_challenge_method,
                 code_verifier_length: pkceParams.code_verifier.length
             })
 
             Reflect.set(params, 'code_challenge', pkceParams.code_challenge)
-            Reflect.set(params, 'code_challenge_method', 'S256')
+            Reflect.set(params, 'code_challenge_method', pkceParams.code_challenge_method)
 
             // 存储code_verifier用于后续双重验证token交换
             localStorage.setItem('pkce_code_verifier', pkceParams.code_verifier)
