@@ -1,0 +1,28 @@
+# 登录中心静态站点（Packages/Login/web 构建产物）
+# root 指向解压包内 login-web/ 目录
+
+server {
+    listen 443 ssl http2;
+    server_name login.YOUR_DOMAIN;
+
+    ssl_certificate     /etc/letsencrypt/live/login.YOUR_DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/login.YOUR_DOMAIN/privkey.pem;
+
+    root /var/www/sparrow-login/login-web;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
+        expires 7d;
+        add_header Cache-Control "public, immutable";
+    }
+}
+
+server {
+    listen 80;
+    server_name login.YOUR_DOMAIN;
+    return 301 https://$host$request_uri;
+}

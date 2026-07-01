@@ -4,8 +4,8 @@ import type { StorageType } from './forms'
 // SSO 类型定义
 export interface SSOConfig {
     ssoServerUrl: string
-    clientId: string
-    clientSecret: string
+    clientId?: string
+    clientSecret?: string
     redirectUri: string
     scope?: string[]
     responseType?: 'code' | 'token' | 'id_token'

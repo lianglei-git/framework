@@ -1,0 +1,17 @@
+[Unit]
+Description=Sparrow unit-auth (SSO IdP)
+After=network.target mysql.service redis.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/sparrow-login/unit-auth
+EnvironmentFile=/opt/sparrow-login/unit-auth/.env
+ExecStart=/opt/sparrow-login/unit-auth/unit-auth
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

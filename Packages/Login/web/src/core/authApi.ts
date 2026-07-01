@@ -28,8 +28,6 @@ export class AuthApiService extends ApiService {
         if (ssoServerUrl) {
             this.ssoConfig = {
                 ssoServerUrl,
-                clientId: import.meta.env.VITE_SSO_CLIENT_ID || '',
-                clientSecret: import.meta.env.VITE_SSO_CLIENT_SECRET || '',
                 redirectUri: import.meta.env.VITE_SSO_REDIRECT_URI || window.location.origin + '/auth/callback',
                 scope: (import.meta.env.VITE_SSO_SCOPE || 'openid profile email').split(' '),
                 responseType: (import.meta.env.VITE_SSO_RESPONSE_TYPE as 'code' | 'token' | 'id_token') || 'code',

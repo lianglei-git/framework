@@ -1,0 +1,4 @@
+# 打包产物（由 scripts/build-release.sh 生成）
+login-release-*/
+*.tar.gz
+*.tar.zst
