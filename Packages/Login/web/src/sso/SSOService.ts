@@ -177,7 +177,11 @@ export class SSOService extends ApiService {
                                     cleanOAuthParamsFromUrl()
                                     console.log('子项目 OAuth 回调完成，已清理 URL')
                                 } else {
-                                    handleSSOCallbackResult({ afterLogin: true })
+                                    handleSSOCallbackResult({ afterLogin: true }).then((handled) => {
+                                        if (!handled && window.location.port === '3033') {
+                                            window.location.replace('/account')
+                                        }
+                                    })
                                 }
                             } else {
                                 window.dispatchEvent(new CustomEvent('auth:oauth-failed'))

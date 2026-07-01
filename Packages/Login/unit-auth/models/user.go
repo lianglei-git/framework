@@ -343,25 +343,33 @@ type ChangePasswordRequest struct {
 
 // UpdateProfileRequest 更新用户信息请求
 type UpdateProfileRequest struct {
+	Username string    `json:"username" binding:"omitempty,min=3,max=20"`
 	Nickname string    `json:"nickname" binding:"min=2,max=50"`
 	Meta     *UserMeta `json:"meta,omitempty"`
 }
 
+// LinkedAccount 第三方账号绑定状态（脱敏）
+type LinkedAccount struct {
+	Provider string `json:"provider"`
+	Linked   bool   `json:"linked"`
+}
+
 // UserResponse 用户响应
 type UserResponse struct {
-	ID            string     `json:"id"`
-	Email         string     `json:"email"`
-	Phone         string     `json:"phone"`
-	Username      string     `json:"username"`
-	Nickname      string     `json:"nickname"`
-	Meta          *UserMeta  `json:"meta,omitempty"`
-	Role          string     `json:"role"`
-	Status        string     `json:"status"`
-	EmailVerified bool       `json:"email_verified"`
-	PhoneVerified bool       `json:"phone_verified"`
-	LoginCount    int64      `json:"login_count"`
-	LastLoginAt   *time.Time `json:"last_login_at"`
-	CreatedAt     time.Time  `json:"created_at"`
+	ID             string          `json:"id"`
+	Email          string          `json:"email"`
+	Phone          string          `json:"phone"`
+	Username       string          `json:"username"`
+	Nickname       string          `json:"nickname"`
+	Meta           *UserMeta       `json:"meta,omitempty"`
+	Role           string          `json:"role"`
+	Status         string          `json:"status"`
+	EmailVerified  bool            `json:"email_verified"`
+	PhoneVerified  bool            `json:"phone_verified"`
+	LoginCount     int64           `json:"login_count"`
+	LastLoginAt    *time.Time      `json:"last_login_at"`
+	CreatedAt      time.Time       `json:"created_at"`
+	LinkedAccounts []LinkedAccount `json:"linked_accounts,omitempty"`
 }
 
 // LoginResponse 登录响应
@@ -484,6 +492,17 @@ func (u *User) SetAvatar(avatar string) error {
 	return u.SetMeta(meta)
 }
 
+func (u *User) buildLinkedAccounts() []LinkedAccount {
+	isLinked := func(id *string) bool {
+		return id != nil && *id != ""
+	}
+	return []LinkedAccount{
+		{Provider: "google", Linked: isLinked(u.GoogleID)},
+		{Provider: "github", Linked: isLinked(u.GitHubID)},
+		{Provider: "wechat", Linked: isLinked(u.WeChatID)},
+	}
+}
+
 // ToResponse 转换为响应格式
 func (u *User) ToResponse() UserResponse {
 	meta, _ := u.GetMeta()
@@ -501,19 +520,20 @@ func (u *User) ToResponse() UserResponse {
 	}
 
 	return UserResponse{
-		ID:            u.ID,
-		Email:         email,
-		Phone:         phone,
-		Username:      u.Username,
-		Nickname:      u.Nickname,
-		Meta:          meta,
-		Role:          u.Role,
-		Status:        u.Status,
-		EmailVerified: u.EmailVerified,
-		PhoneVerified: u.PhoneVerified,
-		LoginCount:    u.LoginCount,
-		LastLoginAt:   u.LastLoginAt,
-		CreatedAt:     u.CreatedAt,
+		ID:             u.ID,
+		Email:          email,
+		Phone:          phone,
+		Username:       u.Username,
+		Nickname:       u.Nickname,
+		Meta:           meta,
+		Role:           u.Role,
+		Status:         u.Status,
+		EmailVerified:  u.EmailVerified,
+		PhoneVerified:  u.PhoneVerified,
+		LoginCount:     u.LoginCount,
+		LastLoginAt:    u.LastLoginAt,
+		CreatedAt:      u.CreatedAt,
+		LinkedAccounts: u.buildLinkedAccounts(),
 	}
 }
 

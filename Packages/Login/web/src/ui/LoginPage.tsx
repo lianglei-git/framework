@@ -1,67 +1,42 @@
 import React, { useState, useEffect } from 'react'
 import { observer } from 'mobx-react-lite'
 import { RiGithubFill, RiGoogleFill } from 'react-icons/ri'
-import { globalUserStore } from '../stores/UserStore'
 import { AuthLogin } from '../components/auth/AuthLogin'
 import { AuthRegister } from '../components/auth/AuthRegister'
 import { TermsOfService } from '../components/legal/TermsOfService'
 import { PrivacyPolicy } from '../components/legal/PrivacyPolicy'
 import { ForgotPassword } from '../components/ForgotPassword'
 import { useAuth } from '../hooks/useAuth'
-import { handleSSOCallbackResult } from '../utils/handleSSOCallbackResult'
-import { saveOriginAppUriFromUrl, getOriginAppUri } from '../utils/ssoOriginRedirect'
+import { readSsoSessionCookies } from '../utils/ssoSessionCookie'
+import { hasSubAppRedirectInUrl } from '../utils/ssoOriginRedirect'
+import type { LoginEntryMode } from '../routes/loginEntry'
 import './LoginPage.less'
 
-// 页面加载时立即保存回跳地址（早于 SSO 初始化，避免竞态丢失）
-saveOriginAppUriFromUrl()
-
-const getSessionFromCookies = (): { sessionId: string | null; appId: string | null } => {
-    try {
-        const cookies = document.cookie.split(';').map(cookie => cookie.trim())
-        let sessionId: string | null = null
-        let appId: string | null = null
-        cookies.forEach(cookie => {
-            if (cookie.startsWith('sso_session_id=')) {
-                sessionId = cookie.substring('sso_session_id='.length)
-            }
-            if (cookie.startsWith('sso_app_id=')) {
-                appId = cookie.substring('sso_app_id='.length)
-            }
-        })
-        return { sessionId, appId }
-    } catch (error) {
-        console.error('获取 session cookies 失败:', error)
-        return { sessionId: null, appId: null }
-    }
+interface LoginPageProps {
+    entryMode?: LoginEntryMode
 }
 
-const setSubAppInfoForSessionStorage = () => {
-    saveOriginAppUriFromUrl()
-    const subUrlParams = new URLSearchParams(window.location.search)
-    const appid = subUrlParams.get('app_id')
-    const app_redirect_uri = subUrlParams.get('redirect_uri')
-    const app_origin = subUrlParams.get('app_origin')
-    if (!app_origin && appid && app_redirect_uri) {
-        localStorage.setItem('appid', appid)
-        localStorage.setItem('redirect_uri', app_redirect_uri)
-    }
-}
-
-export const LoginPage: React.FC = observer(() => {
+export const LoginPage: React.FC<LoginPageProps> = observer(({ entryMode = 'direct' }) => {
     const [mode, setMode] = useState<'login' | 'register' | 'forgot-password'>('login')
     const [showTerms, setShowTerms] = useState(false)
     const [showPrivacy, setShowPrivacy] = useState(false)
     const auth = useAuth()
 
     useEffect(() => {
-        setSubAppInfoForSessionStorage()
+        if (entryMode !== 'subapp_redirect') return
         const params = new URLSearchParams(window.location.search)
         if (!params.get('app_origin')) return
-        const { sessionId } = getSessionFromCookies()
-        if (!sessionId && auth.isAuthenticated) {
-            auth.logout()
+        const { sessionId } = readSsoSessionCookies()
+        if (!sessionId && auth.isAuthenticated && !auth.isLoading) {
+            const timer = window.setTimeout(() => {
+                const { sessionId: sid } = readSsoSessionCookies()
+                if (!sid && auth.isAuthenticated) {
+                    auth.logout()
+                }
+            }, 800)
+            return () => window.clearTimeout(timer)
         }
-    }, [auth.isAuthenticated])
+    }, [auth.isAuthenticated, auth.isLoading, entryMode])
 
     if (auth.loadingInfos?.status === 'loading') {
         const provider = auth.loadingInfos.provider
@@ -88,31 +63,6 @@ export const LoginPage: React.FC = observer(() => {
         )
     }
 
-    if (auth.isAuthenticated) {
-        const hasOriginApp = !!getOriginAppUri()
-        return (
-            <div className="login-container">
-                <div className="login-card">
-                    <div className="success-state">
-                        <div className="success-icon">✓</div>
-                        <h2>已登录</h2>
-                        <p>欢迎回来，<b style={{ color: '#000' }}>{globalUserStore.nickName}</b></p>
-                        {hasOriginApp && (
-                            <button
-                                type="button"
-                                style={{ marginTop: 12 }}
-                                onClick={() => handleSSOCallbackResult({ afterLogin: true })}
-                            >
-                                继续前往应用
-                            </button>
-                        )}
-                        <button type="button" onClick={() => auth.ssoLogout()}>退出登录</button>
-                    </div>
-                </div>
-            </div>
-        )
-    }
-
     if (mode === 'forgot-password') {
         return (
             <div className="login-container">
@@ -132,6 +82,11 @@ export const LoginPage: React.FC = observer(() => {
             <div className="login-card">
                 <main>
                     <h1 className="title">{mode === 'login' ? 'Sign in to your account' : '创建新账户'}</h1>
+                    {entryMode === 'subapp_redirect' && hasSubAppRedirectInUrl(window.location.search) && (
+                        <p style={{ color: '#64748b', fontSize: 14, marginBottom: 16 }}>
+                            登录后将返回来源应用
+                        </p>
+                    )}
                     <div className={['core', mode].join(' ')}>
                         {mode === 'login' ? (
                             <AuthLogin

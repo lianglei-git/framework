@@ -76,8 +76,7 @@ class UserStore {
     }
 
     get avatarSrc() {
-        return this.info.avatar
-        // return userApi.getAvatarSrc(this.info.avatar)
+        return userApi.getAvatarSrc(this.info.avatar)
     }
 
     get isLogin() {
@@ -249,7 +248,7 @@ class UserStore {
             remark: userInfo.meta?.bio || userInfo.remark || '',
             token: token || '',
             id: userInfo.id || '',
-            avatar: userInfo.avatar || userInfo.headimgurl || undefined,
+            avatar: userInfo.meta?.avatar || userInfo.avatar || userInfo.headimgurl || undefined,
             role: userInfo.role ? this.convertUserRole(userInfo.role) : UserLevelENUM.NormalUser,
         }
         this.setLocalStorageUserInfo()
@@ -268,10 +267,10 @@ class UserStore {
             this.info = {
                 ...this.info,
                 username: updatedUser.username,
-                nickname: updatedUser.meta?.nickname || this.info.nickname,
+                nickname: updatedUser.nickname || this.info.nickname,
                 remark: updatedUser.meta?.bio || this.info.remark,
                 id: updatedUser.id,
-                avatar: updatedUser.avatar,
+                avatar: updatedUser.meta?.avatar || updatedUser.avatar,
                 role: updatedUser.role ? this.convertUserRole(updatedUser.role) : this.info.role,
             }
             this.setLocalStorageUserInfo()
@@ -289,6 +288,15 @@ class UserStore {
         try {
             const response = await userApi.getProfile()
             this.detailsUserInfo = response
+            this.info = {
+                ...this.info,
+                username: response.username ?? this.info.username,
+                nickname: response.nickname || this.info.nickname,
+                remark: response.meta?.bio || this.info.remark,
+                id: response.id ?? this.info.id,
+                avatar: response.meta?.avatar || response.avatar || this.info.avatar,
+            }
+            this.setLocalStorageUserInfo()
             return response
         } catch (error: any) {
             console.error("获取用户详细信息失败:", error)

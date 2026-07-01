@@ -1,5 +1,6 @@
 import { User } from '../types'
 import { ApiService, getCommonHeaders } from './httpClient'
+import { resolveAvatarUrl } from '../utils/avatarUrl'
 
 export class UserApiService extends ApiService {
     async getProfile(): Promise<User> {
@@ -66,8 +67,7 @@ export class UserApiService extends ApiService {
 
     // 获取头像URL
     getAvatarSrc(avatar: string | undefined): string | undefined {
-        if (!avatar) return undefined
-        return `${this.baseURL}/api/v1/user/avatar/${avatar}`
+        return resolveAvatarUrl(avatar, this.baseURL)
     }
 }
 

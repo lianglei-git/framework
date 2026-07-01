@@ -12,14 +12,19 @@ export interface BaseResponse<T = any> {
 export interface User {
     id: string
     username: string
+    nickname?: string
     email: string
     phone?: string
     avatar?: string
     role: UserRole
     status: UserStatus
     created_at: string
-    updated_at: string
+    updated_at?: string
     last_login_at?: string
+    login_count?: number
+    email_verified?: boolean
+    phone_verified?: boolean
+    linked_accounts?: LinkedAccount[]
     meta?: UserMeta
 }
 
@@ -28,7 +33,13 @@ export interface UserMeta {
     bio?: string
     location?: string
     website?: string
+    avatar?: string
     social_links?: Record<string, string>
+}
+
+export interface LinkedAccount {
+    provider: string
+    linked: boolean
 }
 
 export enum UserRole {

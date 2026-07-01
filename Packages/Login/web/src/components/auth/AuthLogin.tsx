@@ -13,7 +13,8 @@ import {
 import { getOAuthURLAPI } from '../../core'
 
 import { RiGithubFill, RiGoogleFill, RiUserFill, RiWechatFill } from 'react-icons/ri'
-import { handleSSOCallbackResult } from '../../utils/handleSSOCallbackResult'
+import { useNavigate } from 'react-router-dom'
+import { routeAfterLogin } from '../../routes/loginEntry'
 import { formatAuthError } from '../../utils/authError'
 import { pickSocialProviders } from '../../sso/socialProviders'
 
@@ -33,6 +34,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
     onSSOLogin
 }) => {
     const auth = useAuth()
+    const navigate = useNavigate()
     const [loginStep, setLoginStep] = useState<'account' | 'password'>('account')
     const [loginType, setLoginType] = useState<'email' | 'phone'>('account');
     // 验证类型 默认是密码输入
@@ -103,12 +105,12 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
             return
         }
         try {
-            const info = await auth.unifiedNormalLocalLogin({
+            await auth.unifiedNormalLocalLogin({
                 password: accountForm.values.password,
                 provider: 'local',
                 username: accountForm.values.account,
             })
-            handleSSOCallbackResult({ afterLogin: true })
+            routeAfterLogin(navigate)
             console.log("登录成功！")
 
         } catch (error: any) {
@@ -125,6 +127,7 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
                 code: phoneForm.values.code,
                 remember_me: phoneForm.values.remember_me
             })
+            routeAfterLogin(navigate)
         } catch (error: any) {
             phoneForm.setError('code', formatAuthError(error, '登录失败'))
         }
@@ -204,12 +207,12 @@ const AuthLogin: React.FC<AuthLoginProps> = ({
             return
         }
         try {
-            const info = await auth.unifiedNormalLocalLogin({
+            await auth.unifiedNormalLocalLogin({
                 email: accountForm.values.account, 
                 code: emailCode,
                 provider: 'email',
             })
-            handleSSOCallbackResult({ afterLogin: true })
+            routeAfterLogin(navigate)
             console.log("登录成功！")
 
         } catch (error: any) {

@@ -20,7 +20,6 @@ function parseRedirectUriFromSearch(search: string): string | null {
     if (idx === -1) return null
 
     let raw = search.slice(idx + 'redirect_uri='.length)
-    // 登出回跳会在末尾追加 &logout=true
     const logoutIdx = raw.indexOf('&logout=')
     if (logoutIdx !== -1) {
         raw = raw.slice(0, logoutIdx)
@@ -28,12 +27,35 @@ function parseRedirectUriFromSearch(search: string): string | null {
     return raw || null
 }
 
+/** 子应用回跳 URL 是否出现在当前地址栏 query 中 */
+export function hasSubAppRedirectInUrl(search: string): boolean {
+    if (!search || search === '?') return false
+    if (search.includes('app_origin') && search.includes('redirect_uri=')) {
+        return true
+    }
+    const params = new URLSearchParams(search)
+    return !!(params.get('app_origin') && (params.get('redirect_uri') || search.includes('redirect_uri=')))
+}
+
+/** 仅从 localStorage 读取，不回填 URL（避免 direct 模式误判） */
+export function getStoredOriginAppUri(): string | null {
+    const origin = localStorage.getItem(ORIGIN_KEY)
+    if (!origin) return null
+    try {
+        const decoded = decodeURIComponent(origin)
+        return isValidAuthorizeUrl(decoded) ? decoded : null
+    } catch {
+        return isValidAuthorizeUrl(origin) ? origin : null
+    }
+}
+
 /** 从当前 URL 解析并保存子应用回跳的 authorize URL */
 export function saveOriginAppUriFromUrl(search = window.location.search): void {
+    if (!hasSubAppRedirectInUrl(search)) return
+
     const params = new URLSearchParams(search)
     if (!params.get('app_origin')) return
 
-    // 优先 slice：登出回跳等场景 redirect_uri 未编码时 URLSearchParams 会截断
     let origin = parseRedirectUriFromSearch(search) || params.get('redirect_uri')
     if (!origin) return
 
@@ -55,21 +77,46 @@ export function clearOriginAppUri(): void {
     localStorage.removeItem(ORIGIN_KEY)
 }
 
-export function getOriginAppUri(): string | null {
-    let origin = localStorage.getItem(ORIGIN_KEY)
-    if (!origin) {
-        saveOriginAppUriFromUrl()
-        origin = localStorage.getItem(ORIGIN_KEY)
+/** 登录中心回跳 authorize 前清理 URL，避免 bounce-back 时从 query 再次写入 origin */
+export function stripSubAppRedirectParamsFromUrl(): void {
+    if (typeof window === 'undefined') return
+    const search = window.location.search
+    if (!search.includes('app_origin') && !search.includes('redirect_uri=')) {
+        return
     }
-    if (!origin) return null
+    const { pathname, hash } = window.location
+    window.history.replaceState({}, '', `${pathname}${hash}`)
+}
 
+/**
+ * 用户通过局域网 IP 打开登录中心时，将 authorize URL 中的 localhost 替换为当前 host，
+ * 以便与 sso_session_id cookie（按页面 host 写入）同源。
+ */
+export function resolveAuthorizeUrlForBrowser(authorizeUrl: string): string {
     try {
-        origin = decodeURIComponent(origin)
+        const url = new URL(authorizeUrl)
+        const pageHost = window.location.hostname
+        const localHosts = new Set(['localhost', '127.0.0.1'])
+        if (localHosts.has(url.hostname) && !localHosts.has(pageHost)) {
+            url.hostname = pageHost
+            return url.toString()
+        }
     } catch {
-        // keep
+        // keep original
+    }
+    return authorizeUrl
+}
+
+export function getOriginAppUri(): string | null {
+    const stored = getStoredOriginAppUri()
+    if (stored) return stored
+
+    if (hasSubAppRedirectInUrl(window.location.search)) {
+        saveOriginAppUriFromUrl()
+        return getStoredOriginAppUri()
     }
 
-    return isValidAuthorizeUrl(origin) ? origin : null
+    return null
 }
 
 export function consumeOriginAppUri(): string | null {

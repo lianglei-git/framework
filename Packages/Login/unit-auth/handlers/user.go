@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"unit-auth/middleware"
 	"unit-auth/models"
 	"unit-auth/services"
@@ -10,6 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+var usernamePattern = regexp.MustCompile(`^[a-zA-Z0-9_]{3,20}$`)
 
 // 获取用户信息
 func GetProfile(db *gorm.DB) gin.HandlerFunc {
@@ -58,6 +61,33 @@ func UpdateProfile(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		// 更新字段
+		if req.Username != "" && req.Username != user.Username {
+			if !usernamePattern.MatchString(req.Username) {
+				c.JSON(http.StatusBadRequest, models.Response{
+					Code:    400,
+					Message: "Username must be 3-20 characters and contain only letters, numbers, and underscores",
+				})
+				return
+			}
+
+			var existingUser models.User
+			if err := db.Where("username = ? AND id != ?", req.Username, userID).First(&existingUser).Error; err == nil {
+				c.JSON(http.StatusBadRequest, models.Response{
+					Code:    400,
+					Message: "Username already exists",
+				})
+				return
+			} else if err != gorm.ErrRecordNotFound {
+				c.JSON(http.StatusInternalServerError, models.Response{
+					Code:    500,
+					Message: "Failed to check username availability",
+				})
+				return
+			}
+
+			user.Username = req.Username
+		}
+
 		if req.Nickname != "" {
 			user.Nickname = req.Nickname
 		}

@@ -24,6 +24,7 @@ import {
 } from '../utils/oauthLoading'
 import { globalUserStore } from '../stores/UserStore'
 import { SSOService } from '../sso'
+import { getSSOConfig } from '../sso/config'
 
 
 export const storageKeys = {

@@ -8,8 +8,9 @@ import {
     AccountType,
     VerificationType
 } from '../../'
-import { handleSSOCallbackResult } from '../../utils/handleSSOCallbackResult'
 import { formatAuthError } from '../../utils/authError'
+import { useNavigate } from 'react-router-dom'
+import { routeAfterLogin } from '../../routes/loginEntry'
 
 interface AuthRegisterProps {
     onSwitchToLogin: () => void
@@ -17,6 +18,7 @@ interface AuthRegisterProps {
 
 const AuthRegister: React.FC<AuthRegisterProps> = ({ onSwitchToLogin }) => {
     const auth = useAuth()
+    const navigate = useNavigate()
     const [isSendingCode, setIsSendingCode] = useState(false)
     const [countdown, setCountdown] = useState(0)
 
@@ -64,7 +66,7 @@ const AuthRegister: React.FC<AuthRegisterProps> = ({ onSwitchToLogin }) => {
         e.preventDefault()
         if (!registerForm.validate()) return
         try {
-            const res = await auth.register({
+            await auth.register({
                 username: registerForm.values.email.slice(0, registerForm.values.email.indexOf('@')),
                 email: registerForm.values.email,
                 password: registerForm.values.password,
@@ -72,8 +74,7 @@ const AuthRegister: React.FC<AuthRegisterProps> = ({ onSwitchToLogin }) => {
                 agree_terms: true,
                 verification_code: registerForm.values.code
             })
-            // unifiedSaveLoginInfos 已保存登录态并触发 auth:login
-            await handleSSOCallbackResult({ afterLogin: true })
+            routeAfterLogin(navigate)
         } catch (error: any) {
             registerForm.setError('email', formatAuthError(error, '注册失败'))
         }

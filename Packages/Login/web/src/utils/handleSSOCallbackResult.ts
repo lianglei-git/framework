@@ -7,7 +7,9 @@ import {
     getOriginAppUri,
     isValidAuthorizeUrl,
     redirectToOriginAppUriIfPresent,
+    resolveAuthorizeUrlForBrowser,
     saveOriginAppUriFromUrl,
+    stripSubAppRedirectParamsFromUrl,
 } from "./ssoOriginRedirect"
 
 export { saveOriginAppUriFromUrl, getOriginAppUri, redirectToOriginAppUriIfPresent, isValidAuthorizeUrl }
@@ -41,10 +43,6 @@ function markRedirectAttempt(authorizeUrl: string): void {
         REDIRECT_GUARD_KEY,
         JSON.stringify({ url: authorizeUrl, at: Date.now() }),
     )
-}
-
-function clearRedirectGuard(): void {
-    sessionStorage.removeItem(REDIRECT_GUARD_KEY)
 }
 
 /** 登录中心：须显式 afterLogin，或已有 IdP session cookie + 本地登录态 */
@@ -87,14 +85,16 @@ export const handleSSOCallbackResult = async (opts?: SSOCallbackOptions) => {
         return false
     }
 
-    if (!isValidAuthorizeUrl(origin_app_uri)) {
-        console.warn('⚠️ origin_app_uri 缺少 OAuth 参数，取消回跳:', origin_app_uri)
+    const resolvedAuthorizeUrl = resolveAuthorizeUrlForBrowser(origin_app_uri)
+
+    if (!isValidAuthorizeUrl(resolvedAuthorizeUrl)) {
+        console.warn('⚠️ origin_app_uri 缺少 OAuth 参数，取消回跳:', resolvedAuthorizeUrl)
         cleanOAuthParamsFromUrl()
         return false
     }
 
-    if (shouldBlockRedirectLoop(origin_app_uri)) {
-        console.warn('⚠️ 检测到 authorize 回跳循环，已暂停自动跳转，请重新登录')
+    if (shouldBlockRedirectLoop(resolvedAuthorizeUrl)) {
+        console.warn('⚠️ 检测到 authorize 回跳循环，已暂停自动跳转，请手动点击「返回应用」')
         return false
     }
 
@@ -103,13 +103,9 @@ export const handleSSOCallbackResult = async (opts?: SSOCallbackOptions) => {
         return false
     }
 
-    if (opts?.afterLogin === true) {
-        clearRedirectGuard()
-    } else {
-        markRedirectAttempt(origin_app_uri)
-    }
-
+    markRedirectAttempt(resolvedAuthorizeUrl)
     consumeOriginAppUri()
-    window.location.href = origin_app_uri
+    stripSubAppRedirectParamsFromUrl()
+    window.location.href = resolvedAuthorizeUrl
     return true
 }
