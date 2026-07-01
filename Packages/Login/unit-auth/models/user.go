@@ -377,6 +377,7 @@ type UserResponse struct {
 	CreatedAt      time.Time       `json:"created_at"`
 	LinkedAccounts []LinkedAccount `json:"linked_accounts,omitempty"`
 	HasPassword    bool            `json:"has_password"`
+	AvatarURL      string          `json:"avatar_url,omitempty"`
 }
 
 // LoginResponse 登录响应

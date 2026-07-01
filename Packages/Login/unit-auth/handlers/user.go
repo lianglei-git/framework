@@ -32,7 +32,7 @@ func GetProfile(db *gorm.DB) gin.HandlerFunc {
 		c.JSON(http.StatusOK, models.Response{
 			Code:    200,
 			Message: "Profile retrieved successfully",
-			Data:    user.ToResponse(),
+			Data:    services.PresentUserResponse(&user, RequestAPIBase(c)),
 		})
 	}
 }
@@ -112,7 +112,8 @@ func UpdateProfile(db *gorm.DB) gin.HandlerFunc {
 				var pm models.ProjectMapping
 				if err := db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
 					cli := services.NewProjectClient(p)
-					_ = cli.UpdateUser(c.Request.Context(), pm.LocalUserID, services.OutboundUser{UserID: user.ID, Email: user.ToResponse().Email, Username: user.Username, Nickname: user.Nickname, Avatar: user.GetAvatar()})
+					presented := services.PresentUserResponse(&user, RequestAPIBase(c))
+					_ = cli.UpdateUser(c.Request.Context(), pm.LocalUserID, services.OutboundUser{UserID: user.ID, Email: presented.Email, Username: user.Username, Nickname: user.Nickname, Avatar: presented.AvatarURL})
 				}
 			}
 		}
@@ -120,7 +121,7 @@ func UpdateProfile(db *gorm.DB) gin.HandlerFunc {
 		c.JSON(http.StatusOK, models.Response{
 			Code:    200,
 			Message: "Profile updated successfully",
-			Data:    user.ToResponse(),
+			Data:    services.PresentUserResponse(&user, RequestAPIBase(c)),
 		})
 	}
 }

@@ -154,7 +154,7 @@ func (h *WeChatAuthHandler) HandleCallback() gin.HandlerFunc {
 			Code:    200,
 			Message: "WeChat login successful",
 			Data: models.LoginResponse{
-				User:  user.ToResponse(),
+				User:  services.PresentUserResponse(user, RequestAPIBase(c)),
 				Token: token,
 			},
 		})
@@ -200,7 +200,7 @@ func (h *WeChatAuthHandler) CheckLoginStatus() gin.HandlerFunc {
 				}
 				token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey, localID)
 				if err == nil {
-					c.JSON(http.StatusOK, models.Response{Code: 200, Message: "Login successful", Data: models.LoginResponse{User: user.ToResponse(), Token: token}})
+					c.JSON(http.StatusOK, models.Response{Code: 200, Message: "Login successful", Data: models.LoginResponse{User: services.PresentUserResponse(&user, RequestAPIBase(c)), Token: token}})
 					return
 				}
 			}

@@ -60,9 +60,8 @@ export const ProfilePage: React.FC = observer(() => {
     }, [profile, bannerDismissed])
 
     const avatarUrl = useMemo(() => {
-        const stored = profile?.meta?.avatar || profile?.avatar
-        return userApi.getAvatarSrc(stored) || globalUserStore.avatarSrc
-    }, [profile?.meta?.avatar, profile?.avatar, globalUserStore.avatarSrc])
+        return profile?.avatar_url || globalUserStore.avatarSrc
+    }, [profile?.avatar_url, globalUserStore.avatarSrc])
 
     const canSubmit = useMemo(() => {
         return username.trim().length >= 3 && nickname.trim().length >= 2

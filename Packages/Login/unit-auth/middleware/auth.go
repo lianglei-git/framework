@@ -337,7 +337,7 @@ func LoginWithRememberMe(db *gorm.DB) gin.HandlerFunc {
 			Code:    200,
 			Message: "Login successful",
 			Data: models.LoginResponse{
-				User:  user.ToResponse(),
+				User:  services.PresentUserResponse(&user, utils.RequestAPIBase(c)),
 				Token: token,
 			},
 		})

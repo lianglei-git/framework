@@ -8,7 +8,6 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -21,6 +20,7 @@ import (
 	"time"
 	"unit-auth/config"
 	"unit-auth/models"
+	"unit-auth/services"
 	"unit-auth/utils"
 
 	"github.com/gin-gonic/gin"
@@ -840,7 +840,7 @@ func generateTokensFromClaims(c *gin.Context, db *gorm.DB, claims jwt.MapClaims,
 		TokenType:    "Bearer",
 		ExpiresIn:    int(AccessTokenExpiration.Seconds()),
 		Scope:        "openid profile email phone",
-		User:         user.ToResponse(),
+		User:         services.PresentUserResponse(&user, RequestAPIBase(c)),
 		Provider:     "centralized",
 		SessionID:    sessionID,
 		SessionInfo: &models.SessionInfo{
@@ -1050,31 +1050,8 @@ func GetOAuthUserinfo(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// 构建用户信息响应
-		userInfo := gin.H{
-			"sub": user.ID,
-		}
-
-		if user.Username != "" {
-			userInfo["preferred_username"] = user.Username
-			userInfo["name"] = user.Username
-		}
-
-		if user.Nickname != "" {
-			userInfo["nickname"] = user.Nickname
-		}
-
-		if user.Email != nil && *user.Email != "" {
-			userInfo["email"] = *user.Email
-			userInfo["email_verified"] = user.EmailVerified
-		}
-
-		if user.Phone != nil && *user.Phone != "" {
-			userInfo["phone_number"] = *user.Phone
-			userInfo["phone_number_verified"] = user.PhoneVerified
-		}
-
-		c.JSON(http.StatusOK, userInfo)
+		// 构建用户信息响应（OIDC + 子项目扩展字段）
+		c.JSON(http.StatusOK, services.BuildOAuthUserInfo(&user, RequestAPIBase(c)))
 	}
 }
 
@@ -1553,7 +1530,7 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 		TokenType:    "Bearer",
 		ExpiresIn:    int(AccessTokenExpiration.Seconds()),
 		Scope:        "openid profile email phone",
-		User:         user.ToResponse(),
+		User:         services.PresentUserResponse(&user, RequestAPIBase(c)),
 		Provider:     "centralized",
 	}
 
@@ -1645,7 +1622,7 @@ func handlePasswordGrant(c *gin.Context, db *gorm.DB, username, password, client
 		"token_type":    "Bearer",
 		"expires_in":    int(AccessTokenExpiration.Seconds()),
 		"scope":         "openid profile email",
-		"user":          user.ToResponse(),
+		"user":          services.PresentUserResponse(&user, RequestAPIBase(c)),
 	}
 
 	c.JSON(http.StatusOK, response)
@@ -1752,23 +1729,9 @@ func CheckSSOSession(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// 构建会话信息
-		avatar := ""
-		if len(user.Meta) > 0 {
-			var meta models.UserMeta
-			if err := json.Unmarshal(user.Meta, &meta); err == nil {
-				avatar = meta.Avatar
-			}
-		}
-
 		session := gin.H{
 			"is_authenticated": true,
-			"user": gin.H{
-				"sub":     user.ID,
-				"name":    user.Username,
-				"email":   user.Email,
-				"picture": avatar,
-			},
+			"user":             services.BuildOAuthUserInfo(&user, RequestAPIBase(c)),
 			"session": gin.H{
 				"session_id":       "session_" + user.ID,
 				"user_id":          user.ID,
@@ -2011,7 +1974,7 @@ func handleCodeVerifierGrant(c *gin.Context, db *gorm.DB, code, clientID, client
 		"token_type":    "Bearer",
 		"expires_in":    int(AccessTokenExpiration.Seconds()),
 		"scope":         claims["scope"],
-		"user":          user.ToResponse(),
+		"user":          services.PresentUserResponse(&user, RequestAPIBase(c)),
 	}
 
 	c.JSON(http.StatusOK, response)

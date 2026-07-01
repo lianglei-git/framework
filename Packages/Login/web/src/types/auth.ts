@@ -16,6 +16,7 @@ export interface User {
     email: string
     phone?: string
     avatar?: string
+    avatar_url?: string
     role: UserRole
     status: UserStatus
     created_at: string

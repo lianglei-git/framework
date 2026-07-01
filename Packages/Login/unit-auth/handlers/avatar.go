@@ -12,19 +12,12 @@ import (
 )
 
 func requestAPIBase(c *gin.Context) string {
-	scheme := "http"
-	if c.Request.TLS != nil {
-		scheme = "https"
-	}
-	return scheme + "://" + c.Request.Host
+	return RequestAPIBase(c)
 }
 
-// UploadAvatar 上传用户头像
+// UploadAvatar 上传用户头像（namespace: avatars）
 func UploadAvatar(db *gorm.DB) gin.HandlerFunc {
-	storage, err := services.NewAvatarStorage()
-	if err != nil {
-		panic("failed to init avatar storage: " + err.Error())
-	}
+	registry := services.MustDefaultStorageRegistry()
 
 	return func(c *gin.Context) {
 		userID := c.GetString("user_id")
@@ -38,7 +31,7 @@ func UploadAvatar(db *gorm.DB) gin.HandlerFunc {
 		}
 		defer file.Close()
 
-		storedValue, _, err := storage.Save(userID, file, header)
+		storedValue, err := services.SaveFile(services.AvatarNamespace, userID, file, header)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, models.Response{
 				Code:    400,
@@ -84,14 +77,14 @@ func UploadAvatar(db *gorm.DB) gin.HandlerFunc {
 						Email:    user.ToResponse().Email,
 						Username: user.Username,
 						Nickname: user.Nickname,
-						Avatar:   user.GetAvatar(),
+						Avatar:   services.PresentUserResponse(&user, RequestAPIBase(c)).AvatarURL,
 					})
 				}
 			}
 		}
 
-		apiBase := requestAPIBase(c)
-		avatarURL := storage.ResolvePublicURL(storedValue, apiBase)
+		apiBase := RequestAPIBase(c)
+		avatarURL := registry.ResolveStoredFileURL(storedValue, apiBase)
 
 		c.JSON(http.StatusOK, models.Response{
 			Code:    200,
@@ -104,12 +97,12 @@ func UploadAvatar(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// GetAvatar 读取本地头像文件（COS 模式请走 CDN 公网地址）
+// GetAvatar 读取本地头像文件（仅 local scheme）
 func GetAvatar(db *gorm.DB) gin.HandlerFunc {
-	localStorage := services.NewLocalAvatarStorage()
+	registry := services.MustDefaultStorageRegistry()
 	return func(c *gin.Context) {
 		filename := strings.TrimSpace(c.Param("filename"))
-		path, err := localStorage.LocalFilePath(filename)
+		path, err := registry.LocalDiskPath(filename)
 		if err != nil {
 			c.JSON(http.StatusNotFound, models.Response{
 				Code:    404,

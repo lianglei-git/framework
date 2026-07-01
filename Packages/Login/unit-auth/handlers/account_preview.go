@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unit-auth/models"
 	appUtils "unit-auth/utils"
+	"unit-auth/services"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -45,7 +46,7 @@ func maskPhone(phone string) string {
 	return phone[:3] + "****" + phone[len(phone)-4:]
 }
 
-func buildAccountPreview(user models.User, account string) accountPreviewResponse {
+func buildAccountPreview(user models.User, account string, apiBase string) accountPreviewResponse {
 	email := ""
 	if user.Email != nil {
 		email = *user.Email
@@ -82,6 +83,8 @@ func buildAccountPreview(user models.User, account string) accountPreviewRespons
 	avatar := user.GetAvatar()
 	if avatar == "" {
 		avatar = appUtils.GetDefaultAvatar(user.Username)
+	} else {
+		avatar = services.ResolveStoredFileURL(avatar, apiBase)
 	}
 
 	return accountPreviewResponse{
@@ -132,7 +135,7 @@ func AccountPreview(db *gorm.DB) gin.HandlerFunc {
 		c.JSON(http.StatusOK, models.Response{
 			Code:    200,
 			Message: "Account preview retrieved",
-			Data:    buildAccountPreview(user, account),
+			Data:    buildAccountPreview(user, account, RequestAPIBase(c)),
 		})
 	}
 }

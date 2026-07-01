@@ -75,7 +75,7 @@ func (h *PluginAuthHandler) Login() gin.HandlerFunc {
 
 		h.statsService.UpdateUserLoginInfo(user.ID, ip, userAgent)
 		h.statsService.RecordLoginLog(user.ID, "email", ip, userAgent, "", true, "")
-		c.JSON(http.StatusOK, models.Response{Code: 200, Message: "Login successful", Data: models.LoginResponse{User: user.ToResponse(), Token: token}})
+		c.JSON(http.StatusOK, models.Response{Code: 200, Message: "Login successful", Data: models.LoginResponse{User: services.PresentUserResponse(user, RequestAPIBase(c)), Token: token}})
 	}
 }
 
@@ -123,7 +123,7 @@ func (h *PluginAuthHandler) PhoneLogin() gin.HandlerFunc {
 		}
 		h.statsService.UpdateUserLoginInfo(user.ID, ip, userAgent)
 		h.statsService.RecordLoginLog(user.ID, "phone", ip, userAgent, "", true, "")
-		c.JSON(http.StatusOK, models.Response{Code: 200, Message: "Login successful", Data: models.LoginResponse{User: user.ToResponse(), Token: token}})
+		c.JSON(http.StatusOK, models.Response{Code: 200, Message: "Login successful", Data: models.LoginResponse{User: services.PresentUserResponse(user, RequestAPIBase(c)), Token: token}})
 	}
 }
 
@@ -173,7 +173,7 @@ func (h *PluginAuthHandler) OAuthLogin() gin.HandlerFunc {
 		}
 		h.statsService.UpdateUserLoginInfo(user.ID, ip, userAgent)
 		h.statsService.RecordLoginLog(user.ID, req.Provider, ip, userAgent, "", true, "")
-		c.JSON(http.StatusOK, models.Response{Code: 200, Message: "OAuth login successful", Data: models.LoginResponse{User: user.ToResponse(), Token: token}})
+		c.JSON(http.StatusOK, models.Response{Code: 200, Message: "OAuth login successful", Data: models.LoginResponse{User: services.PresentUserResponse(user, RequestAPIBase(c)), Token: token}})
 	}
 }
 

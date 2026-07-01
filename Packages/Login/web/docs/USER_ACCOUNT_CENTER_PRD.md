@@ -482,63 +482,64 @@ if req.Username != "" && req.Username != user.Username {
 
 #### 存储约定（`meta.avatar`）
 
-| 值形态 | 示例 | 含义 |
-|--------|------|------|
-| 绝对 URL | `https://api.dicebear.com/...` | 外链 / OSS 公网 URL |
-| 本地键 | `local:abc123.jpg` | 本地上传，经 API 或静态目录访问 |
-| OSS 键（预留） | `oss:avatars/u1/abc.jpg` | 对象存储对象键，经 CDN 拼接 |
+单字段编码 **scheme + path**（无需 DB 迁移）：
 
-**不在 DB 存裸文件名**，一律带前缀或完整 URL，避免歧义。
+| 值形态 | 示例 | 解析后 |
+|--------|------|--------|
+| 外链 | `https://api.dicebear.com/...` | `scheme=external` |
+| 本地 | `local:abc123.jpg` | `scheme=local`, `path=abc123.jpg` |
+| COS | `oss:avatars/u1/abc.jpg` | `scheme=oss`, `path=avatars/u1/abc.jpg` |
+| 历史裸文件名 | `abc123.jpg` | 视为 `local:abc123.jpg` |
 
-#### 后端（待实现）
+Go：`services.ParseStoredRef` / `services.PresentUserResponse` / `StorageRegistry.ResolveStoredFileURL`
+
+#### API 展示字段（`avatar_url`）
+
+| 字段 | 含义 | 谁填充 |
+|------|------|--------|
+| `meta.avatar` | 存储引用（`local:`/`oss:`/`https://`） | DB，读写 |
+| `avatar_url` | 可直接用于 `<img src>` 的公网 URL | 后端 Present 层计算，只读 |
+
+适用出口：`GET/PUT /profile`、登录响应 `user`、`account-preview.avatar`（已解析）、OIDC `picture`。
+
+前端展示：**优先 `avatar_url`**；`resolveFileUrl` 仅作 localStorage 旧数据 fallback。  
+CDN/桶配置仅在 **unit-auth** `.env`（`FILE_COS_CDN_BASE`）；`VITE_FILE_CDN_BASE` 可选。
+
+#### 后端 API（已实现）
 
 ```
-POST   /api/v1/user/avatar          multipart 上传 → 返回 { avatar_url, avatar_key }
-GET    /api/v1/user/avatar/:key     本地文件流（或 302 到 OSS）
+POST   /api/v1/user/avatar          multipart → { avatar_url, avatar_key }
+GET    /api/v1/user/avatar/:key     仅 local scheme 读盘；oss 走 CDN
 ```
 
-环境变量（预留 OSS）：
+通用层：`services/file_storage.go`（`FileStorage` + `StorageRegistry`），头像 namespace=`avatars`。
+
+环境变量（`FILE_*` 优先，`AVATAR_*` 兼容）：
 
 ```env
-AVATAR_STORAGE=local          # local | oss
-AVATAR_LOCAL_DIR=./uploads/avatars
-AVATAR_PUBLIC_BASE_URL=       # 空则走 /api/v1/user/avatar/:key
-AVATAR_OSS_BUCKET=
-AVATAR_OSS_CDN_BASE=          # 如 https://cdn.example.com
+FILE_STORAGE_DEFAULT=local       # local | cos | oss（兼容 AVATAR_STORAGE）
+FILE_LOCAL_ROOT=./uploads/avatars
+FILE_PUBLIC_BASE_URL=
+FILE_COS_SECRET_ID=
+FILE_COS_SECRET_KEY=
+FILE_COS_REGION=ap-guangzhou
+FILE_COS_BUCKET=example-1250000000
+FILE_COS_CDN_BASE=https://cdn.example.com
 ```
 
-Go 侧建议 `services/avatar_storage.go` 接口：
+前端 CDN（**可选 fallback**，正常无需配置）：`VITE_FILE_CDN_BASE` 或 `VITE_AVATAR_CDN_BASE`
 
-```go
-type AvatarStorage interface {
-    Save(ctx, userID, file) (storedValue string, err error) // 返回写入 meta 的值
-    ResolveURL(storedValue string) string                    // HTTP 可访问 URL
-}
-```
+#### 后续上传场景（占位，本期不实现）
 
-#### 前端 `resolveAvatarUrl`（新建 `src/utils/avatarUrl.ts`）
+备份、附件等可复用同一 `StorageRegistry.Save(namespace, ownerID, file)`，DB 仍存 `oss:{namespace}/...` 或 `local:...`；无需新表。
+
+#### 前端 fallback 解析（`src/utils/fileRef.ts`）
 
 ```ts
-export function resolveAvatarUrl(
-  stored: string | undefined,
-  apiBase: string,
-): string | undefined {
-  if (!stored) return undefined
-  if (stored.startsWith('http://') || stored.startsWith('https://')) return stored
-  if (stored.startsWith('oss:')) {
-    const cdn = import.meta.env.VITE_AVATAR_CDN_BASE ?? ''
-    return cdn ? `${cdn.replace(/\/$/, '')}/${stored.slice(4)}` : stored
-  }
-  if (stored.startsWith('local:')) {
-    const key = stored.slice(6)
-    return `${apiBase}/api/v1/user/avatar/${encodeURIComponent(key)}`
-  }
-  // 兼容旧数据：视为 local key
-  return `${apiBase}/api/v1/user/avatar/${encodeURIComponent(stored)}`
-}
+export function resolveFileUrl(stored: string | undefined, apiBase: string): string | undefined
 ```
 
-`userApi.getAvatarSrc` 改为委托 `resolveAvatarUrl`；**默认头像**用 `username` seed 调 Dicebear（与后端 `GetDefaultAvatar` 一致）。
+`userApi.getAvatarSrc` 委托 `resolveAvatarUrl` → `resolveFileUrl`。
 
 ---
 

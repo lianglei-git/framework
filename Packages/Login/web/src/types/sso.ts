@@ -130,14 +130,20 @@ export interface SSOLogoutResponse {
 
 export interface SSOUser {
     sub: string
+    /** 与 sub 相同，便于子项目直接读取 */
+    id?: string
     name?: string
     given_name?: string
     family_name?: string
     middle_name?: string
     nickname?: string
     preferred_username?: string
+    username?: string
     profile?: string
     picture?: string
+    /** 已解析公网头像 URL（与 picture 相同） */
+    avatar_url?: string
+    avatar?: string
     website?: string
     email?: string
     email_verified?: boolean

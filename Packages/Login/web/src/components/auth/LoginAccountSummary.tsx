@@ -1,8 +1,6 @@
 import React from 'react'
-import { resolveAvatarUrl } from '../../utils/avatarUrl'
 import { formatMaskedContact } from '../../utils/codeLoginContact'
 import type { CodeChannel } from '../../utils/codeLoginContact'
-import { basicUrl } from '../../core/httpClient'
 import type { AccountPreview } from '../../types/auth'
 
 export interface LoginAccountSummaryProps {
@@ -38,7 +36,7 @@ export const LoginAccountSummary: React.FC<LoginAccountSummaryProps> = ({
         || preview?.email
         || preview?.phone
         || account
-    const avatarUrl = resolveAvatarUrl(preview?.avatar, basicUrl)
+    const avatarUrl = preview?.avatar
     const fallbackInitial = (displayName || account || 'U').charAt(0).toUpperCase()
 
     return (

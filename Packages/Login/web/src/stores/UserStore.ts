@@ -29,6 +29,7 @@ const basicUserInfo = {
     token: "",
     id: "",
     avatar: undefined as string | undefined,
+    avatar_url: undefined as string | undefined,
     role: UserLevelENUM.NormalUser,
 }
 
@@ -76,7 +77,7 @@ class UserStore {
     }
 
     get avatarSrc() {
-        return userApi.getAvatarSrc(this.info.avatar)
+        return this.info.avatar_url || userApi.getAvatarSrc(this.info.avatar)
     }
 
     get isLogin() {
@@ -249,6 +250,7 @@ class UserStore {
             token: token || '',
             id: userInfo.id || '',
             avatar: userInfo.meta?.avatar || userInfo.avatar || userInfo.headimgurl || undefined,
+            avatar_url: userInfo.avatar_url || undefined,
             role: userInfo.role ? this.convertUserRole(userInfo.role) : UserLevelENUM.NormalUser,
         }
         this.setLocalStorageUserInfo()
@@ -271,6 +273,7 @@ class UserStore {
                 remark: updatedUser.meta?.bio || this.info.remark,
                 id: updatedUser.id,
                 avatar: updatedUser.meta?.avatar || updatedUser.avatar,
+                avatar_url: updatedUser.avatar_url || this.info.avatar_url,
                 role: updatedUser.role ? this.convertUserRole(updatedUser.role) : this.info.role,
             }
             this.setLocalStorageUserInfo()
@@ -295,6 +298,7 @@ class UserStore {
                 remark: response.meta?.bio || this.info.remark,
                 id: response.id ?? this.info.id,
                 avatar: response.meta?.avatar || response.avatar || this.info.avatar,
+                avatar_url: response.avatar_url || this.info.avatar_url,
             }
             this.setLocalStorageUserInfo()
             return response
@@ -320,6 +324,7 @@ class UserStore {
                 remark: user.meta?.bio || user.remark || '',
                 id: user.id ?? '',
                 avatar: user.avatar || user.meta?.avatar || undefined,
+                avatar_url: user.avatar_url || undefined,
                 role: user.role ? this.convertUserRole(user.role) : UserLevelENUM.NormalUser,
             }
         } catch (error) {

@@ -8,6 +8,7 @@ import (
 	"time"
 	"unit-auth/config"
 	"unit-auth/models"
+	"unit-auth/services"
 	"unit-auth/utils"
 
 	"github.com/gin-gonic/gin"
@@ -290,7 +291,7 @@ func LoginWithRememberMe(db *gorm.DB) gin.HandlerFunc {
 			Code:    200,
 			Message: "Login successful",
 			Data: models.LoginResponse{
-				User:  user.ToResponse(),
+				User:  services.PresentUserResponse(&user, RequestAPIBase(c)),
 				Token: token,
 			},
 		})
@@ -407,7 +408,7 @@ func LoginWithTokenPair(db *gorm.DB) gin.HandlerFunc {
 			Code:    200,
 			Message: "Login successful",
 			Data: map[string]interface{}{
-				"user":               user.ToResponse(),
+				"user":               services.PresentUserResponse(&user, RequestAPIBase(c)),
 				"access_token":       tokenPair.AccessToken,
 				"refresh_token":      tokenPair.RefreshToken,
 				"expires_in":         tokenPair.ExpiresIn,

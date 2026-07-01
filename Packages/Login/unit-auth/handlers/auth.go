@@ -169,7 +169,7 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 		now := time.Now()
 		db.Model(&user).Update("last_login_at", &now)
 
-		c.JSON(http.StatusOK, models.Response{Code: 200, Message: "Login successful", Data: models.LoginResponse{User: user.ToResponse(), Token: token}})
+		c.JSON(http.StatusOK, models.Response{Code: 200, Message: "Login successful", Data: models.LoginResponse{User: services.PresentUserResponse(&user, RequestAPIBase(c)), Token: token}})
 	}
 }
 
@@ -835,7 +835,7 @@ func PhoneDirectLogin(db *gorm.DB) gin.HandlerFunc {
 			Code:    200,
 			Message: msg,
 			Data: models.LoginResponse{
-				User:  user.ToResponse(),
+				User:  services.PresentUserResponse(&user, RequestAPIBase(c)),
 				Token: token,
 			},
 		})
@@ -943,7 +943,7 @@ func EmailCodeLogin(db *gorm.DB, mailer *utils.Mailer) gin.HandlerFunc {
 		c.JSON(http.StatusOK, models.Response{
 			Code:    200,
 			Message: "Email login successful",
-			Data:    models.LoginResponse{User: user.ToResponse(), Token: token},
+			Data:    models.LoginResponse{User: services.PresentUserResponse(&user, RequestAPIBase(c)), Token: token},
 		})
 	}
 }

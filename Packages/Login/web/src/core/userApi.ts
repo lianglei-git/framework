@@ -89,7 +89,7 @@ export class UserApiService extends ApiService {
         }
     }
 
-    // 获取头像URL
+    /** @deprecated 优先使用 API 返回的 user.avatar_url；仅作旧缓存 fallback */
     getAvatarSrc(avatar: string | undefined): string | undefined {
         return resolveAvatarUrl(avatar, this.baseURL)
     }
