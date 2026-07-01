@@ -36,6 +36,7 @@ import { beginAuthorizeAttempt, getAuthorizeEpoch, isAuthorizeAttemptStale } fro
 import {
     clearPkceBundle,
     commitPkceBundle,
+    readPkceCodeVerifier,
     readPkceState,
     validatePkceCallback,
 } from './oauthState'
@@ -726,21 +727,10 @@ export class SSOService extends ApiService {
             throw new Error('Authorization code not found')
         }
 
-        verifyOAuthState(context.state)
-
-        // 验证必须的参数
-        if (!context.code) {
-            throw new Error('Authorization code is missing')
-        }
-
-        if (!context.state) {
-            throw new Error('State parameter is required for security verification')
-        }
-
-        clearPkceState()
+        const codeVerifier = validatePkceCallback(context.state)
 
         // 使用授权码获取token
-        return this.exchangeCodeForToken(context.code, context.state)
+        return this.exchangeCodeForToken(context.code, context.state, codeVerifier)
     }
 
     /**
@@ -875,16 +865,19 @@ export class SSOService extends ApiService {
      * 支持PKCE (Proof Key for Code Exchange) 双重验证模式
      * 使用统一的API服务进行请求
      */
-    private async exchangeCodeForToken(code: string, state?: string): Promise<SSOLoginResponse> {
+    private async exchangeCodeForToken(
+        code: string,
+        state?: string,
+        codeVerifier?: string | null,
+    ): Promise<SSOLoginResponse> {
         const provider = storage.get('login_provider', StorageType.LOCAL);
         // 获取当前provider的配置
         const providerConfig = this.getCurrentProviderConfig(provider)
         const tokenEndpoint = this.resolveOAuthEndpoint(this.config.tokenEndpoint)
 
         console.log("tokenEndpoint:", tokenEndpoint)
-        // 获取PKCE code_verifier（必须包含，用于双重验证）
-        const codeVerifier = localStorage.getItem('pkce_code_verifier')
-        console.log("交换exchangeCodeForToken", codeVerifier);
+        const finalCodeVerifier = codeVerifier ?? readPkceCodeVerifier()
+        console.log("交换exchangeCodeForToken", finalCodeVerifier)
 
 
         // 构建token交换请求参数 - 双重验证模式
@@ -914,7 +907,7 @@ export class SSOService extends ApiService {
             // 必须包含state用于验证 - 使用回调中的state或存储的state
             state: finalState, // 保持原始格式发送给服务器
             // PKCE双重验证 - 必须包含code_verifier
-            code_verifier: codeVerifier,
+            code_verifier: finalCodeVerifier,
             // 内部第三方登录标识
             internal_auth: 'true',
             // 应用ID（从配置中获取）
@@ -929,7 +922,7 @@ export class SSOService extends ApiService {
             console.log('🔐 使用客户端密钥认证模式')
         } else {
             // 公共客户端必须使用PKCE
-            if (!codeVerifier) {
+            if (!finalCodeVerifier) {
                 throw new Error('PKCE code_verifier is required for public clients in double verification mode')
             }
             console.log('🔐 使用PKCE双重验证模式')
@@ -961,8 +954,8 @@ export class SSOService extends ApiService {
             console.error('❌ 双重验证模式token交换失败:', error)
 
             // 清理敏感数据（即使失败也要清理）
-            localStorage.removeItem('pkce_code_verifier')
-            console.log("清理敏感数据 pkce_code_verifier error")
+            clearPkceBundle()
+            console.log("清理敏感数据 pkce bundle (error)")
 
             throw error
         }
@@ -1006,9 +999,8 @@ export class SSOService extends ApiService {
 
         globalUserStore.syncFromStorage({ notify: false })
 
-        console.log("清理敏感数据 pkce_code_verifier")
-        // 清理敏感数据
-        localStorage.removeItem('pkce_code_verifier')
+        console.log("清理敏感数据 pkce bundle")
+        clearPkceBundle()
 
         console.log('✅ 双重验证模式token交换成功:', {
             // user_id: userInfo.sub,
