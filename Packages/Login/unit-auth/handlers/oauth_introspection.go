@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"time"
+	"unit-auth/config"
 	"unit-auth/models"
 	"unit-auth/utils"
 
@@ -86,6 +87,6 @@ func TokenExchange() gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "failed to issue token"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"access_token": token, "token_type": "Bearer", "expires_in": 3600})
+		c.JSON(http.StatusOK, gin.H{"access_token": token, "token_type": "Bearer", "expires_in": config.AccessTokenExpiresInSeconds()})
 	}
 }

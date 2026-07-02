@@ -29,16 +29,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// Session 和 Token 过期时间常量
-const (
-	SSOSessionExpiration = 365 * 24 * time.Hour // SSO Session: 1年
-	// RefreshTokenExpiration      = 1 * 2 * time.Hour    // Refresh Token: 2小时
-	RefreshTokenExpiration      = 30 * 24 * time.Hour // Refresh Token: 30天
-	AccessTokenExpiration       = 30 * time.Second     // Access Token: 本地测试 30 秒（生产改回 15 * time.Minute）
-	AuthorizationCodeExpiration = 10 * time.Minute    // 授权码: 10分钟
-	MaxInactiveTime             = 90 * 24 * time.Hour // 最大不活跃时间: 90天
-)
-
 var WEB_CENTER_URL = os.Getenv("WEB_CENTER_URL")
 
 // SSOClient SSO客户端模型
@@ -572,7 +562,7 @@ func GetOAuthAuthorize(db *gorm.DB) gin.HandlerFunc {
 		authorizationCode := generateAuthorizationCode(clientID, userID, redirectURI, scope, codeChallenge, codeChallengeMethod)
 
 		// 保存授权码到数据库（支持设备去重）
-		expiresAt := time.Now().Add(10 * time.Minute) // 10分钟过期，与授权码一致
+		expiresAt := time.Now().Add(config.AuthorizationCodeTTL())
 		ip := c.ClientIP()
 		userAgent := c.GetHeader("User-Agent")
 
@@ -845,7 +835,7 @@ func generateTokensFromClaims(c *gin.Context, db *gorm.DB, claims jwt.MapClaims,
 
 		User: &user,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(AccessTokenExpiration)), // 1小时
+			ExpiresAt: jwt.NewNumericDate(now.Add(config.AccessTokenTTL())), // 1小时
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 			Issuer:    os.Getenv("JWT_ISS"),
@@ -885,7 +875,7 @@ func generateTokensFromClaims(c *gin.Context, db *gorm.DB, claims jwt.MapClaims,
 		RefreshToken: refreshToken,
 		IDToken:      accessToken,
 		TokenType:    "Bearer",
-		ExpiresIn:    int(AccessTokenExpiration.Seconds()),
+		ExpiresIn:    config.AccessTokenExpiresInSeconds(),
 		Scope:        "openid profile email phone",
 		User:         services.PresentUserResponse(&user, RequestAPIBase(c)),
 		Provider:     "centralized",
@@ -989,7 +979,7 @@ func GenerateRefreshTokenWithRS256(userID, audience string) (string, error) {
 		"iss": os.Getenv("JWT_ISS"),
 		"sub": userID,
 		"aud": audience,
-		"exp": time.Now().Add(RefreshTokenExpiration).Unix(), // 30天
+		"exp": time.Now().Add(config.RefreshTokenTTL()).Unix(), // 30天
 		"iat": time.Now().Unix(),
 		"jti": uuid.New().String(),
 	}
@@ -1501,7 +1491,7 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 
 		User: &user,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(AccessTokenExpiration)), // 1小时
+			ExpiresAt: jwt.NewNumericDate(now.Add(config.AccessTokenTTL())), // 1小时
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 			Issuer:    os.Getenv("JWT_ISS"),
@@ -1584,7 +1574,7 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 		RefreshToken: refreshToken,
 		IDToken:      accessToken,
 		TokenType:    "Bearer",
-		ExpiresIn:    int(AccessTokenExpiration.Seconds()),
+		ExpiresIn:    config.AccessTokenExpiresInSeconds(),
 		Scope:        "openid profile email phone",
 		User:         services.PresentUserResponse(&user, RequestAPIBase(c)),
 		Provider:     "centralized",
@@ -1676,7 +1666,7 @@ func handlePasswordGrant(c *gin.Context, db *gorm.DB, username, password, client
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
 		"token_type":    "Bearer",
-		"expires_in":    int(AccessTokenExpiration.Seconds()),
+		"expires_in":    config.AccessTokenExpiresInSeconds(),
 		"scope":         "openid profile email",
 		"user":          services.PresentUserResponse(&user, RequestAPIBase(c)),
 	}
@@ -1703,7 +1693,7 @@ func handleClientCredentialsGrant(c *gin.Context, db *gorm.DB, clientID, clientS
 	response := gin.H{
 		"access_token": accessToken,
 		"token_type":   "Bearer",
-		"expires_in":   int(AccessTokenExpiration.Seconds()),
+		"expires_in":   config.AccessTokenExpiresInSeconds(),
 		"scope":        "openid",
 	}
 
@@ -2028,7 +2018,7 @@ func handleCodeVerifierGrant(c *gin.Context, db *gorm.DB, code, clientID, client
 		"access_token":  accessToken,
 		"refresh_token": refreshToken,
 		"token_type":    "Bearer",
-		"expires_in":    int(AccessTokenExpiration.Seconds()),
+		"expires_in":    config.AccessTokenExpiresInSeconds(),
 		"scope":         claims["scope"],
 		"user":          services.PresentUserResponse(&user, RequestAPIBase(c)),
 	}

@@ -158,7 +158,7 @@ func (cts *CentralizedTokenService) RefreshAccessToken(req *TokenRefreshRequest)
 	return &TokenRefreshResult{
 		Success:     true,
 		AccessToken: newToken,
-		ExpiresIn:   config.GetAccessTokenExpiry(),
+		ExpiresIn:   config.AccessTokenExpiresInSeconds(),
 		TokenType:   "Bearer",
 	}, nil
 }
@@ -453,14 +453,12 @@ const (
 	SessionExpired = "expired"
 )
 
-// GetAccessTokenExpiry 获取Access Token过期时间
+// GetAccessTokenExpiry 获取 Access Token expires_in（秒）
 func (cts *CentralizedTokenService) GetAccessTokenExpiry() int {
-	// 从配置获取，默认为3600秒（1小时）
-	return 3600
+	return config.AccessTokenExpiresInSeconds()
 }
 
-// GetRefreshTokenExpiry 获取Refresh Token过期时间
+// GetRefreshTokenExpiry 获取 Refresh Token 有效期
 func (cts *CentralizedTokenService) GetRefreshTokenExpiry() time.Duration {
-	// 默认为7天
-	return 7 * 24 * time.Hour
+	return config.RefreshTokenTTL()
 }

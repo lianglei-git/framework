@@ -237,7 +237,24 @@ sudo certbot --nginx -d sso.yourdomain.com -d login.yourdomain.com -d admin.your
 
 ---
 
-## 七、运维检查清单
+## 七、Token 时效配置
+
+在 `unit-auth/.env` 中统一配置（修改后重启服务）：
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `ACCESS_TOKEN_EXPIRATION_MINUTES` | `15` | **Access Token 唯一入口**（JWT `exp` = API `expires_in`） |
+| `JWT_REFRESH_EXPIRATION_HOURS` | `720` | Refresh Token（30 天） |
+| `JWT_REMEMBER_ME_EXPIRATION_HOURS` | `720` | 记住我 |
+| `SSO_SESSION_EXPIRATION_DAYS` | `365` | IdP session 记录 |
+| `AUTH_CODE_EXPIRATION_MINUTES` | `10` | OAuth 授权码 |
+| `SSO_MAX_INACTIVE_DAYS` | `90` | 不活跃 session 清理 |
+
+旧变量 `JWT_EXPIRATION`（小时）仅作兼容：未设置 `ACCESS_TOKEN_EXPIRATION_MINUTES` 时自动换算。
+
+---
+
+## 八、运维检查清单
 
 - [ ] 三域名均 HTTPS
 - [ ] `unit-auth` 健康检查通过
@@ -250,7 +267,7 @@ sudo certbot --nginx -d sso.yourdomain.com -d login.yourdomain.com -d admin.your
 
 ---
 
-## 八、常见问题
+## 九、常见问题
 
 **Q: 登录后 authorize 报 redirect_uri 不匹配？**  
 A: 管理后台里该客户端的 `redirect_uris` 必须与前端构建时的 `VITE_SSO_REDIRECT_URI` 字符级一致。
@@ -266,7 +283,7 @@ A: 生产建议使用同一 registrable domain（如 `*.yourdomain.com`），并
 
 ---
 
-## 九、脚本参考
+## 十、脚本参考
 
 ```bash
 # 仅重打前端（后端已存在）

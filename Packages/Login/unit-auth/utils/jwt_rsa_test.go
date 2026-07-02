@@ -74,7 +74,7 @@ XpXRWk9F4IFu+EooLd9miwv3JFfyV8p0Z4Kr3GINTypBD7A85YIV
 
 func TestValidateEnhancedToken_HS256(t *testing.T) {
 	config.AppConfig.JWTSecret = "test-secret"
-	config.AppConfig.JWTExpiration = 24
+	config.AppConfig.AccessTokenExpirationMinutes = 15
 	tokenString, err := GenerateAccessToken("user-456", "a@b.com", "user")
 	if err != nil {
 		t.Fatalf("generate HS256 token: %v", err)

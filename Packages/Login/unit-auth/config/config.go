@@ -14,11 +14,14 @@ type Config struct {
 	DBPassword string
 	DBName     string
 
-	// JWT配置 - 支持双Token扩展
-	JWTSecret               string
-	JWTExpiration           int // 访问token有效期（小时）
-	JWTRefreshExpiration    int // 刷新token有效期（小时）
-	JWTRememberMeExpiration int // 记住我token有效期（小时）
+	// Token 时效（详见 env.example「Token 时效」一节；Access Token 以 ACCESS_TOKEN_EXPIRATION_MINUTES 为唯一入口）
+	JWTSecret                    string
+	AccessTokenExpirationMinutes int // access_token 有效期（分钟），JWT exp 与 expires_in 均据此计算
+	JWTRefreshExpirationHours    int // refresh_token 有效期（小时）
+	JWTRememberMeExpirationHours int // 记住我 token 有效期（小时）
+	SSOSessionExpirationDays     int // IdP session 有效期（天）
+	AuthCodeExpirationMinutes    int // OAuth 授权码有效期（分钟）
+	SSOMaxInactiveDays           int // session 最大不活跃天数（清理任务）
 
 	// RSA密钥配置（用于OAuth 2.0/OpenID Connect）
 	RSAPrivateKey string // PEM格式的RSA私钥
@@ -73,10 +76,14 @@ func Init() {
 		DBPassword: getEnv("DB_PASSWORD", ""),
 		DBName:     getEnv("DB_NAME", "auth_service"),
 
-		JWTSecret:               getEnv("JWT_SECRET", "verita-unit-auth-secret"),
-		JWTExpiration:           getEnvAsInt("JWT_EXPIRATION", 1),               // 7天 (168小时) - 学习类网站
-		JWTRefreshExpiration:    getEnvAsInt("JWT_REFRESH_EXPIRATION", 24),      // 刷新token 24小时
-		JWTRememberMeExpiration: getEnvAsInt("JWT_REMEMBER_ME_EXPIRATION", 720), // 记住我模式 30天
+		JWTSecret: getEnv("JWT_SECRET", "verita-unit-auth-secret"),
+
+		AccessTokenExpirationMinutes: resolveAccessTokenExpirationMinutes(),
+		JWTRefreshExpirationHours:    resolveDurationHours("JWT_REFRESH_EXPIRATION_HOURS", "JWT_REFRESH_EXPIRATION", 720),
+		JWTRememberMeExpirationHours: resolveDurationHours("JWT_REMEMBER_ME_EXPIRATION_HOURS", "JWT_REMEMBER_ME_EXPIRATION", 720),
+		SSOSessionExpirationDays:     getEnvAsInt("SSO_SESSION_EXPIRATION_DAYS", 365),
+		AuthCodeExpirationMinutes:    getEnvAsInt("AUTH_CODE_EXPIRATION_MINUTES", 10),
+		SSOMaxInactiveDays:           getEnvAsInt("SSO_MAX_INACTIVE_DAYS", 90),
 
 		// RSA密钥配置
 		RSAPrivateKey: getEnv("RSA_PRIVATE_KEY", ""),
@@ -137,7 +144,37 @@ func getEnvAsInt(key string, defaultValue int) int {
 	return defaultValue
 }
 
-// GetAccessTokenExpiry 获取访问token过期时间（小时）
+// resolveAccessTokenExpirationMinutes ACCESS_TOKEN_EXPIRATION_MINUTES 为唯一入口；
+// 兼容旧 JWT_EXPIRATION（小时）仅在未设置新变量时生效。
+func resolveAccessTokenExpirationMinutes() int {
+	if v := os.Getenv("ACCESS_TOKEN_EXPIRATION_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	if legacy := os.Getenv("JWT_EXPIRATION"); legacy != "" {
+		if h, err := strconv.Atoi(legacy); err == nil && h > 0 {
+			return h * 60
+		}
+	}
+	return 15
+}
+
+func resolveDurationHours(primaryKey, legacyKey string, defaultHours int) int {
+	if v := os.Getenv(primaryKey); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	if v := os.Getenv(legacyKey); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultHours
+}
+
+// GetAccessTokenExpiry 兼容旧调用：返回 access token 有效期（分钟）
 func GetAccessTokenExpiry() int {
-	return AppConfig.JWTExpiration
+	return AppConfig.AccessTokenExpirationMinutes
 }

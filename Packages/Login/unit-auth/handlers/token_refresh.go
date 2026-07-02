@@ -473,7 +473,7 @@ func refreshAccessTokenWithDB(refreshToken string, ipAddress, userAgent string) 
 	// 创建新的Refresh Token记录
 	newRT := models.RefreshToken{
 		UserID:    refreshClaims.UserID,
-		ExpiresAt: time.Now().Add(time.Duration(config.AppConfig.JWTRefreshExpiration) * time.Hour),
+		ExpiresAt: time.Now().Add(config.RefreshTokenTTL()),
 		IPAddress: ipAddress,
 		UserAgent: userAgent,
 	}
@@ -487,8 +487,8 @@ func refreshAccessTokenWithDB(refreshToken string, ipAddress, userAgent string) 
 		AccessToken:      accessToken,
 		RefreshToken:     newRefreshToken,
 		TokenType:        "Bearer",
-		ExpiresIn:        int64(config.AppConfig.JWTExpiration * 3600),
-		RefreshExpiresIn: int64(config.AppConfig.JWTRefreshExpiration * 3600),
+		ExpiresIn:        int64(config.AccessTokenExpiresInSeconds()),
+		RefreshExpiresIn: config.RefreshTokenExpiresInSeconds(),
 		UserID:           refreshClaims.UserID,
 		Email:            refreshClaims.Email,
 		Role:             refreshClaims.Role,
@@ -499,7 +499,7 @@ func refreshAccessTokenWithDB(refreshToken string, ipAddress, userAgent string) 
 func CreateRefreshTokenRecord(userID, refreshToken, ipAddress, userAgent string) error {
 	var rt models.RefreshToken
 	rt.UserID = userID
-	rt.ExpiresAt = time.Now().Add(time.Duration(config.AppConfig.JWTRefreshExpiration) * time.Hour)
+	rt.ExpiresAt = time.Now().Add(config.RefreshTokenTTL())
 	rt.IPAddress = ipAddress
 	rt.UserAgent = userAgent
 	rt.GenerateTokenHash(refreshToken)

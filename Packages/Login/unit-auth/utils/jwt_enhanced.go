@@ -145,7 +145,7 @@ type TokenPair struct {
 
 // GenerateAccessToken 生成访问token
 func GenerateAccessToken(userID string, email, role string) (string, error) {
-	expirationTime := time.Now().Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)
+	expirationTime := time.Now().Add(config.AccessTokenTTL())
 
 	claims := &EnhancedClaims{
 		UserID:    userID,
@@ -170,7 +170,7 @@ func GenerateAccessToken(userID string, email, role string) (string, error) {
 
 // GenerateRefreshToken 生成刷新token
 func GenerateRefreshToken(userID string, email, role string) (string, error) {
-	expirationTime := time.Now().Add(time.Duration(config.AppConfig.JWTRefreshExpiration) * time.Hour)
+	expirationTime := time.Now().Add(config.RefreshTokenTTL())
 
 	claims := &EnhancedClaims{
 		UserID:    userID,
@@ -195,7 +195,7 @@ func GenerateRefreshToken(userID string, email, role string) (string, error) {
 
 // GenerateRememberMeToken 生成记住我token
 func GenerateRememberMeToken(userID string, email, role string) (string, error) {
-	expirationTime := time.Now().Add(time.Duration(config.AppConfig.JWTRememberMeExpiration) * time.Hour)
+	expirationTime := time.Now().Add(config.RememberMeTTL())
 
 	claims := &EnhancedClaims{
 		UserID:    userID,
@@ -432,8 +432,8 @@ func GenerateTokenPair(userID string, email, role string) (*TokenPair, error) {
 	return &TokenPair{
 		AccessToken:      accessToken,
 		RefreshToken:     refreshToken,
-		ExpiresIn:        int64(config.AppConfig.JWTExpiration * 3600),
-		RefreshExpiresIn: int64(config.AppConfig.JWTRefreshExpiration * 3600),
+		ExpiresIn:        int64(config.AccessTokenExpiresInSeconds()),
+		RefreshExpiresIn: config.RefreshTokenExpiresInSeconds(),
 	}, nil
 }
 
@@ -461,8 +461,8 @@ func RefreshAccessToken(refreshToken string) (*TokenResponse, error) {
 		AccessToken:      accessToken,
 		RefreshToken:     newRefreshToken,
 		TokenType:        "Bearer",
-		ExpiresIn:        int64(config.AppConfig.JWTExpiration * 3600),
-		RefreshExpiresIn: int64(config.AppConfig.JWTRefreshExpiration * 3600),
+		ExpiresIn:        int64(config.AccessTokenExpiresInSeconds()),
+		RefreshExpiresIn: config.RefreshTokenExpiresInSeconds(),
 		UserID:           claims.UserID,
 		Email:            claims.Email,
 		Role:             claims.Role,
@@ -499,9 +499,9 @@ func ExtendToken(tokenString string) (*TokenResponse, error) {
 	// 确定过期时间
 	var expiresIn int64
 	if claims.TokenType == "remember_me" {
-		expiresIn = int64(config.AppConfig.JWTRememberMeExpiration * 3600)
+		expiresIn = config.RememberMeExpiresInSeconds()
 	} else {
-		expiresIn = int64(config.AppConfig.JWTExpiration * 3600)
+		expiresIn = int64(config.AccessTokenExpiresInSeconds())
 	}
 
 	return &TokenResponse{
@@ -577,7 +577,7 @@ func GenerateAccessTokenWithAudience(userID string, email, role, audience, proje
 		LocalUserID: localUserID,
 		TokenType:   "access",
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(config.AccessTokenTTL())),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 			Issuer:    os.Getenv("JWT_ISS"),
@@ -608,7 +608,7 @@ func GenerateCompactAccessToken(userID string, emailOrIdentifier, role, projectK
 		LocalUserID: localUserID,
 		TokenType:   "access",
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(config.AccessTokenTTL())),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 			Issuer:    os.Getenv("JWT_ISS"),

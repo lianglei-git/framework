@@ -3,6 +3,7 @@ package handlers
 import (
 	"log"
 	"time"
+	"unit-auth/config"
 	"unit-auth/models"
 
 	"gorm.io/gorm"
@@ -34,7 +35,7 @@ func CleanupExpiredSessions(db *gorm.DB) error {
 	totalCleaned += result.RowsAffected
 
 	// 3. 删除长期不活跃的active session（last_activity < 90天前）
-	inactiveThreshold := now.Add(-MaxInactiveTime)
+	inactiveThreshold := now.Add(-config.SSOMaxInactiveTTL())
 	result = db.Where("status = ? AND last_activity < ?", "active", inactiveThreshold).
 		Delete(&models.SSOSession{})
 	if result.Error != nil {
