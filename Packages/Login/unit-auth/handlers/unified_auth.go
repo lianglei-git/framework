@@ -301,6 +301,10 @@ func (h *UnifiedAuthHandler) handleOAuthLogin(c *gin.Context, req models.Unified
 		fmt.Printf("🔐 双重验证模式: provider=%s, code_verifier长度=%d\n", req.Provider, len(req.CodeVerifier))
 	}
 
+	if req.RedirectURI != "" {
+		c.Set("oauth_redirect_uri", req.RedirectURI)
+	}
+
 	// 查找对应的Provider
 	pluginProvider, exists := h.pluginManager.GetProvider(req.Provider)
 	if !exists {
@@ -312,7 +316,7 @@ func (h *UnifiedAuthHandler) handleOAuthLogin(c *gin.Context, req models.Unified
 	}
 
 	// 处理OAuth回调 - 传递codeVerifier参数
-	user, err := pluginProvider.HandleCallbackWithCodeVerifier(c.Request.Context(), req.Code, req.State, req.CodeVerifier)
+	user, err := pluginProvider.HandleCallbackWithCodeVerifier(c, req.Code, req.State, req.CodeVerifier)
 	if err != nil {
 		// 记录失败日志
 		loginLog := models.LoginLog{
@@ -1168,7 +1172,7 @@ func (h *UnifiedAuthHandler) UnifiedDoubleVerification() gin.HandlerFunc {
 			ip := c.ClientIP()
 			userAgent := c.GetHeader("User-Agent")
 
-			user, err := pluginProvider.HandleCallback(c.Request.Context(), code, state)
+			user, err := pluginProvider.HandleCallback(c, code, state)
 			if err != nil {
 				// 记录失败日志
 				loginLog := models.LoginLog{

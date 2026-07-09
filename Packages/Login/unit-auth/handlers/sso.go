@@ -310,13 +310,13 @@ func GetOpenIDConfiguration() gin.HandlerFunc {
 
 		config := OpenIDConfiguration{
 			Issuer:                                     baseURL,
-			AuthorizationEndpoint:                      baseURL + "/oauth/authorize",
-			TokenEndpoint:                              baseURL + "/oauth/token",
-			UserinfoEndpoint:                           baseURL + "/oauth/userinfo",
-			EndSessionEndpoint:                         baseURL + "/oauth/logout",
-			CheckSessionIframe:                         baseURL + "/oauth/check_session",
-			RevocationEndpoint:                         baseURL + "/oauth/revoke",
-			IntrospectionEndpoint:                      baseURL + "/oauth/introspect",
+			AuthorizationEndpoint:                      baseURL + "/api/v1/auth/oauth/authorize",
+			TokenEndpoint:                              baseURL + "/api/v1/auth/oauth/token",
+			UserinfoEndpoint:                           baseURL + "/api/v1/auth/oauth/userinfo",
+			EndSessionEndpoint:                         baseURL + "/api/v1/auth/oauth/logout",
+			CheckSessionIframe:                         baseURL + "/api/v1/sso/session/check",
+			RevocationEndpoint:                         baseURL + "/api/v1/auth/oauth/revoke",
+			IntrospectionEndpoint:                      baseURL + "/api/v1/auth/introspect",
 			JwksURI:                                    baseURL + "/api/v1/jwks-json",
 			ScopesSupported:                            []string{"openid", "profile", "email", "phone", "offline_access"},
 			ResponseTypesSupported:                     []string{"code", "token", "id_token"},
@@ -347,7 +347,8 @@ func GetOpenIDConfiguration() gin.HandlerFunc {
 		}
 
 		c.Header("Content-Type", "application/json")
-		c.Header("Cache-Control", "public, max-age=3600")
+		c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		c.Header("Pragma", "no-cache")
 		c.JSON(http.StatusOK, config)
 	}
 }
@@ -1294,11 +1295,25 @@ func GetOAuthRevoke(db *gorm.DB) gin.HandlerFunc {
 
 // 获取基础URL
 func getBaseURL(c *gin.Context) string {
+	// 1) 优先使用显式配置，保证发现文档在反向代理场景下稳定输出公网地址
+	if configured := strings.TrimSpace(config.AppConfig.SSOServerURL); configured != "" {
+		return strings.TrimRight(configured, "/")
+	}
+
+	// 2) 其次信任反向代理头（Nginx/Ingress）
 	scheme := "http"
-	if c.Request.TLS != nil {
+	if xfProto := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")); xfProto != "" {
+		scheme = xfProto
+	} else if c.Request.TLS != nil {
 		scheme = "https"
 	}
-	return scheme + "://" + c.Request.Host
+
+	host := c.Request.Host
+	if xfHost := strings.TrimSpace(c.GetHeader("X-Forwarded-Host")); xfHost != "" {
+		host = xfHost
+	}
+
+	return scheme + "://" + host
 }
 
 // 验证重定向URI

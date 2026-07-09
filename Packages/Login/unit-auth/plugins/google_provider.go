@@ -198,13 +198,26 @@ func (gp *GoogleProvider) getUserInfo(accessToken string) (*GoogleUserInfo, erro
 func (gp *GoogleProvider) HandleCallbackWithCodeVerifier(ctx context.Context, code string, state string, codeVerifier string) (*models.User, error) {
 	// 交换授权码获取访问令牌
 	tokenURL := "https://oauth2.googleapis.com/token"
+	redirectURI := gp.redirectURI
+	if ginCtx, ok := ctx.(*gin.Context); ok {
+		if v, exists := ginCtx.Get("oauth_redirect_uri"); exists {
+			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+				redirectURI = strings.TrimSpace(s)
+			}
+		}
+		if fromForm := strings.TrimSpace(ginCtx.PostForm("redirect_uri")); fromForm != "" {
+			redirectURI = fromForm
+		} else if fromQuery := strings.TrimSpace(ginCtx.Query("redirect_uri")); fromQuery != "" {
+			redirectURI = fromQuery
+		}
+	}
 
 	formData := map[string][]string{
 		"client_id":     {gp.clientID},
 		"client_secret": {gp.clientSecret},
 		"code":          {code},
 		"grant_type":    {"authorization_code"},
-		"redirect_uri":  {gp.redirectURI},
+		"redirect_uri":  {redirectURI},
 	}
 
 	// 如果有 code_verifier，添加双重验证参数

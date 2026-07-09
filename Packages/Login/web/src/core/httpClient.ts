@@ -55,7 +55,7 @@ export class ApiService {
             ...options,
             headers,
             url: url.startsWith('http') ? url : `${this.baseURL}${url}`,
-            timeout: 10000 // 10秒超时
+            timeout: options.timeout ?? 10000,
         }
 
         try {

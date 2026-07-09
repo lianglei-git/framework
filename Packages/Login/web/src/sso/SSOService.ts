@@ -41,6 +41,7 @@ import {
     validatePkceCallback,
 } from './oauthState'
 import { handleForcedLogout, isSessionRevokedError } from '../utils/forcedLogout'
+import { isSocialProviderId } from './socialProviders'
 
 export class SSOService extends ApiService {
     private config: SSOConfig
@@ -194,35 +195,25 @@ export class SSOService extends ApiService {
 
             // 检查session cookies并尝试自动登录
 
-            // 处理SSO回调（如果有）
+            // 处理SSO回调（如果有）— 等待完成，避免初始化先结束而登录仍在进行
             if (this.isInCallbackMode()) {
                 console.log('检测到SSO回调，自动处理...')
                 try {
-                    this.handleCallback()
-                        .then((result) => {
-                            if (result) {
-                                // 子项目已在 redirect_uri 落地，勿再跳 origin_app_uri（否则会死循环）
-                                if (this.isSubProjectApp()) {
-                                    clearOriginAppUri()
-                                    cleanOAuthParamsFromUrl()
-                                    console.log('子项目 OAuth 回调完成，已清理 URL')
-                                } else {
-                                    handleSSOCallbackResult({ afterLogin: true }).then((handled) => {
-                                        if (!handled && window.location.port === '3033') {
-                                            window.location.replace('/account')
-                                        }
-                                    })
-                                }
-                            } else {
-                                window.dispatchEvent(new CustomEvent('auth:oauth-failed'))
-                            }
-                        })
-                        .catch((error) => {
-                            console.error('SSO回调处理失败:', error)
+                    const result = await this.handleCallback()
+                    if (result) {
+                        if (this.isSubProjectApp()) {
+                            clearOriginAppUri()
                             cleanOAuthParamsFromUrl()
-                            window.dispatchEvent(new CustomEvent('auth:oauth-failed', { detail: { error } }))
-                            alert(`登录失败：${formatAuthError(error, '请重试')}`)
-                        })
+                            console.log('子项目 OAuth 回调完成，已清理 URL')
+                        } else {
+                            const handled = await handleSSOCallbackResult({ afterLogin: true })
+                            if (!handled && window.location.port === '3033') {
+                                window.location.replace('/account')
+                            }
+                        }
+                    } else {
+                        window.dispatchEvent(new CustomEvent('auth:oauth-failed'))
+                    }
                 } catch (error) {
                     console.error('SSO回调处理失败:', error)
                     cleanOAuthParamsFromUrl()
@@ -905,6 +896,7 @@ export class SSOService extends ApiService {
 
         // 构建token交换请求参数 - 双重验证模式
         const finalState = state || readPkceState()
+        const redirectUri = providerConfig?.redirect_uri || this.config.redirectUri
 
         // 解析state参数（可能是JSON格式）
         let parsedState = finalState
@@ -917,15 +909,53 @@ export class SSOService extends ApiService {
             parsedState = finalState
         }
 
+        // 第三方 OAuth（GitHub/Google/微信）用 code 换 token 走 oauth-login，不走 SSO client 的 oauth/token
+        if (isSocialProviderId(provider)) {
+            const oauthLoginPayload = {
+                provider,
+                code,
+                state: finalState,
+                code_verifier: finalCodeVerifier,
+                internal_auth: 'true',
+                double_verification: 'true',
+                app_id: this.config.appId || 'default',
+                redirect_uri: redirectUri,
+            }
 
+            this.validateTokenExchangeParams({
+                ...oauthLoginPayload,
+                grant_type: 'authorization_code',
+            })
 
+            const oauthLoginEndpoint = `${this.config.ssoServerUrl}/api/v1/auth/oauth-login`
+            console.log('🔄 第三方 OAuth 登录（oauth-login）:', {
+                provider,
+                has_code: !!code,
+                has_code_verifier: !!finalCodeVerifier,
+                redirect_uri: redirectUri,
+                endpoint: oauthLoginEndpoint,
+            })
+
+            try {
+                const response = await this.post<SSOToken>(oauthLoginEndpoint, oauthLoginPayload, {
+                    withCredentials: true,
+                    // 第三方 OAuth 需服务端访问 GitHub/Google，链路较长
+                    timeout: 60000,
+                })
+                return this.unifiedSaveLoginInfos(response) as any
+            } catch (error) {
+                console.error('❌ 第三方 OAuth 登录失败:', error)
+                clearPkceBundle()
+                throw error
+            }
+        }
 
         const tokenRequestData = {
             grant_type: 'authorization_code',
             // grant_type: "code",
             provider,
             code: code,
-            redirect_uri: providerConfig?.redirect_uri || this.config.redirectUri,
+            redirect_uri: redirectUri,
             client_id: providerConfig?.client_id || this.config.clientId,
             // 必须包含state用于验证 - 使用回调中的state或存储的state
             state: finalState, // 保持原始格式发送给服务器

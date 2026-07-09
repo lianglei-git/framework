@@ -251,14 +251,28 @@ func (p *GitHubProvider) exchangeToken(c context.Context, state string, code str
 	}
 
 	data.Set("code", code)
-	data.Set("redirect_uri", p.Redirect)
+	data.Set("grant_type", "authorization_code")
+	redirectURI := p.Redirect
+	if ginCtx, ok := c.(*gin.Context); ok {
+		if v, exists := ginCtx.Get("oauth_redirect_uri"); exists {
+			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+				redirectURI = strings.TrimSpace(s)
+			}
+		}
+		if fromForm := strings.TrimSpace(ginCtx.PostForm("redirect_uri")); fromForm != "" {
+			redirectURI = fromForm
+		} else if fromQuery := strings.TrimSpace(ginCtx.Query("redirect_uri")); fromQuery != "" {
+			redirectURI = fromQuery
+		}
+	}
+	data.Set("redirect_uri", redirectURI)
 
 	log.Printf("🔐 GitHub exchangeToken完整请求参数:")
 	log.Printf("   client_id: %s", p.ClientID)
 	log.Printf("   client_secret: %s", p.Secret)
 	log.Printf("   code: %s", code)
 	log.Printf("   state: %s", state)
-	log.Printf("   redirect_uri: %s", p.Redirect)
+	log.Printf("   redirect_uri: %s", redirectURI)
 	log.Printf("   has_code_verifier: %t", codeVerifier != "")
 	if codeVerifier != "" {
 		log.Printf("   code_verifier长度: %d", len(codeVerifier))
@@ -269,9 +283,10 @@ func (p *GitHubProvider) exchangeToken(c context.Context, state string, code str
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := oauthOutboundClient.Do(req)
 	if err != nil {
-		return nil, err
+		log.Printf("❌ GitHub token exchange failed: %v", err)
+		return nil, fmt.Errorf("github token exchange failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -279,10 +294,10 @@ func (p *GitHubProvider) exchangeToken(c context.Context, state string, code str
 	if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
 		return nil, err
 	}
-	log.Println("🔐 tr 返回内容", tr)
+	log.Printf("🔐 GitHub token exchange status=%d body=%+v", resp.StatusCode, tr)
 
 	if tr.AccessToken == "" {
-		return nil, errors.New("empty access token")
+		return nil, errors.New("empty access token from GitHub")
 	}
 	return &tr, nil
 }
@@ -291,7 +306,7 @@ func (p *GitHubProvider) fetchGitHubUser(token string) (githubUserResp, string, 
 	// user profile
 	req, _ := http.NewRequest(http.MethodGet, "https://api.github.com/user", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := oauthOutboundClient.Do(req)
 	if err != nil {
 		return githubUserResp{}, "", err
 	}
@@ -304,7 +319,7 @@ func (p *GitHubProvider) fetchGitHubUser(token string) (githubUserResp, string, 
 	// primary email
 	req2, _ := http.NewRequest(http.MethodGet, "https://api.github.com/user/emails", nil)
 	req2.Header.Set("Authorization", "Bearer "+token)
-	resp2, err := http.DefaultClient.Do(req2)
+	resp2, err := oauthOutboundClient.Do(req2)
 	if err != nil {
 		return githubUserResp{}, "", err
 	}

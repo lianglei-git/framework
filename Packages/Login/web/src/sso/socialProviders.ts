@@ -34,6 +34,11 @@ export function isSocialProvider(provider: { id: string; enabled?: boolean }): b
     return SOCIAL_PROVIDER_IDS.includes(provider.id as SocialProviderId) && provider.enabled !== false
 }
 
+/** GitHub/Google/微信等第三方 OAuth 回调应走 oauth-login，而非 oauth/token */
+export function isSocialProviderId(provider?: string | null): provider is SocialProviderId {
+    return !!provider && SOCIAL_PROVIDER_IDS.includes(provider as SocialProviderId)
+}
+
 export function pickSocialProviders(providers?: SSOProvider[] | null): SSOProvider[] {
     const source = providers?.length ? providers : DEFAULT_SOCIAL_PROVIDERS
     return source.filter(isSocialProvider)
