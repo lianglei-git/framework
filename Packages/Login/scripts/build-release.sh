@@ -99,7 +99,7 @@ echo "    输出目录: $OUT_DIR"
 if [[ "$SKIP_BACKEND" == false ]]; then
     echo "==> 编译 unit-auth (${GOOS}/${GOARCH})"
     if ! command -v go >/dev/null; then
-        echo "需要 Go 1.20+" >&2
+        echo "需要 Go 1.26+" >&2
         exit 1
     fi
     (

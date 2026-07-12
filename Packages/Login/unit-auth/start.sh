@@ -6,7 +6,7 @@ echo "🚀 启动邮箱认证服务..."
 
 # 检查Go是否安装
 if ! command -v go &> /dev/null; then
-    echo "❌ Go未安装，请先安装Go 1.21+"
+    echo "❌ Go未安装，请先安装Go 1.26+"
     exit 1
 fi
 

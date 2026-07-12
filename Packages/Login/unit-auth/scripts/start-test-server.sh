@@ -49,7 +49,7 @@ check_dependencies() {
 
     # 检查版本
     GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
-    REQUIRED_VERSION="1.19"
+    REQUIRED_VERSION="1.23"
 
     if [[ "$(printf '%s\n' "$REQUIRED_VERSION" "$GO_VERSION" | sort -V | head -n1)" != "$REQUIRED_VERSION" ]]; then
         log_warning "Go版本为 $GO_VERSION，建议使用 Go $REQUIRED_VERSION 或更高版本"
