@@ -252,11 +252,6 @@ export function buildEnvExample(config: SubProjectScaffoldConfig): string {
     `VITE_SSO_CLIENT_ID=${c.clientId}`,
     `VITE_SSO_REDIRECT_URI=${c.redirectUri}`,
     '',
-    '# BFF / unitauthsdk (optional overrides; secrets stay in server/config.json)',
-    `# UNIT_AUTH_URL=${c.unitAuthUrl}`,
-    '# AUTH_MODE=standalone   # BFF demo routes use NewMiddleware standalone',
-    '# INTERNAL_TOKEN=        # only needed for plugin-mode business APIs',
-    '',
   ].join('\n')
 }
 
@@ -266,9 +261,8 @@ function moduleName(projectName: string): string {
 
 function generateServerMainGo(config: SubProjectScaffoldConfig): string {
   const c = syncDerivedUrls(config)
-  const service = c.projectName
-  return `// ${c.displayName} — 子项目 BFF，client_secret 仅保存在服务端。
-// unitauthsdk.MountBFF 挂载标准 OAuth / openid / providers 路由。
+  return `// ${c.displayName} — minimal BFF: MountBFF + whoami.
+// client_secret 仅保存在服务端。
 package main
 
 import (
@@ -277,15 +271,12 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"unit-auth/unitauthsdk"
 )
 
-var startTime = time.Now()
-
-type ServerConfig struct {
+type config struct {
 	Port         string \`json:"port"\`
 	UnitAuthURL  string \`json:"unit_auth_url"\`
 	ClientID     string \`json:"client_id"\`
@@ -294,47 +285,9 @@ type ServerConfig struct {
 	AppID        string \`json:"app_id"\`
 }
 
-func loadConfig() ServerConfig {
-	cfg := ServerConfig{
-		Port:         envOr("PORT", "${c.bffPort}"),
-		UnitAuthURL:  envOr("UNIT_AUTH_URL", "${c.unitAuthUrl}"),
-		ClientID:     os.Getenv("CLIENT_ID"),
-		ClientSecret: os.Getenv("CLIENT_SECRET"),
-		RedirectURI:  envOr("REDIRECT_URI", "${c.redirectUri}"),
-		AppID:        envOr("APP_ID", "${c.appId}"),
-	}
-
-	configFile := flag.String("config", "config.json", "JSON 配置文件路径")
-	flag.Parse()
-
-	if *configFile != "" {
-		if raw, err := os.ReadFile(*configFile); err == nil {
-			var fileCfg ServerConfig
-			if err := json.Unmarshal(raw, &fileCfg); err != nil {
-				log.Fatalf("parse config: %v", err)
-			}
-			if fileCfg.Port != "" { cfg.Port = fileCfg.Port }
-			if fileCfg.UnitAuthURL != "" { cfg.UnitAuthURL = fileCfg.UnitAuthURL }
-			if fileCfg.ClientID != "" { cfg.ClientID = fileCfg.ClientID }
-			if fileCfg.ClientSecret != "" { cfg.ClientSecret = fileCfg.ClientSecret }
-			if fileCfg.RedirectURI != "" { cfg.RedirectURI = fileCfg.RedirectURI }
-			if fileCfg.AppID != "" { cfg.AppID = fileCfg.AppID }
-		}
-	}
-
-	if cfg.ClientID == "" || cfg.ClientSecret == "" {
-		log.Fatal("CLIENT_ID and CLIENT_SECRET are required (config.json or env)")
-	}
-	return cfg
-}
-
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" { return v }
-	return fallback
-}
-
 func main() {
 	cfg := loadConfig()
+
 	auth := unitauthsdk.New(unitauthsdk.Config{
 		BaseURL:      cfg.UnitAuthURL,
 		ClientID:     cfg.ClientID,
@@ -342,86 +295,65 @@ func main() {
 		RedirectURI:  cfg.RedirectURI,
 	})
 
-	demoMW, err := unitauthsdk.NewMiddleware(unitauthsdk.MiddlewareConfig{
+	mw, err := unitauthsdk.NewMiddleware(unitauthsdk.MiddlewareConfig{
 		Mode:         unitauthsdk.ModeStandalone,
 		UnitAuthURL:  cfg.UnitAuthURL,
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
 	})
 	if err != nil {
-		log.Fatalf("demo middleware: %v", err)
+		log.Fatal(err)
 	}
-
-	if err := auth.Health(); err != nil {
-		log.Printf("warn: unit-auth not reachable yet: %v", err)
-	}
-
-	log.Printf("${service} server :%s app=%s client=%s upstream=%s",
-		cfg.Port, cfg.AppID, cfg.ClientID, cfg.UnitAuthURL)
 
 	r := gin.Default()
 	r.Use(unitauthsdk.CORS())
-
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status": "ok", "service": "${service}",
-			"app_id": cfg.AppID, "client_id": cfg.ClientID,
-		})
-	})
-
-	// 标准边缘路由：oauth / openid-configuration / sso/providers
 	unitauthsdk.MountBFF(r, auth, unitauthsdk.MountBFFConfig{AppID: cfg.AppID})
 
-	// ── Demo 业务路由（公开）──
-	r.GET("/api/v1/demo/time", func(c *gin.Context) {
-		now := time.Now()
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+	r.GET("/api/v1/demo/whoami", mw, func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"server_time": now.Format(time.RFC3339),
-			"timestamp":   now.UnixMilli(),
-			"uptime_sec":  int64(time.Since(startTime).Seconds()),
+			"user_id": unitauthsdk.UserID(c),
+			"email":   unitauthsdk.Email(c),
+			"role":    unitauthsdk.Role(c),
 		})
 	})
 
-	// ── Demo 业务路由（standalone middleware）──
-	protected := r.Group("/api/v1/demo", demoMW)
-	{
-		protected.GET("/time-auth", func(c *gin.Context) {
-			now := time.Now()
-			c.JSON(http.StatusOK, gin.H{
-				"server_time": now.Format(time.RFC3339),
-				"timestamp":   now.UnixMilli(),
-				"uptime_sec":  int64(time.Since(startTime).Seconds()),
-				"user_id":     unitauthsdk.UserID(c),
-				"email":       unitauthsdk.Email(c),
-			})
-		})
-		protected.GET("/whoami", func(c *gin.Context) {
-			c.JSON(http.StatusOK, gin.H{
-				"user_id": unitauthsdk.UserID(c),
-				"email":   unitauthsdk.Email(c),
-				"role":    unitauthsdk.Role(c),
-				"mode":    "standalone",
-			})
-		})
-		protected.POST("/add", func(c *gin.Context) {
-			var req struct { A float64 \`json:"a"\`; B float64 \`json:"b"\` }
-			if err := c.ShouldBindJSON(&req); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
-				return
-			}
-			c.JSON(http.StatusOK, gin.H{"a": req.A, "b": req.B, "sum": req.A + req.B, "user_id": unitauthsdk.UserID(c)})
-		})
-		protected.POST("/echo", func(c *gin.Context) {
-			var body interface{}
-			if err := c.ShouldBindJSON(&body); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
-				return
-			}
-			c.JSON(http.StatusOK, gin.H{"echo": body, "user_id": unitauthsdk.UserID(c)})
-		})
+	log.Printf("${c.projectName} bff :%s", cfg.Port)
+	if err := r.Run(":" + cfg.Port); err != nil {
+		log.Fatal(err)
 	}
+}
 
-	if err := r.Run(":" + cfg.Port); err != nil { log.Fatal(err) }
+func loadConfig() config {
+	cfg := config{
+		Port:         envOr("PORT", "${c.bffPort}"),
+		UnitAuthURL:  envOr("UNIT_AUTH_URL", "${c.unitAuthUrl}"),
+		ClientID:     os.Getenv("CLIENT_ID"),
+		ClientSecret: os.Getenv("CLIENT_SECRET"),
+		RedirectURI:  envOr("REDIRECT_URI", "${c.redirectUri}"),
+		AppID:        envOr("APP_ID", "${c.appId}"),
+	}
+	path := flag.String("config", "config.json", "config path")
+	flag.Parse()
+	if raw, err := os.ReadFile(*path); err == nil {
+		_ = json.Unmarshal(raw, &cfg)
+	}
+	if v := os.Getenv("PORT"); v != "" {
+		cfg.Port = v
+	}
+	if cfg.ClientID == "" || cfg.ClientSecret == "" {
+		log.Fatal("client_id/client_secret required (config.json or env)")
+	}
+	return cfg
+}
+
+func envOr(k, d string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return d
 }
 `
 }
@@ -499,7 +431,7 @@ export default function App() {
     return (
       <div className="page-center">
         <h1 className="app-title">${c.displayName}</h1>
-        <p className="hint">SSO 完整测试台 · 前端 :${c.frontendPort} · BFF :${c.bffPort}</p>
+        <p className="hint">unitauthsdk 脚手架 · 前端 :${c.frontendPort} · BFF :${c.bffPort}</p>
         {error && <p className="err">{error.message}</p>}
         <button type="button" className="btn btn-primary btn-lg" onClick={() => login({ redirect: true })}>
           SSO 登录
@@ -511,11 +443,11 @@ export default function App() {
   return (
     <div className="app-root">
       <header className="app-header">
-        <span className="app-title">${c.displayName} · SSO 测试台</span>
-        <span className="hint">前端 :${c.frontendPort} · BFF :${c.bffPort} · IdP :8080</span>
+        <span className="app-title">${c.displayName}</span>
+        <span className="hint">FE :${c.frontendPort} · BFF :${c.bffPort} · IdP :8080</span>
       </header>
       {!isAuthenticated && hasSessionCookie && (
-        <p className="session-hint">本地 token 已清空，IdP session cookie 仍在。可点击 Session-Check 恢复。</p>
+        <p className="session-hint">本地 token 已清空，IdP session cookie 仍在。</p>
       )}
       <TestPanel sso={sso} onAuthChange={() => setHasSessionCookie(detectSessionCookie())} />
     </div>
@@ -596,48 +528,53 @@ body { font-family: system-ui, -apple-system, sans-serif; background: #f0f2f5; c
 `
 
   const demoApiTs = `/**
- * demoApi.ts — 测试台专用 axios 实例
- * 自动注入 SSO token，遇到 401 先 refresh，失败则触发 session recovery
+ * demoApi — BFF only (MountBFF + whoami)
  */
-import axios, { type AxiosRequestConfig } from 'axios'
+import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
 import { storage } from '@zayne/login/utils'
 import { refreshOAuthTokenOnce } from '@zayne/login/utils/oauthRefreshOn401'
 import { recoverOAuthSessionAfterRefreshFailure } from '@zayne/login/utils/oauthSessionRecovery'
 
 const BFF_URL = import.meta.env.VITE_SSO_SERVER_URL || '${c.ssoServerUrl}'
 
-const demoAxios = axios.create({ baseURL: BFF_URL, timeout: 10000 })
+function createAxios(): AxiosInstance {
+  const instance = axios.create({
+    baseURL: BFF_URL,
+    timeout: 10000,
+    headers: { 'Content-Type': 'application/json' },
+  })
 
-demoAxios.interceptors.request.use((config) => {
-  const token = storage.getSSOAccessToken()
-  if (token) config.headers.Authorization = \`Bearer \${token}\`
-  return config
-})
+  instance.interceptors.request.use((config) => {
+    const token = storage.getSSOAccessToken()
+    if (token) config.headers.Authorization = \`Bearer \${token}\`
+    return config
+  })
 
-demoAxios.interceptors.response.use(
-  (res) => res,
-  async (error) => {
-    const config = error.config as AxiosRequestConfig & { _retried?: boolean }
-    if (axios.isAxiosError(error) && error.response?.status === 401 && !config._retried) {
-      config._retried = true
-      const refreshed = await refreshOAuthTokenOnce()
-      if (refreshed) {
-        const newToken = storage.getSSOAccessToken()
-        if (newToken && config.headers) config.headers['Authorization'] = \`Bearer \${newToken}\`
-        return demoAxios(config)
+  instance.interceptors.response.use(
+    (res) => res,
+    async (error) => {
+      const config = error.config as AxiosRequestConfig & { _retried?: boolean }
+      if (axios.isAxiosError(error) && error.response?.status === 401 && !config._retried) {
+        config._retried = true
+        if (await refreshOAuthTokenOnce()) {
+          const newToken = storage.getSSOAccessToken()
+          if (newToken && config.headers) config.headers['Authorization'] = \`Bearer \${newToken}\`
+          return instance(config)
+        }
+        await recoverOAuthSessionAfterRefreshFailure()
       }
-      await recoverOAuthSessionAfterRefreshFailure()
-    }
-    return Promise.reject(error)
-  }
-)
+      return Promise.reject(error)
+    },
+  )
+
+  return instance
+}
+
+const bff = createAxios()
 
 export const demoApi = {
-  getTime: () => demoAxios.get('/api/v1/demo/time').then((r) => r.data),
-  getTimeAuth: () => demoAxios.get('/api/v1/demo/time-auth').then((r) => r.data),
-  whoami: () => demoAxios.get('/api/v1/demo/whoami').then((r) => r.data),
-  add: (a: number, b: number) => demoAxios.post('/api/v1/demo/add', { a, b }).then((r) => r.data),
-  echo: (body: Record<string, unknown>) => demoAxios.post('/api/v1/demo/echo', body).then((r) => r.data),
+  whoami: () => bff.get('/api/v1/demo/whoami').then((r) => r.data),
+  providers: () => bff.get('/api/v1/sso/providers').then((r) => r.data),
 }
 `
 
@@ -709,141 +646,99 @@ export function useAccessTokenCountdown(): CountdownState {
 `
 
   const testPanelTsx = `/**
- * TestPanel.tsx — SSO 完整测试台（四区域）
+ * TestPanel — minimal: SSO + MountBFF whoami
  */
-import React, { useState, useCallback } from 'react'
-import { SSOService } from '@zayne/login/sso'
+import { useState, useCallback } from 'react'
 import { globalUserStore } from '@zayne/login/stores/UserStore'
 import { storage } from '@zayne/login/utils'
 import { useAccessTokenCountdown } from './useCountdown'
 import { demoApi } from './demoApi'
-import { readSsoSessionCookies } from '@zayne/login/utils/ssoSessionCookie'
 import type { UseSubProjectSSOResult } from '@zayne/login/hooks'
-
-interface LogEntry { id: number; time: string; ok: boolean; msg: string; detail?: string }
-let _seq = 0
+import { readSsoSessionCookies } from '@zayne/login/utils/ssoSessionCookie'
 
 export function TestPanel({ sso, onAuthChange }: { sso: UseSubProjectSSOResult; onAuthChange?: () => void }) {
-  const { user, token, refreshToken, getUserInfoFetch, logoutLocal, logout } = sso
+  const { user, refreshToken, logoutLocal, logout } = sso
   const countdown = useAccessTokenCountdown()
-  const [logs, setLogs] = useState<LogEntry[]>([])
-  const [apiResult, setApiResult] = useState('')
-  const [busy, setBusy] = useState('')
-
-  const log = useCallback((ok: boolean, msg: string, detail?: string) => {
-    const time = new Date().toTimeString().slice(0, 8)
-    setLogs((prev) => [{ id: ++_seq, time, ok, msg, detail }, ...prev].slice(0, 50))
-  }, [])
+  const [result, setResult] = useState('')
+  const [busy, setBusy] = useState(false)
+  const { sessionId } = readSsoSessionCookies()
 
   const run = useCallback(async (label: string, fn: () => Promise<unknown>) => {
-    setBusy(label); setApiResult('')
+    setBusy(true)
+    setResult('')
     try {
-      const result = await fn()
-      const detail = result != null ? JSON.stringify(result, null, 2) : undefined
-      log(true, \`\${label} 成功\`, detail)
-      if (detail) setApiResult(detail)
+      const data = await fn()
+      setResult(\`\${label}\\n\${JSON.stringify(data, null, 2)}\`)
     } catch (err: unknown) {
-      log(false, \`\${label} 失败：\${err instanceof Error ? err.message : String(err)}\`)
-    } finally { setBusy('') }
-  }, [log])
-
-  const preview = storage.getSSOAccessToken()?.slice(0, 24) + '...' || '—'
-  const hasRT = !!storage.getSSORefreshToken()
+      const msg = err instanceof Error ? err.message : String(err)
+      setResult(\`\${label} failed: \${msg}\`)
+    } finally {
+      setBusy(false)
+    }
+  }, [])
 
   return (
     <div className="test-panel">
-      {/* Token 状态 */}
       <section className="panel-section">
-        <h2 className="section-title">Token 状态</h2>
-        <div className="token-row"><span className="token-label">Access Token 剩余：</span>
-          <span className={\`token-countdown \${countdown.isExpired ? 'expired' : countdown.remainSec <= 10 ? 'warning' : ''}\`}>
-            {countdown.expiresAt === null ? '无 Token' : countdown.isExpired ? '已过期' : countdown.remainLabel}
+        <h2 className="section-title">Session</h2>
+        <div className="token-row">
+          <span className="token-label">Token：</span>
+          <span className={countdown.isExpired ? 'token-missing' : 'token-ok'}>
+            {countdown.expiresAt === null ? '无' : countdown.isExpired ? '已过期' : countdown.remainLabel}
           </span>
         </div>
-        <div className="token-row"><span className="token-label">Refresh Token：</span>
-          <span className={hasRT ? 'token-ok' : 'token-missing'}>{hasRT ? '存在' : '不存在'}</span>
+        <div className="token-row">
+          <span className="token-label">Cookie：</span>
+          <span className={sessionId ? 'token-ok' : 'token-missing'}>{sessionId ? '有' : '无'}</span>
         </div>
-        <div className="token-row"><span className="token-label">Token 预览：</span>
-          <code className="token-preview">{preview}</code>
-        </div>
-        <div className="token-row"><span className="token-label">用户：</span>
+        <div className="token-row">
+          <span className="token-label">用户：</span>
           <span>{user?.nickname || user?.email || user?.name || '—'}</span>
         </div>
-        {token?.expires_in && (
-          <div className="token-row"><span className="token-label">过期时间：</span>
-            <span className="token-time">{countdown.expiresAt ? new Date(countdown.expiresAt).toLocaleTimeString() : '—'}</span>
-          </div>
-        )}
+        <div className="token-row">
+          <span className="token-label">Token 预览：</span>
+          <code className="token-preview">{storage.getSSOAccessToken()?.slice(0, 24) || '—'}…</code>
+        </div>
       </section>
 
-      {/* SSO 操作 */}
       <section className="panel-section">
-        <h2 className="section-title">SSO 操作</h2>
+        <h2 className="section-title">Actions</h2>
         <div className="btn-grid">
-          <button className="btn btn-primary" disabled={!!busy} onClick={() => run('手动续签', () => refreshToken())}>
-            {busy === '手动续签' ? '…' : '手动续签'}
+          <button className="btn btn-primary" disabled={busy} onClick={() => run('whoami', () => demoApi.whoami())}>
+            GET /demo/whoami
           </button>
-          <button className="btn" disabled={!!busy} onClick={() => run('getUserInfo', () => getUserInfoFetch())}>
-            getUserInfo
+          <button className="btn btn-api" disabled={busy} onClick={() => run('providers', () => demoApi.providers())}>
+            GET /sso/providers
           </button>
-          <button className="btn btn-warning" disabled={!!busy} onClick={() => run('清本地 Token', async () => {
-            globalUserStore.clearAuthTokensOnly(); onAuthChange?.(); return { cleared: true }
-          })}>清本地 Token</button>
-          <button className="btn" disabled={!!busy} onClick={() => run('Session-Check', async () => {
-            const svc = SSOService.instance; if (!svc) throw new Error('SSOService 未初始化')
-            const { sessionId } = readSsoSessionCookies(); if (!sessionId) throw new Error('无 session cookie')
-            const ok = await svc.tryRecoverSubProjectSession()
-            if (ok) { globalUserStore.syncFromStorage(); onAuthChange?.() }
-            return { recovered: ok, session_id: sessionId }
-          })}>Session-Check 恢复</button>
-          <button className="btn" disabled={!!busy} onClick={() => run('静默 Authorize', async () => {
-            if (!readSsoSessionCookies().sessionId) throw new Error('无 session cookie')
-            const svc = SSOService.instance
-            if (!svc || typeof (svc as SSOService).trySilentAuthorize !== 'function') throw new Error('SSOService 未初始化')
-            await (svc as SSOService).trySilentAuthorize(); return { status: 'redirecting' }
-          })}>静默 Authorize</button>
-          <button className="btn btn-danger" disabled={!!busy} onClick={() => run('本地登出', async () => { await logoutLocal(); onAuthChange?.(); return { logout: 'local', note: '未跳转 IdP，session cookie 保留' } })}>
+          <button className="btn" disabled={busy} onClick={() => run('refresh', () => refreshToken())}>
+            续签
+          </button>
+          <button
+            className="btn btn-warning"
+            disabled={busy}
+            onClick={() => {
+              globalUserStore.clearAuthTokensOnly()
+              onAuthChange?.()
+              setResult('cleared local tokens')
+            }}
+          >
+            清 Token
+          </button>
+          <button
+            className="btn btn-danger"
+            disabled={busy}
+            onClick={async () => {
+              await logoutLocal()
+              onAuthChange?.()
+            }}
+          >
             本地登出
           </button>
-          <button className="btn btn-danger" disabled={!!busy} title="跳转 IdP logout" onClick={() => { log(true, '全局登出：即将跳转 IdP…'); logout() }}>
-            全局登出（IdP）
+          <button className="btn btn-danger" disabled={busy} onClick={() => logout()}>
+            全局登出
           </button>
         </div>
-      </section>
-
-      {/* BFF Demo API */}
-      <section className="panel-section">
-        <h2 className="section-title">BFF Demo API</h2>
-        <div className="btn-grid">
-          <button className="btn btn-api" disabled={!!busy} onClick={() => run('GET /time（公开）', () => demoApi.getTime())}>GET /time（公开）</button>
-          <button className="btn btn-api" disabled={!!busy} onClick={() => run('GET /time-auth', () => demoApi.getTimeAuth())}>GET /time-auth（需 token）</button>
-          <button className="btn btn-api" disabled={!!busy} onClick={() => run('GET /whoami', () => demoApi.whoami())}>GET /whoami</button>
-          <button className="btn btn-api" disabled={!!busy} onClick={() => run('POST /add（3+5）', () => demoApi.add(3, 5))}>POST /add（3+5）</button>
-          <button className="btn btn-api" disabled={!!busy} onClick={() => run('POST /echo', () => demoApi.echo({ msg: 'hello', ts: Date.now() }))}>POST /echo</button>
-          <button className="btn btn-api btn-warning" disabled={!!busy} title="清 token → 调 /time-auth → 触发 401→refresh→recovery" onClick={async () => {
-            log(true, '401 自动恢复测试：清 token → /time-auth')
-            globalUserStore.clearAuthTokensOnly(); onAuthChange?.()
-            await run('401→refresh→recovery', () => demoApi.getTimeAuth())
-          }}>401 自动恢复测试</button>
-        </div>
-        {apiResult && <pre className="api-result">{apiResult}</pre>}
-      </section>
-
-      {/* 操作日志 */}
-      <section className="panel-section">
-        <div className="log-header">
-          <h2 className="section-title" style={{ margin: 0 }}>操作日志</h2>
-          <button className="btn btn-sm" onClick={() => setLogs([])}>清空</button>
-        </div>
-        <div className="log-list">
-          {logs.length === 0 && <p className="log-empty">暂无记录</p>}
-          {logs.map((e) => (
-            <div key={e.id} className={\`log-entry \${e.ok ? 'log-ok' : 'log-fail'}\`}>
-              <div><span className="log-time">[{e.time}]</span><span className="log-icon">{e.ok ? '✓' : '✗'}</span><span className="log-msg">{e.msg}</span></div>
-              {e.detail && <details><summary>详情</summary><pre className="log-detail">{e.detail}</pre></details>}
-            </div>
-          ))}
-        </div>
+        {result && <pre className="api-result">{result}</pre>}
       </section>
     </div>
   )
@@ -855,15 +750,90 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react-swc'
 
 const loginWebSrc = path.resolve(__dirname, '../../../Packages/Login/web/src')
+const projectRoot = path.resolve(__dirname)
 
 export default defineConfig({
   plugins: [react()],
-  server: { port: ${c.frontendPort}, strictPort: true },
+  server: {
+    port: ${c.frontendPort},
+    strictPort: true,
+    fs: { allow: [projectRoot, loginWebSrc] },
+    // Native fs.watch hits EMFILE when aliasing into the monorepo Login tree.
+    watch: {
+      usePolling: true,
+      interval: 400,
+      ignored: ['**/node_modules/**', '**/.git/**'],
+    },
+  },
   resolve: {
     alias: { '@zayne/login': loginWebSrc },
   },
   optimizeDeps: { include: ['mobx', 'mobx-react-lite', 'axios'] },
 })
+`
+
+  const pnpmWorkspace = `# Isolate this subproject from the parent monorepo pnpm workspace.
+packages:
+  - '.'
+`
+
+  const tsconfigJson = `{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}
+`
+
+  const tsconfigAppJson = `{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "types": ["vite/client"],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["src"]
+}
+`
+
+  const tsconfigNodeJson = `{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "types": [],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["vite.config.ts"]
+}
 `
 
   const packageJson = JSON.stringify(
@@ -874,8 +844,8 @@ export default defineConfig({
       type: 'module',
       scripts: {
         dev: 'vite',
-        server: 'cd server && go run .',
-        build: 'tsc -b && vite build',
+        server: 'cd server && GOWORK=off go run .',
+        build: 'vite build',
         preview: 'vite preview',
       },
       dependencies: {
@@ -898,7 +868,7 @@ export default defineConfig({
 
   const goMod = `module ${moduleName(pn)}
 
-go 1.20
+go 1.26
 
 require (
 	github.com/gin-gonic/gin v1.9.1
@@ -910,15 +880,23 @@ replace unit-auth => ../../../../Packages/Login/unit-auth
 
   const readme = `# ${c.displayName}
 
-由 admin-web 子项目脚手架生成（BFF 使用 \`unitauthsdk.MountBFF\`）。
+由 admin-web 子项目脚手架生成。BFF 核心：
+
+\`\`\`go
+auth := unitauthsdk.New(...)
+unitauthsdk.MountBFF(r, auth, unitauthsdk.MountBFFConfig{AppID: cfg.AppID})
+r.GET("/api/v1/demo/whoami", mw, ...)
+\`\`\`
+
+\`MountBFF\` 已包含 oauth / openid-configuration / sso/providers。
 
 ## 启动
 
 \`\`\`bash
-# BFF（需 GOWORK=off 若根目录有 go.work）
+# BFF
 cd server && GOWORK=off go run .
 
-# 前端
+# 前端（项目自带 pnpm-workspace.yaml，勿用 yarn）
 pnpm install && pnpm dev
 \`\`\`
 
@@ -926,11 +904,7 @@ pnpm install && pnpm dev
 - BFF: http://localhost:${c.bffPort}
 - 登录中心: ${c.ssoHomeUrl}
 
-\`MountBFF\` 已挂载：\`/api/v1/auth/oauth/*\`、\`/api/v1/openid-configuration\`、\`/api/v1/sso/providers\`。  
-Demo 受保护路由使用 \`NewMiddleware(ModeStandalone)\`。
-
-完整样板见 \`Js/project/unitauthsdk_demo/\`（\`MountBFF\` + 一条 whoami）。
-
+参考样板：\`Js/project/unitauthsdk_demo/\`  
 详见 Packages/Login/子项目SSO接入指南.md
 `
 
@@ -939,6 +913,10 @@ Demo 受保护路由使用 \`NewMiddleware(ModeStandalone)\`。
     [`${root}/frontend-config.json`]: buildFrontendConfigJson(c),
     [`${root}/.env.example`]: buildEnvExample(c),
     [`${root}/package.json`]: packageJson,
+    [`${root}/pnpm-workspace.yaml`]: pnpmWorkspace,
+    [`${root}/tsconfig.json`]: tsconfigJson,
+    [`${root}/tsconfig.app.json`]: tsconfigAppJson,
+    [`${root}/tsconfig.node.json`]: tsconfigNodeJson,
     [`${root}/vite.config.ts`]: viteConfig,
     [`${root}/index.html`]: `<!doctype html>
 <html lang="zh-CN">

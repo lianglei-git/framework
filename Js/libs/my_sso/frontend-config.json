@@ -1,0 +1,22 @@
+{
+  "id": "sso_test_my",
+  "name": "My SSO App",
+  "ssoServerUrl": "http://localhost:5558",
+  "ssoHomeUrl": "http://localhost:3033",
+  "clientId": "e609cb84-a80b-4cf2-a2f0-7f766b545a26",
+  "redirectUri": "http://localhost:5176",
+  "redirectUris": [
+    "http://localhost:5176"
+  ],
+  "allowedScopes": [
+    "openid",
+    "profile",
+    "email"
+  ],
+  "tokenEndpoint": "/api/v1/auth/oauth/token",
+  "authorizationUrl": "/api/v1/auth/oauth/authorize",
+  "tokenUrl": "/api/v1/auth/oauth/token",
+  "userInfoUrl": "/api/v1/auth/oauth/userinfo",
+  "logoutUrl": "/api/v1/auth/oauth/logout",
+  "autoRefresh": false
+}

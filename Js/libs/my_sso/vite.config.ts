@@ -3,20 +3,10 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react-swc'
 
 const loginWebSrc = path.resolve(__dirname, '../../../Packages/Login/web/src')
-const projectRoot = path.resolve(__dirname)
 
 export default defineConfig({
   plugins: [react()],
-  server: {
-    port: 5179,
-    strictPort: true,
-    fs: { allow: [projectRoot, loginWebSrc] },
-    watch: {
-      usePolling: true,
-      interval: 400,
-      ignored: ['**/node_modules/**', '**/.git/**'],
-    },
-  },
+  server: { port: 5176, strictPort: true },
   resolve: {
     alias: { '@zayne/login': loginWebSrc },
   },
