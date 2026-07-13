@@ -4,9 +4,9 @@
  * - 遇到 401 先 refresh，refresh 失败则触发 session recovery
  */
 import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
-import { storage } from '@sparrow/login/utils'
-import { refreshOAuthTokenOnce } from '@sparrow/login/utils/oauthRefreshOn401'
-import { recoverOAuthSessionAfterRefreshFailure } from '@sparrow/login/utils/oauthSessionRecovery'
+import { storage } from '@zayne/login/utils'
+import { refreshOAuthTokenOnce } from '@zayne/login/utils/oauthRefreshOn401'
+import { recoverOAuthSessionAfterRefreshFailure } from '@zayne/login/utils/oauthSessionRecovery'
 
 const BFF_URL = import.meta.env.VITE_SSO_SERVER_URL || 'http://localhost:5558'
 

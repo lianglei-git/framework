@@ -40,3 +40,11 @@ func (c *Client) baseURL() string { return c.cfg.BaseURL }
 func (c *Client) clientID() string     { return c.cfg.ClientID }
 func (c *Client) clientSecret() string { return c.cfg.ClientSecret }
 func (c *Client) redirectURI() string  { return c.cfg.RedirectURI }
+
+// Exported accessors for MountBFF / edge helpers in unitauthsdk.
+func (c *Client) BaseURL() string      { return c.cfg.BaseURL }
+func (c *Client) GetClientID() string  { return c.cfg.ClientID }
+func (c *Client) GetClientSecret() string {
+	return c.cfg.ClientSecret
+}
+func (c *Client) GetRedirectURI() string { return c.cfg.RedirectURI }

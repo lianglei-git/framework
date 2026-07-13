@@ -1,5 +1,5 @@
 {
-  "name": "@sparrow/login",
+  "name": "@zayne/login",
   "version": "1.0.0",
   "private": true,
   "description": "Sparrow SSO login UI and SDK",

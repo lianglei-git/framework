@@ -1,4 +1,4 @@
-# @sparrow/login
+# @zayne/login
 
 Sparrow SSO 登录页与 SDK（`Packages/Login/web`）。
 
@@ -27,8 +27,8 @@ pnpm build   # 输出 auth_dist/
 最小示例（见 `Js/project/sso_test_d`）：
 
 ```ts
-import { createAuthConfig } from '@sparrow/login/core'
-import { useSubProjectSSO } from '@sparrow/login/hooks'
+import { createAuthConfig } from '@zayne/login/core'
+import { useSubProjectSSO } from '@zayne/login/hooks'
 
 createAuthConfig({
   id: 'my_app',
@@ -44,10 +44,10 @@ const sso = useSubProjectSSO({ customConfig: appConfig })
 
 | 路径 | 用途 |
 |------|------|
-| `@sparrow/login/core` | `createAuthConfig`, `authApi`, `httpClient` |
-| `@sparrow/login/sso` | `SSOService`, token/session 管理 |
-| `@sparrow/login/hooks` | `useAuth`, `useSubProjectSSO` |
-| `@sparrow/login/utils` | `storage`, `oauthRefreshOn401`, session cookie |
+| `@zayne/login/core` | `createAuthConfig`, `authApi`, `httpClient` |
+| `@zayne/login/sso` | `SSOService`, token/session 管理 |
+| `@zayne/login/hooks` | `useAuth`, `useSubProjectSSO` |
+| `@zayne/login/utils` | `storage`, `oauthRefreshOn401`, session cookie |
 
 ## 已移除（Breaking）
 
@@ -57,7 +57,7 @@ const sso = useSubProjectSSO({ customConfig: appConfig })
 - 组件：`LoginForm`, `ThirdPartyLogin`（第三方登录由 `AuthLogin` 内 provider 列表处理）
 - Hooks：`useTokenRefresh*`, `useSSOUrlHandler`, `useExternalSSOIntegration`, `useOpenIDConnect`
 - 服务：`tokenRefreshService`, `axiosInterceptor`, `SSOConfigManager`, `_ssoServer`
-- 包：`packages/auth-sdk`（请使用 `@sparrow/login/sso`）
+- 包：`packages/auth-sdk`（请使用 `@zayne/login/sso`）
 
 ## 测试
 

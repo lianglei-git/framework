@@ -1,7 +1,7 @@
 /**
  * 最简 SSO 对接：一个配置文件 + createAuthConfig 即可。
  */
-import { createAuthConfig } from '@sparrow/login/core'
+import { createAuthConfig } from '@zayne/login/core'
 
 const redirectUri = import.meta.env.VITE_SSO_REDIRECT_URI || 'http://localhost:5175'
 const clientId = import.meta.env.VITE_SSO_CLIENT_ID || 'f3e8a2b1-9c4d-4e5f-a6b7-c8d9e0f1a2b3'

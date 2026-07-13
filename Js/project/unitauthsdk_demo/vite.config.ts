@@ -6,16 +6,9 @@ const loginWebSrc = path.resolve(__dirname, '../../../Packages/Login/web/src')
 
 export default defineConfig({
   plugins: [react()],
-  server: {
-    port: 5175,
-    strictPort: true,
-  },
+  server: { port: 5179, strictPort: true },
   resolve: {
-    alias: {
-      '@zayne/login': loginWebSrc,
-    },
+    alias: { '@zayne/login': loginWebSrc },
   },
-  optimizeDeps: {
-    include: ['mobx', 'mobx-react-lite', 'axios'],
-  },
+  optimizeDeps: { include: ['mobx', 'mobx-react-lite', 'axios'] },
 })

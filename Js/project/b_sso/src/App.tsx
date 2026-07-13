@@ -1,5 +1,5 @@
 import './App.css'
-import { useSubProjectSSO } from '@sparrow/login/hooks'
+import { useSubProjectSSO } from '@zayne/login/hooks'
 import { subProjectConfig } from './subprojectConfig'
 
 function App() {

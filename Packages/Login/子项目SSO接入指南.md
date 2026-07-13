@@ -113,7 +113,7 @@ BFF 需提供（`c_sso/server` 已包含）：
 ```ts
 resolve: {
   alias: {
-    '@sparrow/login': path.resolve(__dirname, '../../../Packages/Login/web/src'),
+    '@zayne/login': path.resolve(__dirname, '../../../Packages/Login/web/src'),
   },
 },
 server: { port: 5176, strictPort: true },
@@ -124,7 +124,7 @@ server: { port: 5176, strictPort: true },
 在应用入口**最早**引入（见 `main.tsx`：`import './sso'`）：
 
 ```ts
-import { createAuthConfig } from '@sparrow/login/core'
+import { createAuthConfig } from '@zayne/login/core'
 
 export const appConfig = {
   id: 'sso_test_d',                              // app_id
@@ -150,7 +150,7 @@ createAuthConfig({ ...appConfig, autoRefresh: false })
 ### 3.3 页面中使用
 
 ```tsx
-import { useSubProjectSSO } from '@sparrow/login/hooks'
+import { useSubProjectSSO } from '@zayne/login/hooks'
 import { appConfig } from './sso'
 
 const { isAuthenticated, user, login, logout, isLoading, error } =

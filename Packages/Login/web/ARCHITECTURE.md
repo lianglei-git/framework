@@ -45,7 +45,7 @@ web/src/
 ## 子项目集成
 
 ```typescript
-import { useSSO } from '@sparrow/login/core'
+import { useSSO } from '@zayne/login/core'
 
 const { isAuthenticated, user, login, logout } = useSSO({
   subProjectId: 'your-project-id',

@@ -8,7 +8,7 @@ export default defineConfig({
   plugins: [react()],
   server: { port: 5176, strictPort: true },
   resolve: {
-    alias: { '@sparrow/login': loginWebSrc },
+    alias: { '@zayne/login': loginWebSrc },
   },
   optimizeDeps: { include: ['mobx', 'mobx-react-lite', 'axios'] },
 })

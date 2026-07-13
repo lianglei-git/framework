@@ -434,7 +434,7 @@ const config = createSSOConfig({
 4. **复现步骤**: 详细的问题复现步骤
 
 **联系方式**:
-- 技术支持邮箱: support@sparrow.com
+- 技术支持邮箱: support@zayne.com
 - GitHub Issues: [项目Issues页面](https://github.com/your-org/ssoa/issues)
 - 开发者社区: [开发者社区](https://community.sparrow.com)
 

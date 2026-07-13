@@ -252,6 +252,11 @@ export function buildEnvExample(config: SubProjectScaffoldConfig): string {
     `VITE_SSO_CLIENT_ID=${c.clientId}`,
     `VITE_SSO_REDIRECT_URI=${c.redirectUri}`,
     '',
+    '# BFF / unitauthsdk (optional overrides; secrets stay in server/config.json)',
+    `# UNIT_AUTH_URL=${c.unitAuthUrl}`,
+    '# AUTH_MODE=standalone   # BFF demo routes use NewMiddleware standalone',
+    '# INTERNAL_TOKEN=        # only needed for plugin-mode business APIs',
+    '',
   ].join('\n')
 }
 
@@ -263,52 +268,22 @@ function generateServerMainGo(config: SubProjectScaffoldConfig): string {
   const c = syncDerivedUrls(config)
   const service = c.projectName
   return `// ${c.displayName} — 子项目 BFF，client_secret 仅保存在服务端。
+// unitauthsdk.MountBFF 挂载标准 OAuth / openid / providers 路由。
 package main
 
 import (
 	"encoding/json"
 	"flag"
-	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"unit-auth/sdk"
+	"unit-auth/unitauthsdk"
 )
 
 var startTime = time.Now()
-
-// requireAuth 校验 Bearer token，通过时将 IntrospectResponse 注入 context key "claims"
-func requireAuth(auth *sdk.Client) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		token := strings.TrimSpace(strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "))
-		if token == "" {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "invalid_token", "error_description": "Authorization header missing",
-			})
-			return
-		}
-		info, err := auth.Introspect(token)
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "invalid_token", "error_description": err.Error(),
-			})
-			return
-		}
-		if !info.Active {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-				"error": "invalid_token", "error_description": "token inactive or expired",
-			})
-			return
-		}
-		c.Set("claims", info)
-		c.Next()
-	}
-}
 
 type ServerConfig struct {
 	Port         string \`json:"port"\`
@@ -358,36 +333,24 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-func cors() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization, Accept")
-		if c.Request.Method == http.MethodOptions {
-			c.AbortWithStatus(http.StatusNoContent)
-			return
-		}
-		c.Next()
-	}
-}
-
-func proxyGET(upstream, path string) (int, []byte, error) {
-	target := strings.TrimRight(upstream, "/") + path
-	resp, err := http.Get(target)
-	if err != nil { return 0, nil, err }
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	return resp.StatusCode, body, err
-}
-
 func main() {
 	cfg := loadConfig()
-	auth := sdk.New(sdk.Config{
+	auth := unitauthsdk.New(unitauthsdk.Config{
 		BaseURL:      cfg.UnitAuthURL,
 		ClientID:     cfg.ClientID,
 		ClientSecret: cfg.ClientSecret,
 		RedirectURI:  cfg.RedirectURI,
 	})
+
+	demoMW, err := unitauthsdk.NewMiddleware(unitauthsdk.MiddlewareConfig{
+		Mode:         unitauthsdk.ModeStandalone,
+		UnitAuthURL:  cfg.UnitAuthURL,
+		ClientID:     cfg.ClientID,
+		ClientSecret: cfg.ClientSecret,
+	})
+	if err != nil {
+		log.Fatalf("demo middleware: %v", err)
+	}
 
 	if err := auth.Health(); err != nil {
 		log.Printf("warn: unit-auth not reachable yet: %v", err)
@@ -397,7 +360,7 @@ func main() {
 		cfg.Port, cfg.AppID, cfg.ClientID, cfg.UnitAuthURL)
 
 	r := gin.Default()
-	r.Use(cors())
+	r.Use(unitauthsdk.CORS())
 
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -406,106 +369,8 @@ func main() {
 		})
 	})
 
-	api := r.Group("/api/v1/auth")
-	{
-		api.GET("/oauth/:provider/url", func(c *gin.Context) {
-			q := c.Request.URL.Query()
-			params := sdk.AuthorizeURLParams{
-				ClientID:     firstNonEmpty(q.Get("client_id"), cfg.ClientID),
-				RedirectURI:  firstNonEmpty(q.Get("redirect_uri"), cfg.RedirectURI),
-				ResponseType: firstNonEmpty(q.Get("response_type"), "code"),
-				Scope:        firstNonEmpty(q.Get("scope"), "openid profile email"),
-				State:        q.Get("state"),
-				AppID:        firstNonEmpty(q.Get("app_id"), cfg.AppID),
-			}
-			authURL := auth.BuildAuthorizeURL(params)
-			if u, err := url.Parse(authURL); err == nil {
-				merged := u.Query()
-				for key, vals := range q {
-					if len(vals) == 0 || merged.Get(key) != "" { continue }
-					merged.Set(key, vals[0])
-				}
-				u.RawQuery = merged.Encode()
-				authURL = u.String()
-			}
-			c.JSON(http.StatusOK, gin.H{"code": 200, "message": "OAuth URL generated", "data": gin.H{"auth_url": authURL}})
-		})
-
-		api.POST("/oauth/token", func(c *gin.Context) {
-			var req map[string]interface{}
-			if err := c.ShouldBindJSON(&req); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
-				return
-			}
-			req["client_id"] = cfg.ClientID
-			req["client_secret"] = cfg.ClientSecret
-			if req["redirect_uri"] == nil || req["redirect_uri"] == "" {
-				req["redirect_uri"] = cfg.RedirectURI
-			}
-			if req["grant_type"] == nil { req["grant_type"] = "authorization_code" }
-			payload, _ := json.Marshal(req)
-			status, data, err := auth.ProxyTokenExchange(payload)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-			c.Data(status, "application/json", data)
-		})
-
-		api.POST("/oauth/refresh", func(c *gin.Context) {
-			var req struct { RefreshToken string \`json:"refresh_token"\` }
-			if err := c.ShouldBindJSON(&req); err != nil || req.RefreshToken == "" {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
-				return
-			}
-			tok, err := auth.RefreshToken(req.RefreshToken)
-			if err != nil { writeSDKError(c, err); return }
-			c.JSON(http.StatusOK, tok)
-		})
-
-		api.GET("/oauth/userinfo", func(c *gin.Context) {
-			token := strings.TrimSpace(strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "))
-			if token == "" {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_token"})
-				return
-			}
-			info, err := auth.GetUserInfo(token)
-			if err != nil { writeSDKError(c, err); return }
-			c.JSON(http.StatusOK, info)
-		})
-
-		api.GET("/oauth/logout", func(c *gin.Context) {
-			url := auth.BuildLogoutURL(c.Query("id_token_hint"), c.Query("post_logout_redirect_uri"), c.Query("state"))
-			c.Redirect(http.StatusFound, url)
-		})
-
-		api.POST("/oauth/session-check", func(c *gin.Context) {
-			var req sdk.SessionCheckRequest
-			if err := c.ShouldBindJSON(&req); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
-				return
-			}
-			if req.AppID == "" { req.AppID = cfg.AppID }
-			data, status, err := auth.CheckSession(req)
-			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-			c.Data(status, "application/json", data)
-		})
-	}
-
-	r.GET("/api/v1/openid-configuration", func(c *gin.Context) {
-		status, body, err := proxyGET(cfg.UnitAuthURL, "/api/v1/openid-configuration")
-		if err != nil { c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()}); return }
-		c.Data(status, "application/json", body)
-	})
-
-	r.GET("/api/v1/sso/providers", func(c *gin.Context) {
-		status, body, err := proxyGET(cfg.UnitAuthURL, "/api/v1/sso/providers")
-		if err != nil { c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()}); return }
-		c.Data(status, "application/json", body)
-	})
+	// 标准边缘路由：oauth / openid-configuration / sso/providers
+	unitauthsdk.MountBFF(r, auth, unitauthsdk.MountBFFConfig{AppID: cfg.AppID})
 
 	// ── Demo 业务路由（公开）──
 	r.GET("/api/v1/demo/time", func(c *gin.Context) {
@@ -517,66 +382,46 @@ func main() {
 		})
 	})
 
-	// ── Demo 业务路由（需 token）──
-	protected := r.Group("/api/v1/demo", requireAuth(auth))
+	// ── Demo 业务路由（standalone middleware）──
+	protected := r.Group("/api/v1/demo", demoMW)
 	{
 		protected.GET("/time-auth", func(c *gin.Context) {
-			claims := c.MustGet("claims").(*sdk.IntrospectResponse)
 			now := time.Now()
 			c.JSON(http.StatusOK, gin.H{
 				"server_time": now.Format(time.RFC3339),
 				"timestamp":   now.UnixMilli(),
 				"uptime_sec":  int64(time.Since(startTime).Seconds()),
-				"user_id":     claims.UserID,
-				"email":       claims.Email,
+				"user_id":     unitauthsdk.UserID(c),
+				"email":       unitauthsdk.Email(c),
 			})
 		})
 		protected.GET("/whoami", func(c *gin.Context) {
-			claims := c.MustGet("claims").(*sdk.IntrospectResponse)
 			c.JSON(http.StatusOK, gin.H{
-				"active": claims.Active, "user_id": claims.UserID,
-				"email": claims.Email, "role": claims.Role,
-				"token_type": claims.TokenType, "exp": claims.Exp, "expires_at": claims.ExpiresAt,
+				"user_id": unitauthsdk.UserID(c),
+				"email":   unitauthsdk.Email(c),
+				"role":    unitauthsdk.Role(c),
+				"mode":    "standalone",
 			})
 		})
 		protected.POST("/add", func(c *gin.Context) {
-			claims := c.MustGet("claims").(*sdk.IntrospectResponse)
 			var req struct { A float64 \`json:"a"\`; B float64 \`json:"b"\` }
 			if err := c.ShouldBindJSON(&req); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
 				return
 			}
-			c.JSON(http.StatusOK, gin.H{"a": req.A, "b": req.B, "sum": req.A + req.B, "user_id": claims.UserID})
+			c.JSON(http.StatusOK, gin.H{"a": req.A, "b": req.B, "sum": req.A + req.B, "user_id": unitauthsdk.UserID(c)})
 		})
 		protected.POST("/echo", func(c *gin.Context) {
-			claims := c.MustGet("claims").(*sdk.IntrospectResponse)
 			var body interface{}
 			if err := c.ShouldBindJSON(&body); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
 				return
 			}
-			c.JSON(http.StatusOK, gin.H{"echo": body, "user_id": claims.UserID})
+			c.JSON(http.StatusOK, gin.H{"echo": body, "user_id": unitauthsdk.UserID(c)})
 		})
 	}
 
 	if err := r.Run(":" + cfg.Port); err != nil { log.Fatal(err) }
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if strings.TrimSpace(v) != "" { return v }
-	}
-	return ""
-}
-
-func writeSDKError(c *gin.Context, err error) {
-	if apiErr, ok := err.(*sdk.APIError); ok {
-		status := apiErr.Status
-		if status == 0 { status = http.StatusBadRequest }
-		c.Data(status, "application/json", []byte(apiErr.Body))
-		return
-	}
-	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 }
 `
 }
@@ -589,7 +434,7 @@ export function generateScaffoldFiles(config: SubProjectScaffoldConfig): Record<
   const ssoTs = `/**
  * SSO 配置 — 由 admin-web 子项目脚手架生成
  */
-import { createAuthConfig } from '@sparrow/login/core'
+import { createAuthConfig } from '@zayne/login/core'
 
 const redirectUri = import.meta.env.VITE_SSO_REDIRECT_URI || '${c.redirectUri}'
 const clientId = import.meta.env.VITE_SSO_CLIENT_ID || '${c.clientId}'
@@ -618,8 +463,8 @@ createAuthConfig({
 `
 
   const appTsx = `import { useEffect, useState } from 'react'
-import { useSubProjectSSO } from '@sparrow/login/hooks'
-import { readSsoSessionCookies } from '@sparrow/login/utils/ssoSessionCookie'
+import { useSubProjectSSO } from '@zayne/login/hooks'
+import { readSsoSessionCookies } from '@zayne/login/utils/ssoSessionCookie'
 import { appConfig } from './sso'
 import { TestPanel } from './TestPanel'
 
@@ -755,9 +600,9 @@ body { font-family: system-ui, -apple-system, sans-serif; background: #f0f2f5; c
  * 自动注入 SSO token，遇到 401 先 refresh，失败则触发 session recovery
  */
 import axios, { type AxiosRequestConfig } from 'axios'
-import { storage } from '@sparrow/login/utils'
-import { refreshOAuthTokenOnce } from '@sparrow/login/utils/oauthRefreshOn401'
-import { recoverOAuthSessionAfterRefreshFailure } from '@sparrow/login/utils/oauthSessionRecovery'
+import { storage } from '@zayne/login/utils'
+import { refreshOAuthTokenOnce } from '@zayne/login/utils/oauthRefreshOn401'
+import { recoverOAuthSessionAfterRefreshFailure } from '@zayne/login/utils/oauthSessionRecovery'
 
 const BFF_URL = import.meta.env.VITE_SSO_SERVER_URL || '${c.ssoServerUrl}'
 
@@ -797,7 +642,7 @@ export const demoApi = {
 `
 
   const useCountdownTs = `import { useState, useEffect } from 'react'
-import { storage } from '@sparrow/login/utils'
+import { storage } from '@zayne/login/utils'
 
 export interface CountdownState {
   remainSec: number
@@ -867,13 +712,13 @@ export function useAccessTokenCountdown(): CountdownState {
  * TestPanel.tsx — SSO 完整测试台（四区域）
  */
 import React, { useState, useCallback } from 'react'
-import { SSOService } from '@sparrow/login/sso'
-import { globalUserStore } from '@sparrow/login/stores/UserStore'
-import { storage } from '@sparrow/login/utils'
+import { SSOService } from '@zayne/login/sso'
+import { globalUserStore } from '@zayne/login/stores/UserStore'
+import { storage } from '@zayne/login/utils'
 import { useAccessTokenCountdown } from './useCountdown'
 import { demoApi } from './demoApi'
-import { readSsoSessionCookies } from '@sparrow/login/utils/ssoSessionCookie'
-import type { UseSubProjectSSOResult } from '@sparrow/login/hooks'
+import { readSsoSessionCookies } from '@zayne/login/utils/ssoSessionCookie'
+import type { UseSubProjectSSOResult } from '@zayne/login/hooks'
 
 interface LogEntry { id: number; time: string; ok: boolean; msg: string; detail?: string }
 let _seq = 0
@@ -1015,7 +860,7 @@ export default defineConfig({
   plugins: [react()],
   server: { port: ${c.frontendPort}, strictPort: true },
   resolve: {
-    alias: { '@sparrow/login': loginWebSrc },
+    alias: { '@zayne/login': loginWebSrc },
   },
   optimizeDeps: { include: ['mobx', 'mobx-react-lite', 'axios'] },
 })
@@ -1065,13 +910,13 @@ replace unit-auth => ../../../../Packages/Login/unit-auth
 
   const readme = `# ${c.displayName}
 
-由 admin-web 子项目脚手架生成。
+由 admin-web 子项目脚手架生成（BFF 使用 \`unitauthsdk.MountBFF\`）。
 
 ## 启动
 
 \`\`\`bash
-# BFF
-cd server && go run .
+# BFF（需 GOWORK=off 若根目录有 go.work）
+cd server && GOWORK=off go run .
 
 # 前端
 pnpm install && pnpm dev
@@ -1081,7 +926,12 @@ pnpm install && pnpm dev
 - BFF: http://localhost:${c.bffPort}
 - 登录中心: ${c.ssoHomeUrl}
 
-详见 Packages/Login/SUBPROJECT_SSO_GUIDE.md
+\`MountBFF\` 已挂载：\`/api/v1/auth/oauth/*\`、\`/api/v1/openid-configuration\`、\`/api/v1/sso/providers\`。  
+Demo 受保护路由使用 \`NewMiddleware(ModeStandalone)\`。
+
+完整样板见 \`Js/project/unitauthsdk_demo/\`（\`MountBFF\` + 一条 whoami）。
+
+详见 Packages/Login/子项目SSO接入指南.md
 `
 
   const root = `Js/project/${pn}`

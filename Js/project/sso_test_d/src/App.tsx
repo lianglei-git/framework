@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useSubProjectSSO } from '@sparrow/login/hooks'
-import { readSsoSessionCookies } from '@sparrow/login/utils/ssoSessionCookie'
+import { useSubProjectSSO } from '@zayne/login/hooks'
+import { readSsoSessionCookies } from '@zayne/login/utils/ssoSessionCookie'
 import { appConfig } from './sso'
 import { TestPanel } from './TestPanel'
 

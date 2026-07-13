@@ -12,7 +12,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@sparrow/login': loginWebSrc,
+      '@zayne/login': loginWebSrc,
     },
   },
   optimizeDeps: {

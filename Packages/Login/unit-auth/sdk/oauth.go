@@ -219,6 +219,14 @@ func (c *Client) Introspect(token string) (*IntrospectResponse, error) {
 	return &resp, nil
 }
 
+// ProxyGET 透传 GET 到 unit-auth（openid-configuration / sso providers 等）。
+func (c *Client) ProxyGET(path string) (int, []byte, error) {
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return c.getJSON(path, "")
+}
+
 // Health 检查 unit-auth 是否可达
 func (c *Client) Health() error {
 	req, err := http.NewRequest(http.MethodGet, c.baseURL()+"/health", nil)

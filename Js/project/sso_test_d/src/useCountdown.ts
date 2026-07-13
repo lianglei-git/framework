@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { storage } from '@sparrow/login/utils'
+import { storage } from '@zayne/login/utils'
 
 export interface CountdownState {
     /** 剩余秒数，过期后为 0 */

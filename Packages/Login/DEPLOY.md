@@ -230,7 +230,7 @@ sudo certbot --nginx -d sso.yourdomain.com -d login.yourdomain.com -d admin.your
 
 1. 在 **管理后台** 注册 SSO 客户端（`app_id`、`client_id`、`redirect_uri`）
 2. 外部系统部署自己的 **BFF**，保存 `client_secret`，代理 `/oauth/token` 等
-3. 外部前端使用 `@sparrow/login` SDK 或自建 OAuth，**只配置 `client_id`**，`ssoServerUrl` 指向 BFF
+3. 外部前端使用 `@zayne/login` SDK 或自建 OAuth，**只配置 `client_id`**，`ssoServerUrl` 指向 BFF
 4. 未登录时 IdP 将用户重定向到 `LOGIN_WEB_URL`（登录中心）
 
 详细字段说明见仓库内 `子项目SSO接入指南.md`（不涉及本仓库 `Js/project` demo）。

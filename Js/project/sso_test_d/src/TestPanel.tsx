@@ -3,14 +3,14 @@
  * 四个区域：Token 状态、SSO 操作、BFF Demo API、操作日志
  */
 import React, { useState, useCallback } from 'react'
-import { SSOService } from '@sparrow/login/sso'
-import { globalUserStore } from '@sparrow/login/stores/UserStore'
-import { storage } from '@sparrow/login/utils'
+import { SSOService } from '@zayne/login/sso'
+import { globalUserStore } from '@zayne/login/stores/UserStore'
+import { storage } from '@zayne/login/utils'
 import { useAccessTokenCountdown } from './useCountdown'
 import { demoApi } from './demoApi'
-import type { UseSubProjectSSOResult } from '@sparrow/login/hooks'
+import type { UseSubProjectSSOResult } from '@zayne/login/hooks'
 
-import { readSsoSessionCookies } from '@sparrow/login/utils/ssoSessionCookie'
+import { readSsoSessionCookies } from '@zayne/login/utils/ssoSessionCookie'
 
 interface Props {
     sso: UseSubProjectSSOResult

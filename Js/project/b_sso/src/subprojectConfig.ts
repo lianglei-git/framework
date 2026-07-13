@@ -1,5 +1,5 @@
-import { createAuthConfig } from '@sparrow/login/core'
-import type { SubProjectConfig } from '@sparrow/login/config/subproject-integration'
+import { createAuthConfig } from '@zayne/login/core'
+import type { SubProjectConfig } from '@zayne/login/config/subproject-integration'
 
 export const subProjectConfig: SubProjectConfig & {
   ssoServerUrl: string
