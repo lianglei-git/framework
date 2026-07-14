@@ -148,11 +148,12 @@ func MountPluginProxy(r gin.IRouter, auth *Client, cfg PluginProxyConfig) {
 	})
 }
 
-// CORS is a permissive CORS middleware for local BFF demos.
+// CORS is a permissive CORS middleware for local BFF / independent App demos.
+// Must allow PATCH/PUT/DELETE — Memo/Memory item updates use PATCH from the browser.
 func CORS() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization, Accept")
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)

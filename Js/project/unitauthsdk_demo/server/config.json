@@ -3,6 +3,6 @@
   "unit_auth_url": "http://localhost:8080",
   "client_id": "9d05e5aa-97d7-4ddc-bdaf-f19459ffb614",
   "client_secret": "client_secret_99bec854-9374-4198-a4b4-184a5ddfd4ed",
-  "redirect_uri": "http://localhost:5179",
+  "redirect_uri": "http://localhost:3022/wb/words-v2",
   "app_id": "sso_unitauthsdk_demo"
 }
