@@ -1,0 +1,36 @@
+# REQUIREMENTS INDEX (schema v1)
+# 本文件是 AI 的需求外部记忆，也是「需求 → 代码 → 测试」的追溯表。
+#
+# 维护规则：
+# 1. 需求文档任何变更，本文件对应条目同步更新（任务终止条件之一）。
+# 2. implements / tests 字段在开发落地后回填——这两个字段让任何一条需求
+#    都能顺藤摸到实现它的代码和验证它的测试，反向也成立。
+# 3. 开发任务开工前按 FEAT-id 或 problem 关键词扫描本文件；
+#    发现新需求与既有条目重叠 → 先扩展旧需求，不新开 FEAT。
+#
+# 条目 schema：
+# [FEAT-id]
+# title:      一句话标题                                (FACT)
+# status:     draft|confirmed|in-dev|shipped|deprecated (FACT)
+# path:       docs/requirements/FEAT-xxx-*/             (FACT)
+# problem:    问题陈述压缩为一句                        (SEMANTIC)
+# non_goals:  逗号分隔的"不做"关键词                    (SEMANTIC)
+# acs:        AC id 列表                                (FACT)
+# implements: 落地它的模块/组件/store 路径列表（回填）  (FACT)
+# tests:      覆盖其 AC 的测试文件列表（回填）          (FACT)
+# since:      YYYY-MM-DD                                (FACT)
+# updated:    YYYY-MM-DD                                (FACT)
+
+# ---- 条目示例（接入项目后删除） ----
+
+[FEAT-001]
+title: 生词沉淀与复习入口
+status: in-dev
+path: docs/requirements/FEAT-001-word-collection/
+problem: 学习者查过的生词无处沉淀，复习时找不回来
+non_goals: 不做社交分享, 不做自动组卷
+acs: AC-1, AC-2, AC-3
+implements: src/features/wordbook, src/stores/wordbook
+tests: tests/wordbook/collection.test.ts
+since: 2026-07-22
+updated: 2026-07-22

@@ -1,0 +1,30 @@
+---
+description: 前端组件开发的流程规则：开工前查索引、复用优先、抽离决策上报
+globs: ["**/*.tsx"]
+alwaysApply: false
+---
+
+# 组件开发流程
+
+本规则只约定「时机与动作」。代码规范由目录结构和 ESLint 强制，不在此重复。
+
+## 开工前（必须）
+
+1. 读项目根部的 `components.llms.txt`，按组件名与 scenarios 关键词扫描。
+2. 命中相似组件 → 优先复用或扩展现有组件，不新建。
+3. 发现将建组件与索引中 **≥2 个现有条目**职责相似，或某现有条目 `uses >= 2`
+   且横跨多个业务 → **暂停，询问用户**是否开子 agent 将其提取为 shared 公共组件。
+   未经用户确认不得自行提取（这是 L5 不可逆决策）。
+
+## 开发中
+
+- 新组件按「一组件一文件夹」落位；先判断 layer（shared / feature / page），
+  按 `directory-spec.md` 放入对应目录。
+- shared 层组件：数据与回调全部 props 注入，不 import store（lint 会强制，写时即遵守）。
+- 业务组件：可直接 `useStore()` 读写本业务 store，禁止触碰其他业务的 store。
+
+## 收工时（任务终止条件，不可跳过）
+
+- 更新 `components.llms.txt` 对应条目：FACT 字段必须先重读组件源码
+  （props 从 types.ts 抄，不凭记忆写），SEMANTIC 字段补齐 purpose/scenarios。
+- 详见 `task-termination.mdc`。

@@ -1,0 +1,36 @@
+# COMPONENTS INDEX (schema v1)
+# 本文件是 AI 的组件外部记忆。格式向检索效率倾斜，不向人类可读性倾斜。
+#
+# 维护规则：
+# 1. 每次新增/修改组件，本文件的对应条目必须同步更新（任务终止条件之一，不是善后步骤）。
+# 2. FACT 字段（path/props/since/updated/version/uses）必须先读组件源码再写，禁止凭记忆写。
+# 3. SEMANTIC 字段（purpose/scenarios）允许自由描述，但 scenarios 必须是逗号分隔的检索关键词。
+# 4. 检索方式：先按 [组件名] 与 scenarios 关键词扫描，命中后再读该条目全文，不要全量精读。
+# 5. uses = 项目内被 import 的次数。uses >= 2 且出现在多个业务时，是提取公共组件的信号（走 L5 决策）。
+#
+# 条目 schema：
+# [ComponentName]
+# path:      src/... 组件文件夹路径                      (FACT)
+# layer:     shared | feature:<biz> | page:<page>        (FACT)
+# props:     TypeScript 签名摘要，来自 types.ts          (FACT)
+# since:     YYYY-MM-DD 创建日期                         (FACT)
+# updated:   YYYY-MM-DD 最后修改日期                     (FACT)
+# version:   整数，每次破坏性 props 变更 +1              (FACT)
+# uses:      被 import 次数                              (FACT)
+# purpose:   一句话职责                                  (SEMANTIC)
+# scenarios: 逗号分隔的适用场景关键词                    (SEMANTIC)
+# usage:     一行最小使用示例                            (SEMANTIC)
+
+# ---- 条目示例（接入项目后删除） ----
+
+[Button]
+path: src/shared/ui/Button
+layer: shared
+props: { variant: 'primary'|'ghost'; size?: 'sm'|'md'; disabled?: boolean; onClick: () => void; children: ReactNode }
+since: 2026-07-22
+updated: 2026-07-22
+version: 1
+uses: 3
+purpose: 通用按钮，承载全站统一的交互样式
+scenarios: 表单提交, 弹窗确认, 工具栏操作
+usage: <Button variant="primary" onClick={handleSubmit}>提交</Button>

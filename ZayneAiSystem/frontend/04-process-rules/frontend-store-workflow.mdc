@@ -1,0 +1,31 @@
+---
+description: 前端 Store 开发的流程规则：判重、分层归属、公共 store 提取决策上报
+globs: ["**/stores/**", "**/*.store.ts", "**/*Store.ts"]
+alwaysApply: false
+---
+
+# Store 开发流程
+
+## 新建 store 前（必须）
+
+1. 读项目根部的 `stores.llms.txt`，检查是否已有职责相同的 store，有则扩展不新建。
+2. 判重：若将建 store 与某现有条目的 state/actions 字段重合过半、且分属不同业务
+   → **暂停，询问用户**是否开子 agent 按业务提取公共 store（L5 不可逆决策）。
+
+## 归属判断（二选一，必须显式判断）
+
+- 跨业务共享（主题/配置/登录态） → 全局单例，挂 RootStore，`scope: global`。
+- 单一业务专用 → `stores/<biz>/`，页面挂载时创建、卸载时销毁，`scope: biz`。
+- 拿不准时默认 biz 级。从 biz 提升为 global 是 L5 决策，反向不需要。
+
+## 开发中
+
+- MobX 约定：`makeAutoObservable`、变更只走 action、读方组件包 `observer`。
+- store 之间的引用只允许通过 RootStore 中转，禁止 store 互相直接 import。
+- store action 发起请求前先查 `api.llms.txt`：契约里没有的端点，
+  先走后端工作流补契约（契约先行），**禁止猜接口形状**。
+
+## 收工时（任务终止条件，不可跳过）
+
+- 更新 `stores.llms.txt` 对应条目，state/actions 先重读源码再写。
+- 详见 `task-termination.mdc`。

@@ -1,0 +1,42 @@
+# UI PATTERNS INDEX (schema v1)
+# 本文件是 AI 的界面模式外部记忆。token 管"值"，本索引管"版式与交互套路"。
+# 目的：同类页面长得一样——新页面从既有模式组装，而不是每次重新发明布局。
+#
+# 维护规则：
+# 1. 新页面开工前扫描本文件，优先套用既有模式；无可套用才新建模式（轻量上报）。
+# 2. 新模式在首个页面落地后登记条目（任务终止条件之一）。
+# 3. 修改既有模式 = 所有 applied_in 页面都要跟着变，属于 L5 轻量确认项。
+# 4. states 字段记录该模式对五态的标准处理方式，套用时照搬，不重新设计。
+#
+# 条目 schema：
+# [PatternName]
+# kind:       page | block | interaction                (FACT)
+# composed_of: 用到的共享组件列表                       (FACT)
+# applied_in: 使用该模式的页面列表（回填）              (FACT)
+# states:     五态的标准处理方式                        (SEMANTIC)
+# since:      YYYY-MM-DD                                (FACT)
+# updated:    YYYY-MM-DD                                (FACT)
+# purpose:    适用什么场景                              (SEMANTIC)
+# layout:     一句话版式描述（区域划分、主操作位置）    (SEMANTIC)
+
+# ---- 条目示例（接入项目后删除） ----
+
+[ListPage]
+kind: page
+composed_of: PageHeader, SearchBar, Table, Pagination, EmptyState
+applied_in: pages/WordbookList, pages/CourseList
+states: 加载=表格骨架屏; 空=EmptyState带"新建"引导; 错误=整区错误卡+重试; 部分=分页
+since: 2026-07-22
+updated: 2026-07-22
+purpose: 一切"可搜索的资源列表"页面
+layout: 顶部标题+主操作按钮右置，搜索区其下，表格主体，分页右下
+
+[ConfirmDanger]
+kind: interaction
+composed_of: Modal, Button(danger)
+applied_in: 生词删除, 课程重置
+states: 提交中=按钮loading禁用; 失败=Modal内错误条不关闭
+since: 2026-07-22
+updated: 2026-07-22
+purpose: 一切不可逆操作的确认交互
+layout: Modal 说明后果，danger 按钮右置，默认焦点在"取消"

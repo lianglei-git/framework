@@ -1,0 +1,31 @@
+# DELEGATIONS INDEX (schema v1)
+# 本文件是子 agent 派发史，回答两个问题：
+# 「这类任务以前派过吗，结果如何」（避免重复踩坑）
+# 「上次提取的公共资产是谁批的、动了哪些索引」（L5 决策的执行留痕）
+#
+# 维护规则：
+# 1. 每次派发子 agent，先登记条目（status: running）；收工后回填 outcome。
+# 2. 提取类任务（公共组件/store/表复用）必须填 approved_by_decision——
+#    对应需求文档决策记录或对话中用户确认的日期，无批准记录不得派发。
+# 3. 失败/中止的派发不删条目，outcome 写明原因——失败史比成功史更有检索价值。
+#
+# 条目 schema：
+# [DLG-id]
+# kind:       extraction | research | mechanical | review  (FACT)
+# goal:       任务书 goal 字段原文                          (FACT)
+# status:     running | done | aborted                      (FACT)
+# approved_by_decision: L5 批准留痕（提取类必填）           (FACT)
+# touched:    改动的路径与索引条目                          (FACT)
+# outcome:    结果一句话（成功产物 / 失败原因）             (SEMANTIC)
+# date:       YYYY-MM-DD                                    (FACT)
+
+# ---- 条目示例（接入项目后删除） ----
+
+[DLG-001]
+kind: extraction
+goal: 将 Words-V2 与 Readbook 中重复的生词卡片组件提取为 shared/ui/WordCard
+status: done
+approved_by_decision: 2026-07-22 用户对话确认（候选与接口方案呈报后）
+touched: src/shared/ui/WordCard/, components.llms.txt[WordCard], 两处业务引用改造
+outcome: 提取成功，两业务改用公共组件，props 以 Words-V2 版本为基准增加 mode 字段
+date: 2026-07-22

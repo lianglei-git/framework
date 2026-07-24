@@ -1,0 +1,46 @@
+# API CONTRACT INDEX (schema v1)
+# 本文件既是 AI 的接口外部记忆，也是前后端的共同契约。
+# 前端 agent 对着它写调用，后端 agent 对着它写实现，两边并行开发、互不猜测。
+#
+# 维护规则：
+# 1. 契约先行：先写条目（status: draft），实现完成后转 stable。
+# 2. 任何一方（前端/后端 agent）都不得单方面修改 stable 条目：
+#    加法变更轻量确认，破坏性变更走 L5（见 backend/05）。
+# 3. consumers 字段在前端接入后回填——它是破坏性变更影响评估的依据。
+# 4. 破坏性变更的过渡期：旧条目标 deprecated 并注明替代端点，消费方清空后才删条目。
+# 5. 错误码表统一维护在本文件头部（下方 ERRORS 区），条目内只引用码值。
+#
+# 条目 schema：
+# [METHOD /path]
+# feat:      对应需求 FEAT-id                          (FACT)
+# status:    draft | stable | deprecated               (FACT)
+# auth:      none | jwt | admin                        (FACT)
+# request:   参数与字段（含类型、必填性）              (FACT)
+# response:  成功响应形状                              (FACT)
+# errors:    可能返回的业务错误码列表                  (FACT)
+# owner:     实现它的服务/模块                         (FACT)
+# consumers: 调用它的前端模块/端（回填）               (FACT)
+# since:     YYYY-MM-DD                                (FACT)
+# updated:   YYYY-MM-DD                                (FACT)
+# purpose:   一句话职责                                (SEMANTIC)
+
+# ---- ERRORS 全局错误码表 ----
+# 1001 未登录/凭证过期
+# 1002 无权限
+# 2001 参数校验失败
+# 3001 资源不存在
+
+# ---- 条目示例（接入项目后删除） ----
+
+[POST /api/v1/wordbook/words]
+feat: FEAT-001
+status: stable
+auth: jwt
+request: body { word: string 必填, source?: string }
+response: { id: number, word: string, created_at: string }
+errors: 1001, 2001
+owner: server/golang wordbook service
+consumers: frontend/features/wordbook
+since: 2026-07-22
+updated: 2026-07-22
+purpose: 收藏一个生词

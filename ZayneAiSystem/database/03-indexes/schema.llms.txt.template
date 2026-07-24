@@ -1,0 +1,39 @@
+# SCHEMA INDEX (schema v1)
+# 本文件是 AI 的数据库外部记忆。agent 建表/改表前先读它，不直接翻 migration 历史。
+#
+# 维护规则：
+# 1. 任何 migration 落地后，本文件对应条目同步更新（任务终止条件之一）。
+# 2. columns 字段必须与最终表结构一致（从建表+历次变更累加后的现状抄，不凭记忆写）。
+# 3. 判重：建新表前扫描本文件，若已有表的 columns 形状与将建表重合过半
+#    → 先考虑扩展旧表或复用，仍要新建则说明理由并走 L5。
+# 4. 影响评估依据：破坏性变更前，用 written_by / read_by 列出受影响模块，
+#    这是 L5 决策呈报材料的一部分。
+#
+# 条目 schema：
+# [table_name]
+# owner:       归属业务域（唯一）                        (FACT)
+# created_by:  创建它的 migration 文件名                 (FACT)
+# columns:     字段名:类型 列表（当前现状，非建表时刻）  (FACT)
+# indexes:     索引列表                                  (FACT)
+# relations:   外键/逻辑关联                             (FACT)
+# written_by:  会写这张表的服务/模块                     (FACT)
+# read_by:     会读这张表的服务/模块                     (FACT)
+# since:       YYYY-MM-DD                                (FACT)
+# updated:     YYYY-MM-DD（最后一次结构变更）            (FACT)
+# purpose:     一句话职责                                (SEMANTIC)
+# notes:       量级/热点/坑（如"千万行大表，加索引需低峰"）(SEMANTIC)
+
+# ---- 条目示例（接入项目后删除） ----
+
+[wordbook]
+owner: wordbook
+created_by: 202607221030_create_wordbook.sql
+columns: id:bigint, user_id:bigint, word:varchar(128), source:varchar(32), created_at:datetime, updated_at:datetime
+indexes: idx_user_word(user_id, word) unique
+relations: user_id -> users.id
+written_by: server/golang wordbook service
+read_by: server/golang wordbook service, 复习统计模块
+since: 2026-07-22
+updated: 2026-07-22
+purpose: 用户生词收藏表
+notes: 预期随用户增长为大表，新增索引走低峰执行

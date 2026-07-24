@@ -1,0 +1,34 @@
+# STORES INDEX (schema v1)
+# 本文件是 AI 的状态层外部记忆，与 components.llms.txt 对等。
+# 「发现公共可抽象 Store」这个动作的判断依据就是本文件——没有它，"发现"无从谈起。
+#
+# 维护规则：
+# 1. 每次新增/修改 store，对应条目必须同步更新（任务终止条件之一）。
+# 2. state/actions 字段必须先读 store 源码再写，禁止凭记忆写。
+# 3. 判重方式：新建 store 前扫描本文件，若已有条目的 state/actions 形状与将建 store 相似度高
+#    （字段重合过半），且分属不同业务，触发 L5 决策：是否开子 agent 提取公共 store。
+#
+# 条目 schema：
+# [StoreName]
+# path:     src/stores/... 文件路径                      (FACT)
+# scope:    global | biz:<业务名>                        (FACT)
+# lifecycle: app-lifetime | page-scoped:<挂载页面>       (FACT)
+# state:    observable 字段名列表                        (FACT)
+# actions:  action 方法名列表                            (FACT)
+# usedBy:   引用它的页面/feature 列表                    (FACT)
+# since:    YYYY-MM-DD                                   (FACT)
+# updated:  YYYY-MM-DD                                   (FACT)
+# purpose:  一句话职责                                   (SEMANTIC)
+
+# ---- 条目示例（接入项目后删除） ----
+
+[ThemeStore]
+path: src/stores/ThemeStore.ts
+scope: global
+lifecycle: app-lifetime
+state: mode, primaryColor
+actions: setMode, setPrimaryColor
+usedBy: pages/*
+since: 2026-07-22
+updated: 2026-07-22
+purpose: 全站主题状态（明暗模式、主色），挂载于 RootStore

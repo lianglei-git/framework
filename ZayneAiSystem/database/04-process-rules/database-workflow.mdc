@@ -1,0 +1,35 @@
+---
+description: 数据层工作流：先查 schema 索引、变更分级、破坏性操作必过 L5
+globs: ["**/migrations/**", "**/*.sql", "**/model/**"]
+alwaysApply: false
+---
+
+# 数据层工作流
+
+## 动手前（必须）
+
+1. 读项目的 `schema.llms.txt`，确认目标数据是否已有归属表。
+2. 判重：将建表与现有表字段重合过半 → 优先扩展/复用旧表；
+   坚持新建需说明理由并走 L5。
+3. 给变更分级（见 migration-spec）：
+   - **加法变更**（建表、加可空列、加索引）→ 正常流程，向用户做轻量确认即可动手。
+   - **破坏性变更**（删表/删列/改名/改类型）→ **停下，走 L5**，
+     呈报影响评估后等用户批准，未批准前不得写 migration。
+
+## 写 migration 时
+
+- 遵守铁律：绝不编辑已执行的 migration，纠错一律 fix-forward。
+- 一文件一意图；schema 与数据回填分离；头部四字段注释齐全（含 FEAT-id）。
+- 破坏性变更获批后，migration 头部标 `destructive: yes`，
+  并在需求文档的决策记录表留痕。
+
+## 配套代码
+
+- 表结构变更后，同步更新 ORM model 与受影响的 service
+  （以索引中 written_by / read_by 为核对范围，不靠印象）。
+
+## 收工时（任务终止条件，不可跳过）
+
+1. `migration-checks.md` 逐项通过（命名、注释、可空约束、破坏性标注一致）。
+2. `schema.llms.txt` 条目已同步（columns 为变更后现状、updated 日期）。
+3. 迁移在本地/测试库实际执行成功过，不允许"应该能跑"。
