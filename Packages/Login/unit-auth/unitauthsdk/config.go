@@ -16,8 +16,10 @@ type MiddlewareConfig struct {
 	ClientSecret string // edge / standalone only
 	HTTPClient   *http.Client
 
-	// plugin
-	InternalToken string // if non-empty, require matching X-Internal-Token
+	// plugin: if non-empty, require matching X-Internal-Token on every request.
+	// standalone: if non-empty, matching X-Internal-Token + X-User-Id is an S2S
+	// path (no Bearer); absent header falls back to Bearer. Empty = Bearer only.
+	InternalToken string
 
 	// optional header overrides (defaults: X-User-Id / X-User-Email / X-User-Role)
 	UserIDHeader    string

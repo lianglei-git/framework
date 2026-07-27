@@ -32,16 +32,27 @@ mw, err := unitauthsdk.NewMiddleware(unitauthsdk.MiddlewareConfig{
 
 | Mode | Behavior |
 |---|---|
-| `plugin` (default) | Read `X-User-Id` (required). Missing → **400** `{"error":"missing_user_id"}`. Does not validate Bearer. |
-| `standalone` | Validate Bearer via Introspect (`UNIT_AUTH_URL`) or local JWT (`JWT_SECRET`). Failure → **401**. |
+| `plugin` (default) | Read `X-User-Id` (required). Missing → **400** `{"error":"missing_user_id"}`. Does not validate Bearer. Optional `INTERNAL_TOKEN` → require matching `X-Internal-Token`. |
+| `standalone` | Browser / client: validate Bearer via Introspect (`UNIT_AUTH_URL`) or local JWT (`JWT_SECRET`). Failure → **401**. |
 
 Standalone preference: if `UnitAuthURL` is set → Introspect; else JWT. Both empty → `NewMiddleware` returns error.
+
+**Standalone S2S dual channel** (when `INTERNAL_TOKEN` is set):
+
+| Request | Result |
+|---|---|
+| `X-Internal-Token` matches + `X-User-Id` | Trust identity headers; **no** Bearer required |
+| `X-Internal-Token` present but wrong | **401** (does not fall back to Bearer) |
+| No `X-Internal-Token` | Bearer path (unchanged) |
+| `INTERNAL_TOKEN` unset | Bearer only — forged `X-User-Id` alone is ignored |
+
+Callers (e.g. LC → Memory Evidence) send `X-User-Id` + `X-Internal-Token`; both services must share the same `INTERNAL_TOKEN`. Do **not** forward the user's Bearer for S2S.
 
 Claims / introspect: only **`user_id` (UUID)** is written to context. `local_user_id` is never used as business identity.
 
 ### Plugin security
 
-Do **not** expose plugin mode on the public internet without `INTERNAL_TOKEN` (header `X-Internal-Token`) or mesh/mTLS. Identity headers are forgeable.
+Do **not** expose plugin mode on the public internet without `INTERNAL_TOKEN` (header `X-Internal-Token`) or mesh/mTLS. Identity headers are forgeable. Same for standalone S2S: only enable the header channel when `INTERNAL_TOKEN` is configured and callers are trusted.
 
 ### Secrets
 

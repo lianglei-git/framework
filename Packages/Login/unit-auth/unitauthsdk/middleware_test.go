@@ -263,6 +263,133 @@ func TestStandalone_Introspect_Inactive_401(t *testing.T) {
 	}
 }
 
+func signTestJWT(t *testing.T, secret, uid string) string {
+	t.Helper()
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": uid,
+		"exp":     time.Now().Add(time.Hour).Unix(),
+	})
+	signed, err := tok.SignedString([]byte(secret))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signed
+}
+
+func TestStandalone_S2S_InternalTokenMatch_OK(t *testing.T) {
+	uid := "550e8400-e29b-41d4-a716-446655440000"
+	mw, err := unitauthsdk.NewMiddleware(unitauthsdk.MiddlewareConfig{
+		Mode:          unitauthsdk.ModeStandalone,
+		JWTSecret:     "test-secret",
+		InternalToken: "secret-internal",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newTestRouter(mw)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	req.Header.Set(unitauthsdk.HeaderInternalToken, "secret-internal")
+	req.Header.Set(unitauthsdk.HeaderUserID, uid)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var body map[string]string
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body["user_id"] != uid {
+		t.Fatalf("user_id = %q", body["user_id"])
+	}
+}
+
+func TestStandalone_S2S_InternalTokenMismatch_401_NoBearerFallback(t *testing.T) {
+	secret := "test-secret"
+	uid := "550e8400-e29b-41d4-a716-446655440000"
+	mw, err := unitauthsdk.NewMiddleware(unitauthsdk.MiddlewareConfig{
+		Mode:          unitauthsdk.ModeStandalone,
+		JWTSecret:     secret,
+		InternalToken: "secret-internal",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newTestRouter(mw)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	req.Header.Set(unitauthsdk.HeaderInternalToken, "wrong")
+	req.Header.Set(unitauthsdk.HeaderUserID, uid)
+	req.Header.Set("Authorization", "Bearer "+signTestJWT(t, secret, uid))
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 (no Bearer fallback); body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestStandalone_S2S_MissingUserID_400(t *testing.T) {
+	mw, err := unitauthsdk.NewMiddleware(unitauthsdk.MiddlewareConfig{
+		Mode:          unitauthsdk.ModeStandalone,
+		JWTSecret:     "test-secret",
+		InternalToken: "secret-internal",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newTestRouter(mw)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	req.Header.Set(unitauthsdk.HeaderInternalToken, "secret-internal")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestStandalone_NoInternalHeader_StillBearer(t *testing.T) {
+	secret := "test-secret"
+	uid := "550e8400-e29b-41d4-a716-446655440000"
+	mw, err := unitauthsdk.NewMiddleware(unitauthsdk.MiddlewareConfig{
+		Mode:          unitauthsdk.ModeStandalone,
+		JWTSecret:     secret,
+		InternalToken: "secret-internal",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newTestRouter(mw)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	req.Header.Set("Authorization", "Bearer "+signTestJWT(t, secret, uid))
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var body map[string]string
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body["user_id"] != uid {
+		t.Fatalf("user_id = %q", body["user_id"])
+	}
+}
+
+func TestStandalone_EmptyInternalConfig_ForgedUserIDIgnored(t *testing.T) {
+	mw, err := unitauthsdk.NewMiddleware(unitauthsdk.MiddlewareConfig{
+		Mode:      unitauthsdk.ModeStandalone,
+		JWTSecret: "test-secret",
+		// InternalToken unset — S2S header channel closed
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newTestRouter(mw)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	req.Header.Set(unitauthsdk.HeaderUserID, "550e8400-e29b-41d4-a716-446655440000")
+	req.Header.Set(unitauthsdk.HeaderInternalToken, "anything")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401 (Bearer only when INTERNAL_TOKEN unset)", w.Code)
+	}
+}
+
 func TestModeFromEnv_DefaultPlugin(t *testing.T) {
 	t.Setenv("AUTH_MODE", "")
 	if unitauthsdk.ModeFromEnv() != unitauthsdk.ModePlugin {

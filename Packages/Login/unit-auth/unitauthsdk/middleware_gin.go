@@ -3,6 +3,7 @@ package unitauthsdk
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"unit-auth/unitauthsdk/internal"
@@ -11,7 +12,8 @@ import (
 // NewMiddleware returns a Gin middleware that internalizes AUTH_MODE.
 //
 // plugin: missing X-User-Id → 400 {"error":"missing_user_id"}
-// standalone: missing/invalid token → 401
+// standalone: Bearer (Introspect/JWT); when INTERNAL_TOKEN is set, a matching
+// X-Internal-Token opens a service-to-service path that trusts X-User-Id.
 func NewMiddleware(cfg MiddlewareConfig) (gin.HandlerFunc, error) {
 	mode := cfg.resolvedMode()
 	switch mode {
@@ -28,7 +30,7 @@ func NewMiddleware(cfg MiddlewareConfig) (gin.HandlerFunc, error) {
 		if err := internal.ValidateStandaloneConfig(sc); err != nil {
 			return nil, err
 		}
-		return standaloneMiddleware(sc), nil
+		return standaloneMiddleware(cfg, sc), nil
 	default:
 		return nil, fmt.Errorf("unknown AUTH_MODE %q", mode)
 	}
@@ -52,8 +54,35 @@ func pluginMiddleware(cfg MiddlewareConfig) gin.HandlerFunc {
 	}
 }
 
-func standaloneMiddleware(sc internal.StandaloneConfig) gin.HandlerFunc {
+func standaloneMiddleware(cfg MiddlewareConfig, sc internal.StandaloneConfig) gin.HandlerFunc {
+	expectedInternal := strings.TrimSpace(cfg.InternalToken)
+	identityHeaders := internal.PluginHeaders{
+		UserID: cfg.userIDHeader(),
+		Email:  cfg.userEmailHeader(),
+		Role:   cfg.userRoleHeader(),
+		// Token already verified before calling AuthenticatePlugin on S2S path.
+		InternalToken: "",
+	}
 	return func(c *gin.Context) {
+		// S2S channel: only when INTERNAL_TOKEN is configured and the header is present.
+		if expectedInternal != "" {
+			got := strings.TrimSpace(c.GetHeader(HeaderInternalToken))
+			if got != "" {
+				if got != expectedInternal {
+					c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+					return
+				}
+				res := internal.AuthenticatePlugin(c.Request, identityHeaders)
+				if !res.OK {
+					c.AbortWithStatusJSON(res.Status, gin.H{"error": res.Error})
+					return
+				}
+				setIdentity(c, res.Identity)
+				c.Next()
+				return
+			}
+		}
+
 		id, err := internal.AuthenticateStandalone(c.GetHeader("Authorization"), sc)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
