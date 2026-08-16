@@ -10,6 +10,7 @@ import {
 } from '../types'
 import { ApiService, getCommonHeaders } from './httpClient'
 import { formatAuthError } from '../utils/authError'
+import { getLocalStorage } from '../utils/browserStorage'
 
 export class AuthApiService extends ApiService {
     private ssoConfig?: SSOConfig
@@ -401,7 +402,7 @@ export class AuthApiService extends ApiService {
     // 登出
     async logout(): Promise<void> {
         // 后端暂时没有logout接口，前端清除token即可
-        localStorage.removeItem('auth_token')
+        getLocalStorage()?.removeItem('auth_token')
     }
 
     async ssoLogoutPost({ id_token_hint, post_logout_redirect_uri, state }: {

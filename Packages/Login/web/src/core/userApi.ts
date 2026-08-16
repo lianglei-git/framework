@@ -1,11 +1,12 @@
 import { User } from '../types'
 import { ApiService, getCommonHeaders } from './httpClient'
 import { resolveAvatarUrl } from '../utils/avatarUrl'
+import { readLegacyAuthToken } from '../utils/browserStorage'
 
 export class UserApiService extends ApiService {
     async getProfile(): Promise<User> {
         const response = await this.get<{ code: number, data: User, message?: string }>(`${this.baseURL}/api/v1/user/profile`, undefined, {
-            headers: getCommonHeaders(localStorage.getItem('auth_token') || undefined)
+            headers: getCommonHeaders(readLegacyAuthToken())
         })
 
         if (response.code === 200) {
@@ -17,7 +18,7 @@ export class UserApiService extends ApiService {
 
     async updateProfile(data: Partial<User>): Promise<User> {
         const response = await this.put<{ code: number, data: User, message?: string }>(`${this.baseURL}/api/v1/user/profile`, data, {
-            headers: getCommonHeaders(localStorage.getItem('auth_token') || undefined)
+            headers: getCommonHeaders(readLegacyAuthToken())
         })
 
         if (response.code === 200) {
@@ -32,7 +33,7 @@ export class UserApiService extends ApiService {
             old_password: oldPassword,
             new_password: newPassword
         }, {
-            headers: getCommonHeaders(localStorage.getItem('auth_token') || undefined)
+            headers: getCommonHeaders(readLegacyAuthToken())
         })
 
         if (response.code !== 200) {
@@ -44,7 +45,7 @@ export class UserApiService extends ApiService {
         const response = await this.post<{ code: number, message?: string }>(`${this.baseURL}/api/v1/user/set-password`, {
             new_password: newPassword
         }, {
-            headers: getCommonHeaders(localStorage.getItem('auth_token') || undefined)
+            headers: getCommonHeaders(readLegacyAuthToken())
         })
 
         if (response.code !== 200) {
@@ -67,7 +68,7 @@ export class UserApiService extends ApiService {
             `${this.baseURL}/api/v1/user/check-username`,
             { username },
             {
-                headers: getCommonHeaders(localStorage.getItem('auth_token') || undefined)
+                headers: getCommonHeaders(readLegacyAuthToken())
             }
         )
 
@@ -81,7 +82,7 @@ export class UserApiService extends ApiService {
         const response = await this.post<{ code: number, message?: string }>(`${this.baseURL}/api/v1/user/delete-account`, {
             password: password
         }, {
-            headers: getCommonHeaders(localStorage.getItem('auth_token') || undefined)
+            headers: getCommonHeaders(readLegacyAuthToken())
         })
 
         if (response.code !== 200) {

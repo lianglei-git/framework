@@ -13,8 +13,8 @@ import { authApi } from '../core/authApi'
 import { userApi } from '../core/userApi'
 import { createAuthConfig } from '../core/createAuthConfig'
 import { storage } from '../utils/storage'
-import { clearOriginAppUri } from '../utils/ssoOriginRedirect'
-import { readSsoSessionCookies } from '../utils/ssoSessionCookie'
+import { peekIdToken } from '../utils/clearClientAuth'
+import { buildOAuthLogoutHref, withLogoutQuery } from '../utils/oauthLogoutUrl'
 import { formatAuthError, isUnauthorizedError } from '../utils/authError'
 import {
     cleanOAuthParamsFromUrl,
@@ -93,9 +93,6 @@ export const useAuth = () => {
 
     const clearLocalAuth = () => {
         store.clearLocalAuth()
-        SSOService.clearSessionCookies()
-        clearOriginAppUri()
-        document.cookie = 'sso_session_id=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax'
     }
 
     const failWith = (err: unknown, fallback: string): never => {
@@ -214,9 +211,7 @@ export const useAuth = () => {
             override ||
             getSSOConfig().redirectUri ||
             `${window.location.origin}${window.location.pathname}`
-        return base.includes('logout=')
-            ? base
-            : `${base}${base.includes('?') ? '&' : '?'}logout=true`
+        return withLogoutQuery(base)
     }
 
     const ssoLogout = async (params: Record<string, any> = {}) => {
@@ -224,7 +219,8 @@ export const useAuth = () => {
         store.error = null
 
         const logoutRedirect = buildLogoutRedirectUri(params.post_logout_redirect_uri)
-        const idToken = store.tokenPayload?.id_token
+        const idToken = peekIdToken() || store.tokenPayload?.id_token || null
+        const cfg = getSSOConfig()
 
         const finishLocalLogout = () => {
             clearLocalAuth()
@@ -233,22 +229,33 @@ export const useAuth = () => {
             store.isLoading = false
         }
 
-        if (!idToken || !ssoService) {
-            finishLocalLogout()
-            window.location.href = logoutRedirect
-            return
-        }
+        finishLocalLogout()
+
+        const href = buildOAuthLogoutHref({
+            ssoServerUrl: cfg.ssoServerUrl,
+            logoutPath: cfg.logoutEndpoint || cfg.logoutUrl,
+            idTokenHint: idToken,
+            postLogoutRedirectUri: logoutRedirect,
+            state: params.state,
+        })
 
         try {
-            await ssoService.ssoLogout({
-                id_token_hint: idToken,
-                post_logout_redirect_uri: logoutRedirect,
-                state: params.state,
-            })
+            if (ssoService) {
+                await ssoService.ssoLogout({
+                    id_token_hint: idToken || '',
+                    post_logout_redirect_uri: logoutRedirect,
+                    state: params.state,
+                })
+                return
+            }
+            if (cfg.ssoServerUrl) {
+                window.location.href = href
+                return
+            }
+            window.location.href = logoutRedirect
         } catch (err) {
             console.error('Logout API error:', err)
-            finishLocalLogout()
-            window.location.href = logoutRedirect
+            window.location.href = cfg.ssoServerUrl ? href : logoutRedirect
         }
     }
 

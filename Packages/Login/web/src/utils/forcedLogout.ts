@@ -1,14 +1,10 @@
 import { globalUserStore } from '../stores/UserStore'
-import { clearSsoSessionCookies } from './ssoSessionCookie'
-import { clearSubAppRedirectContext } from './ssoOriginRedirect'
 
 export const SESSION_REVOKED_EVENT = 'auth:session-revoked'
 
 /** 强制退出：其他设备登录或 IdP session 被撤销 */
 export function handleForcedLogout(reason?: string): void {
     globalUserStore.clearLocalAuth()
-    clearSsoSessionCookies()
-    clearSubAppRedirectContext()
     window.dispatchEvent(
         new CustomEvent(SESSION_REVOKED_EVENT, {
             detail: { reason: reason || '您已在其他设备登录，请重新登录' },

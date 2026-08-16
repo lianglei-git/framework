@@ -1,3 +1,5 @@
+import { getLocalStorage, getSessionStorage, isBrowser } from './browserStorage'
+
 const ORIGIN_KEY = 'origin_app_uri'
 const PENDING_AUTHORIZE_SESSION_KEY = 'subapp_pending_authorize_url'
 
@@ -64,7 +66,7 @@ export function hasSubAppRedirectInUrl(search: string): boolean {
 
 /** 仅从 localStorage 读取，不回填 URL（避免 direct 模式误判） */
 export function getStoredOriginAppUri(): string | null {
-    const origin = localStorage.getItem(ORIGIN_KEY)
+    const origin = getLocalStorage()?.getItem(ORIGIN_KEY) ?? null
     if (!origin) return null
     try {
         const decoded = decodeURIComponent(origin)
@@ -83,7 +85,7 @@ function decodeAuthorizeUrlParam(raw: string): string {
 }
 
 /** 从当前 URL 解析并保存子应用回跳的 authorize URL */
-export function saveOriginAppUriFromUrl(search = window.location.search): void {
+export function saveOriginAppUriFromUrl(search = isBrowser() ? window.location.search : ''): void {
     if (!hasSubAppRedirectInUrl(search)) return
 
     const params = new URLSearchParams(search)
@@ -103,15 +105,15 @@ export function saveOriginAppUriFromUrl(search = window.location.search): void {
         return
     }
 
-    localStorage.setItem(ORIGIN_KEY, origin)
-    sessionStorage.setItem(PENDING_AUTHORIZE_SESSION_KEY, origin)
+    getLocalStorage()?.setItem(ORIGIN_KEY, origin)
+    getSessionStorage()?.setItem(PENDING_AUTHORIZE_SESSION_KEY, origin)
 }
 
 /** 记住子应用 authorize URL，供回跳与重新登录后复用 */
 export function rememberSubAppAuthorizeUrl(url: string): void {
     if (!isValidAuthorizeUrl(url)) return
-    localStorage.setItem(ORIGIN_KEY, url)
-    sessionStorage.setItem(PENDING_AUTHORIZE_SESSION_KEY, url)
+    getLocalStorage()?.setItem(ORIGIN_KEY, url)
+    getSessionStorage()?.setItem(PENDING_AUTHORIZE_SESSION_KEY, url)
 }
 
 /** 构建登录中心回跳 URL（登录成功后继续 IdP authorize） */
@@ -131,11 +133,11 @@ export function buildLoginCenterReturnUrl(
 }
 
 export function clearPendingAuthorizeUrl(): void {
-    sessionStorage.removeItem(PENDING_AUTHORIZE_SESSION_KEY)
+    getSessionStorage()?.removeItem(PENDING_AUTHORIZE_SESSION_KEY)
 }
 
 export function clearOriginAppUri(): void {
-    localStorage.removeItem(ORIGIN_KEY)
+    getLocalStorage()?.removeItem(ORIGIN_KEY)
 }
 
 /** 清除登录中心保存的子应用回跳上下文（localStorage + sessionStorage） */
@@ -184,7 +186,7 @@ export function getOriginAppUri(): string | null {
 
 /** 从 localStorage、当前 URL 或 session 备份读取子应用 authorize URL */
 export function getSubAppAuthorizeUrl(): string | null {
-    if (hasSubAppRedirectInUrl(window.location.search)) {
+    if (isBrowser() && hasSubAppRedirectInUrl(window.location.search)) {
         saveOriginAppUriFromUrl()
         const fromUrl = getStoredOriginAppUri()
         if (fromUrl) return fromUrl
@@ -194,7 +196,7 @@ export function getSubAppAuthorizeUrl(): string | null {
     if (stored) return stored
 
     try {
-        const pending = sessionStorage.getItem(PENDING_AUTHORIZE_SESSION_KEY)
+        const pending = getSessionStorage()?.getItem(PENDING_AUTHORIZE_SESSION_KEY)
         if (pending && isValidAuthorizeUrl(pending)) {
             return pending
         }

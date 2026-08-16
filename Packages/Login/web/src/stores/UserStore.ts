@@ -6,7 +6,7 @@ import { basicUrl } from '../core/httpClient'
 import { storageManager } from "../utils"
 import { storage } from '../utils/storage'
 import { resolveAvatarUrl } from '../utils/avatarUrl'
-import { clearOriginAppUri } from '../utils/ssoOriginRedirect'
+import { clearClientAuth } from '../utils/clearClientAuth'
 import { formatAuthError } from '../utils/authError'
 
 // 用户等级枚举
@@ -175,12 +175,7 @@ class UserStore {
         this.isLoading = false
     }
 
-    clearLocalAuth = () => {
-        storageManager.clearAuthData()
-        storage.clearAuth()
-        storage.clearSSOData()
-        storage.clearSSOSession()
-        clearOriginAppUri()
+    private resetAuthMemory = () => {
         this.info = { ...basicUserInfo }
         this.authInfo = null
         this.ssoUser = null
@@ -189,18 +184,15 @@ class UserStore {
         this.notifyLoginListeners()
     }
 
+    clearLocalAuth = () => {
+        clearClientAuth({ keepIdpCookies: false })
+        this.resetAuthMemory()
+    }
+
     /** 仅清本地 token/会话缓存，保留 IdP session cookie（供子项目测试恢复） */
     clearAuthTokensOnly = () => {
-        storageManager.clearAuthData()
-        storage.clearAuth()
-        storage.clearSSOData()
-        storage.clearSSOSession()
-        this.authInfo = null
-        this.info = { ...basicUserInfo }
-        this.ssoUser = null
-        this.ssoSession = null
-        this.error = null
-        this.notifyLoginListeners()
+        clearClientAuth({ keepIdpCookies: true })
+        this.resetAuthMemory()
     }
 
     /** 从 storage 同步认证态；token 刷新时传 notify:false 避免重启续签监控 */
@@ -342,11 +334,11 @@ class UserStore {
     }
 
     setLocalStorageUserInfo() {
-        try {
-            localStorage.setItem("t_remeberInfo", JSON.stringify(this.info))
-        } catch (error) {
-            console.error("保存用户信息到本地存储失败:", error)
-        }
+        // try {
+        //     // localStorage.setItem("t_remeberInfo", JSON.stringify(this.info))
+        // } catch (error) {
+        //     console.error("保存用户信息到本地存储失败:", error)
+        // }
     }
 
     // 清除错误

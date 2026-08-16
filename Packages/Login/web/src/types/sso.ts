@@ -4,6 +4,7 @@ import type { StorageType } from './forms'
 // SSO 类型定义
 export interface SSOConfig {
     ssoServerUrl: string
+    id?: string
     clientId?: string
     clientSecret?: string
     redirectUri: string
@@ -12,7 +13,9 @@ export interface SSOConfig {
     grantType?: 'authorization_code' | 'implicit' | 'client_credentials'
     tokenEndpoint?: string
     userInfoEndpoint?: string
+    authorizationUrl?: string
     logoutEndpoint?: string
+    logoutUrl?: string
     checkSessionEndpoint?: string
     sessionTimeout?: number
     autoRefresh?: boolean
@@ -67,6 +70,8 @@ export interface SSOState {
 export interface SSOAuthRequest {
     provider: string
     redirect_uri?: string
+    /** 与 redirect_uri 同义，子项目 hook 常写成驼峰 */
+    redirectUri?: string
     state?: string
     scope?: string[]
     response_type?: string

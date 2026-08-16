@@ -197,16 +197,3 @@ export interface LoadingProps {
     className?: string
     'data-testid'?: string
 }
-// 存储类型
-export interface LocalStorageData {
-    user: User
-    token: string
-    refresh_token: string
-    remember_me: boolean
-    expires_at: number
-}
-
-export enum StorageType {
-    LOCAL = 'localStorage',
-    SESSION = 'sessionStorage'
-}

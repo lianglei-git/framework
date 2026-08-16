@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -1318,7 +1319,31 @@ func getBaseURL(c *gin.Context) string {
 
 // 验证重定向URI
 func isValidRedirectURI(requestedURI, allowedURIs string) bool {
-	// 简化实现，在实际项目中应该解析JSON数组并进行更严格的验证
+	if requestedURI == "" || allowedURIs == "" {
+		return false
+	}
+	var uris []string
+	if err := json.Unmarshal([]byte(allowedURIs), &uris); err == nil {
+		reqOrigin := ""
+		if u, err := url.Parse(requestedURI); err == nil {
+			reqOrigin = u.Scheme + "://" + u.Host
+		}
+		for _, allowed := range uris {
+			if allowed == "*" || allowed == requestedURI {
+				return true
+			}
+			base := strings.TrimRight(allowed, "/")
+			if requestedURI == base || strings.HasPrefix(requestedURI, base+"/") {
+				return true
+			}
+			if reqOrigin != "" && reqOrigin == requestedURI {
+				if au, err := url.Parse(allowed); err == nil && au.Scheme+"://"+au.Host == reqOrigin {
+					return true
+				}
+			}
+		}
+		return false
+	}
 	return strings.Contains(allowedURIs, requestedURI)
 }
 

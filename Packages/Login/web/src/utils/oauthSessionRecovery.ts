@@ -1,6 +1,7 @@
 import { getSSOConfig } from '../sso/config'
 import type { SSOService } from '../sso/SSOService'
 import { globalUserStore } from '../stores/UserStore'
+import { isLogoutInProgress } from './clearClientAuth'
 
 export type OAuthRecoveryResult = 'recovered' | 'silent_redirect' | 'relogin' | 'skipped'
 
@@ -33,6 +34,9 @@ async function promptRelogin(): Promise<void> {
 }
 
 async function doRecoverOAuthSession(): Promise<OAuthRecoveryResult> {
+    if (isLogoutInProgress()) {
+        return 'skipped'
+    }
     const cfg = getSSOConfig()
     if (!cfg?.clientId) {
         await promptRelogin()

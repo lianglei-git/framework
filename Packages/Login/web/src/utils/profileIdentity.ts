@@ -1,3 +1,4 @@
+import { getLocalStorage, getSessionStorage } from './browserStorage'
 import { validatePhone } from './validation'
 import type { User } from '../types'
 
@@ -48,31 +49,31 @@ const PROFILE_NUDGE_DISMISS_KEY = 'profile_nudge_dismissed'
 const PROFILE_NUDGE_PENDING_KEY = 'profile_nudge_pending'
 
 export function dismissDefaultUserIdBanner(username: string) {
-    sessionStorage.setItem(`${DEFAULT_ID_BANNER_DISMISS_KEY}:${username}`, '1')
+    getSessionStorage()?.setItem(`${DEFAULT_ID_BANNER_DISMISS_KEY}:${username}`, '1')
 }
 
 export function isDefaultUserIdBannerDismissed(username: string): boolean {
-    return sessionStorage.getItem(`${DEFAULT_ID_BANNER_DISMISS_KEY}:${username}`) === '1'
+    return getSessionStorage()?.getItem(`${DEFAULT_ID_BANNER_DISMISS_KEY}:${username}`) === '1'
 }
 
 export function scheduleProfileNudgeIfNeeded(profile: User | null | undefined) {
-    if (!profile || localStorage.getItem(PROFILE_NUDGE_DISMISS_KEY)) return
+    if (!profile || getLocalStorage()?.getItem(PROFILE_NUDGE_DISMISS_KEY)) return
     if (!hasDefaultUserId(profile)) return
-    sessionStorage.setItem(PROFILE_NUDGE_PENDING_KEY, '1')
+    getSessionStorage()?.setItem(PROFILE_NUDGE_PENDING_KEY, '1')
 }
 
 export function consumeProfileNudgePending(): boolean {
-    if (localStorage.getItem(PROFILE_NUDGE_DISMISS_KEY)) return false
-    const pending = sessionStorage.getItem(PROFILE_NUDGE_PENDING_KEY)
+    if (getLocalStorage()?.getItem(PROFILE_NUDGE_DISMISS_KEY)) return false
+    const pending = getSessionStorage()?.getItem(PROFILE_NUDGE_PENDING_KEY)
     if (!pending) return false
     return true
 }
 
 export function dismissProfileNudge() {
-    localStorage.setItem(PROFILE_NUDGE_DISMISS_KEY, '1')
-    sessionStorage.removeItem(PROFILE_NUDGE_PENDING_KEY)
+    getLocalStorage()?.setItem(PROFILE_NUDGE_DISMISS_KEY, '1')
+    getSessionStorage()?.removeItem(PROFILE_NUDGE_PENDING_KEY)
 }
 
 export function clearProfileNudgePending() {
-    sessionStorage.removeItem(PROFILE_NUDGE_PENDING_KEY)
+    getSessionStorage()?.removeItem(PROFILE_NUDGE_PENDING_KEY)
 }

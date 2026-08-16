@@ -2,13 +2,19 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { setSSOConfig } from '../sso/config'
 import { createAuthConfig } from '../core/createAuthConfig'
 import { getSubProjectConfig, SubProjectConfig } from '../config/subproject-integration'
-import { type SSOToken, type SSOUser, type SSOSession, StorageType } from '../types'
+import { type SSOToken, type SSOUser, type SSOSession } from '../types'
 import {useAuth, useAuthEvents} from "./useAuth"
 import { globalUserStore } from '../stores/UserStore'
 import { storage } from '../utils'
 import { formatAuthError, isUnauthorizedError } from '../utils/authError'
 import { recoverFromOAuthUnauthorized } from '../utils/oauthSessionRecovery'
-import { buildLoginCenterReturnUrl } from '../utils/ssoOriginRedirect'
+import { isLogoutInProgress } from '../utils/clearClientAuth'
+import {
+    applyReturnTo,
+    consumeReturnTo,
+    currentPageRedirectUri,
+    toCleanOrigin,
+} from '../utils/oauthRedirectUri'
 export {
     setSSOConfig
 }
@@ -47,7 +53,6 @@ export interface UseSubProjectSSOResult {
     /** 全局登出：清本地态并跳转 IdP logout */
     logout: () => Promise<void>
     refreshToken: () => Promise<void>
-    getLoginUrl: (provider?: string) => string
     getUserInfoFetch: () => Promise<SSOUser>
 
     // 工具方法
@@ -126,17 +131,28 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         }
     }, [])
 
+    const oauthRedirectOrigin = () => {
+        const cfg = config || finalConfig
+        return toCleanOrigin((cfg as { redirectUri?: string }).redirectUri)
+            || toCleanOrigin(cfg.redirectUris?.[0])
+            || toCleanOrigin(currentPageRedirectUri())
+            || ''
+    }
+
+    const landingPage = () => currentPageRedirectUri() || oauthRedirectOrigin()
+
     const _buildLoginUrl = async () => {
         const cfg = config || finalConfig
-        const loginUrl = await ssoService.buildAuthorizationUrl('sub_job', {
+        const redirectUri = oauthRedirectOrigin()
+        return ssoService.buildAuthorizationUrl('sub_job', {
             client_id: cfg.clientId,
             app_id: cfg.id,
             grant_type: 'authorization_code',
-            redirect_uri: (cfg as any).redirectUri || cfg.redirectUris?.[0],
-            response_type: "code",
+            response_type: 'code',
+            redirect_uri: redirectUri,
+            redirectUri,
             scope: (cfg.allowedScopes || []).join(' '),
-        });
-        return loginUrl
+        })
     }
 
     // 登录
@@ -222,18 +238,21 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
             setIsLoading(false)
         }
     }, [onLogout, onError])
-
-    /** 全局登出：跳转 IdP logout，3033 session 失效 */
+    /** 全局登出：清全部本地态并跳转 IdP logout */
     const logout = useCallback(async () => {
-        const cfg = config || finalConfig
-        const loginUrl = await _buildLoginUrl()
-        const home = (cfg as any).ssoHomeUrl || 'http://localhost:3033'
-        const postLogout = buildLoginCenterReturnUrl(home, loginUrl)
-
-        ssoLogout({
-            post_logout_redirect_uri: postLogout,
-        })
-    }, [config, finalConfig, ssoLogout])
+        try {
+            await ssoLogout({
+                post_logout_redirect_uri: landingPage(),
+            })
+        } catch (err: any) {
+            const error = new Error(formatAuthError(err, '登出失败'))
+            setError(error)
+            onError?.(error)
+            console.error('登出失败:', err)
+        } finally {
+            setIsLoading(false)
+        }
+    }, [config, finalConfig, ssoLogout, onLogout, onError])
 
     // 登出前回调
     useAuthEvents('beforeLogout', (details) => {
@@ -271,24 +290,20 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         }
     }, [ssoService, onError])
 
-    // 获取登录URL
-    const getLoginUrl = useCallback((provider?: string) => {
-        if (!ssoService) {
-            throw new Error('SSO服务未初始化')
-        }
-        return ssoService.getLoginUrl(provider)
-    }, [ssoService])
-
+   
 
    
     useAuthEvents('login', (details) => {
         onSuccess?.(details.user, details.token, null)
     })
 
-    // 检查是否在回调模式
+    // 检查是否在回调模式（以地址栏为准，不能等 ssoService，否则会先吃掉 returnTo）
     const isInCallback = useCallback(() => {
-        if (!ssoService) return false
-        return ssoService.isInCallbackMode()
+        if (typeof window !== 'undefined') {
+            const q = new URLSearchParams(window.location.search)
+            if (q.has('code') || q.has('error')) return true
+        }
+        return !!ssoService?.isInCallbackMode()
     }, [ssoService])
 
     // 获取子项目信息
@@ -311,12 +326,22 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         }
     }, [autoInit, isInitialized, isLoading, initialize])
 
+    // 只有换票成功后才回跳；带着 code 时绝不能先 consume returnTo
+    useEffect(() => {
+        if (!isInitialized || isLoading || isInCallback()) return
+        if (!isAuthenticated) return
+        applyReturnTo(consumeReturnTo())
+    }, [isInitialized, isLoading, isAuthenticated])
+
     // W-92 跨应用免登（session-check → silent authorize）
     useEffect(() => {
         if (!autoInit || !isInitialized || !ssoService || isLoading) {
             return
         }
-        if (isInCallback()) {
+        if (isLogoutInProgress() || isInCallback()) {
+            return
+        }
+        if (typeof window !== 'undefined' && new URL(window.location.href).searchParams.get('logout') === 'true') {
             return
         }
 
@@ -387,7 +412,6 @@ export const useSubProjectSSO = (options: UseSubProjectSSOOptions = {}): UseSubP
         logoutLocal,
         logout,
         refreshToken,
-        getLoginUrl,
         getUserInfoFetch,
 
         // 工具方法

@@ -19,7 +19,7 @@ import { ApiService } from '../core/httpClient'
 import { storage, storageManager } from '../utils/storage'
 import { globalUserStore } from '../stores/UserStore'
 import { handleSSOCallbackResult } from '../utils/handleSSOCallbackResult'
-import { clearOriginAppUri, getOriginAppUri } from '../utils/ssoOriginRedirect'
+import { clearOriginAppUri } from '../utils/ssoOriginRedirect'
 import { cleanOAuthParamsFromUrl } from '../utils/oauthLoading'
 import {
     writeSsoSessionCookies,
@@ -36,12 +36,26 @@ import { beginAuthorizeAttempt, getAuthorizeEpoch, isAuthorizeAttemptStale } fro
 import {
     clearPkceBundle,
     commitPkceBundle,
+    readPkceBundle,
     readPkceCodeVerifier,
     readPkceState,
     validatePkceCallback,
 } from './oauthState'
 import { handleForcedLogout, isSessionRevokedError } from '../utils/forcedLogout'
-import { isSocialProviderId } from './socialProviders'
+import { isLogoutInProgress } from '../utils/clearClientAuth'
+import { buildOAuthLogoutHref } from '../utils/oauthLogoutUrl'
+import {
+    applyReturnTo,
+    consumeReturnTo,
+    readAuthorizeRedirectUri,
+    resolveAuthorizeRedirectUri,
+    saveAuthorizeRedirectContext,
+} from '../utils/oauthRedirectUri'
+import {
+    isFirstPartyProviderId,
+    shouldFetchProviderAuthorizeUrl,
+    shouldUseSocialOAuthLogin,
+} from './socialProviders'
 
 export class SSOService extends ApiService {
     private config: SSOConfig
@@ -94,10 +108,7 @@ export class SSOService extends ApiService {
      */
     private detectCurrentAppId(): void {
         const urlParams = new URLSearchParams(window.location.search)
-        let appId = urlParams.get('appid') || urlParams.get('app_id');
-        if (!appId) {
-            appId = this.config.id;
-        }
+        let appId = urlParams.get('appid') || urlParams.get('app_id') || this.config.id;
 
         // 存储应用ID用于后续使用
         this.config.appId = appId
@@ -203,7 +214,11 @@ export class SSOService extends ApiService {
                     if (result) {
                         if (this.isSubProjectApp()) {
                             clearOriginAppUri()
-                            cleanOAuthParamsFromUrl()
+                            const returnTo = consumeReturnTo()
+                            const returned = applyReturnTo(returnTo)
+                            if (!returned) {
+                                cleanOAuthParamsFromUrl()
+                            }
                             console.log('子项目 OAuth 回调完成，已清理 URL')
                         } else {
                             const handled = await handleSSOCallbackResult({ afterLogin: true })
@@ -336,95 +351,7 @@ export class SSOService extends ApiService {
         return payload
     }
 
-
-    /**
-     * 从环境变量加载应用特定的providers
-     */
-    private loadAppSpecificProviders(appId: string): SSOProvider[] {
-        const providers: SSOProvider[] = []
-
-        // 本地认证provider
-        if (import.meta.env.VITE_SSO_LOCAL_ENABLED !== 'false') {
-            providers.push({
-                id: 'local',
-                name: 'local',
-                displayName: '本地账号',
-                authorizationUrl: `${this.config.ssoServerUrl}/oauth/authorize`,
-                enabled: true,
-                config: {
-                    client_id: this.config.clientId,
-                    authorization_url: `${this.config.ssoServerUrl}/oauth/authorize`,
-                    redirect_uri: this.config.redirectUri,
-                    scope: this.config.scope,
-                    response_type: this.config.responseType || 'code'
-                }
-            })
-        }
-
-        // GitHub provider
-        if (import.meta.env.VITE_SSO_PROVIDER_GITHUB_ENABLED !== 'false') {
-            providers.push({
-                id: 'github',
-                name: 'github',
-                displayName: 'GitHub',
-                authorizationUrl: 'https://github.com/login/oauth/authorize',
-                enabled: true,
-                config: {
-                    client_id: import.meta.env.VITE_SSO_PROVIDER_GITHUB_CLIENT_ID || 'Ov23li5H25mAnW2AWrr1',
-                    authorization_url: 'https://github.com/login/oauth/authorize',
-                    token_url: 'https://github.com/login/oauth/access_token',
-                    user_info_url: 'https://api.github.com/user',
-                    redirect_uri: this.config.redirectUri,
-                    scope: ['user:email', 'read:user'],
-                    response_type: 'code',
-                    requirePKCE: true
-                }
-            })
-        }
-
-        // Google provider
-        if (import.meta.env.VITE_SSO_PROVIDER_GOOGLE_ENABLED !== 'false') {
-            providers.push({
-                id: 'google',
-                name: 'google',
-                displayName: 'Google',
-                authorizationUrl: 'https://accounts.google.com/oauth/authorize',
-                enabled: true,
-                config: {
-                    client_id: import.meta.env.VITE_SSO_PROVIDER_GOOGLE_CLIENT_ID || '',
-                    authorization_url: 'https://accounts.google.com/oauth/authorize',
-                    token_url: 'https://oauth2.googleapis.com/token',
-                    user_info_url: 'https://www.googleapis.com/oauth2/v2/userinfo',
-                    redirect_uri: this.config.redirectUri,
-                    scope: ['openid', 'profile', 'email'],
-                    response_type: 'code'
-                }
-            })
-        }
-
-        // 微信provider
-        if (import.meta.env.VITE_SSO_PROVIDER_WECHAT_ENABLED !== 'false') {
-            providers.push({
-                id: 'wechat',
-                name: 'wechat',
-                displayName: '微信',
-                authorizationUrl: import.meta.env.VITE_SSO_PROVIDER_WECHAT_AUTH_URL || '',
-                enabled: true,
-                config: {
-                    client_id: import.meta.env.VITE_SSO_PROVIDER_WECHAT_CLIENT_ID || '',
-                    authorization_url: import.meta.env.VITE_SSO_PROVIDER_WECHAT_AUTH_URL || '',
-                    token_url: import.meta.env.VITE_SSO_PROVIDER_WECHAT_TOKEN_URL || '',
-                    user_info_url: import.meta.env.VITE_SSO_PROVIDER_WECHAT_USERINFO_URL || '',
-                    redirect_uri: this.config.redirectUri,
-                    scope: ['snsapi_login'],
-                    response_type: 'code'
-                }
-            })
-        }
-
-        return providers
-    }
-
+    
     /**
      * 添加本地认证provider
      */
@@ -544,14 +471,6 @@ export class SSOService extends ApiService {
         this.currentProviderId = providerId
     }
 
-    getLoginUrl(provider = 'local') {
-        if (provider == 'local') {
-
-            return
-        }
-
-    }
-
     /**
      * 验证token交换参数 - 双重验证模式
      */
@@ -608,75 +527,86 @@ export class SSOService extends ApiService {
      * 构建授权URL
      * 支持PKCE双重验证和动态URL参数
      */
+    private buildFirstPartyAuthorizeUrl(params: Record<string, string>): string {
+        const endpoint = resolveOAuthEndpointUrl(
+            this.config.ssoServerUrl,
+            this.config.authorizationUrl || '/api/v1/auth/oauth/authorize',
+            this.isSubProjectApp(),
+            '/api/v1/auth/oauth/authorize',
+        )
+        const query = new URLSearchParams()
+        for (const [key, value] of Object.entries(params)) {
+            if (value) query.set(key, value)
+        }
+        return `${endpoint}?${query.toString()}`
+    }
+
+    /**
+     * 构建授权URL。
+     * sub_job / 社交：GET /api/v1/auth/oauth/:provider/url（BFF 或 IdP 拼 authorize）。
+     * local：本地拼 authorize。
+     * 换票是否走 oauth-login 见 shouldUseSocialOAuthLogin，与这里无关。
+     */
     async buildAuthorizationUrl(providerId: string, options: Partial<SSOAuthRequest> = {}): Promise<string> {
         const attemptEpoch = beginAuthorizeAttempt()
         storage.set('login_provider', providerId, StorageType.LOCAL)
-        // 设置当前使用的provider
         this.setCurrentProvider(providerId)
 
-        // 如果处于回调模式且没有明确指定选项，使用URL参数
         const contextOptions = this.isInCallbackMode() && Object.keys(options).length === 0
             ? this.getAuthRequestContext()
             : options
 
+        const { redirectUri, returnTo } = resolveAuthorizeRedirectUri({
+            override: contextOptions.redirect_uri || contextOptions.redirectUri,
+            configured: this.config.redirectUri,
+        })
         const finalOptions: Partial<SSOAuthRequest> = {
-            redirect_uri: this.config.redirectUri || window.location.origin,
             client_id: this.config.clientId,
             response_type: this.config.responseType || 'code',
             scope: this.config.scope,
             ...contextOptions,
+            redirect_uri: redirectUri,
         }
 
-        // 构建URL参数
         const params: Record<string, string> = {
             state: generateOAuthState(),
         }
 
-        // 添加可选参数
-        if (finalOptions.prompt) Reflect.set(params, 'prompt', finalOptions.prompt)
-
-        if (finalOptions.client_id) Reflect.set(params, 'client_id', finalOptions.client_id)
-        if (finalOptions.app_id) Reflect.set(params, 'app_id', finalOptions.app_id)
-        if (finalOptions.grant_type) Reflect.set(params, 'grant_type', finalOptions.grant_type)
-
-        if (finalOptions.redirect_uri) Reflect.set(params, 'redirect_uri', finalOptions.redirect_uri)
-        if (finalOptions.response_type) Reflect.set(params, 'response_type', finalOptions.response_type)
+        if (finalOptions.prompt) params.prompt = finalOptions.prompt
+        if (finalOptions.client_id) params.client_id = finalOptions.client_id
+        if (finalOptions.app_id) params.app_id = String(finalOptions.app_id)
+        if (finalOptions.grant_type) params.grant_type = finalOptions.grant_type
+        if (finalOptions.redirect_uri) params.redirect_uri = finalOptions.redirect_uri
+        if (finalOptions.response_type) params.response_type = finalOptions.response_type
         if (finalOptions.scope) {
-            const scopeValue = Array.isArray(finalOptions.scope)
+            params.scope = Array.isArray(finalOptions.scope)
                 ? finalOptions.scope.join(' ')
-                : finalOptions.scope
-            Reflect.set(params, 'scope', scopeValue)
+                : String(finalOptions.scope)
+        }
+        if (finalOptions.max_age) params.max_age = finalOptions.max_age.toString()
+        if (finalOptions.login_hint) params.login_hint = finalOptions.login_hint
+        if (finalOptions.ui_locales) params.ui_locales = finalOptions.ui_locales.join(' ')
+        if (finalOptions.acr_values) params.acr_values = finalOptions.acr_values.join(' ')
+
+        const pkceParams = await generatePKCE()
+        params.code_challenge = pkceParams.code_challenge
+        params.code_challenge_method = pkceParams.code_challenge_method
+        const pendingPkce = {
+            state: params.state,
+            codeVerifier: pkceParams.code_verifier,
+            redirectUri,
+            returnTo,
         }
 
-        if (finalOptions.max_age) Reflect.set(params, 'max_age', finalOptions.max_age.toString())
-        if (finalOptions.login_hint) Reflect.set(params, 'login_hint', finalOptions.login_hint)
-        if (finalOptions.ui_locales) Reflect.set(params, 'ui_locales', finalOptions.ui_locales.join(' '))
-        if (finalOptions.acr_values) Reflect.set(params, 'acr_values', finalOptions.acr_values.join(' '))
-
-        // PKCE双重验证支持 - 强制使用
-        const shouldUsePKCE = true
-        let pendingPkce: { state: string; codeVerifier: string } | null = null
-
-        if (shouldUsePKCE) {
-            // 自动生成PKCE参数（使用S256方法，这是GitHub等服务支持的标准方法）
-            const pkceParams = await generatePKCE()
-            console.log('🔐 自动生成PKCE参数:', {
-                code_challenge: pkceParams.code_challenge,
-                code_challenge_method: pkceParams.code_challenge_method,
-                code_verifier_length: pkceParams.code_verifier.length
-            })
-
-            Reflect.set(params, 'code_challenge', pkceParams.code_challenge)
-            Reflect.set(params, 'code_challenge_method', pkceParams.code_challenge_method)
-
-            pendingPkce = { state: params.state, codeVerifier: pkceParams.code_verifier }
-        }
-
-        // 获取OAuth URL和相关参数
-        const oauthParams = await this.getOAuthURL(providerId, params)
-
-        if (!oauthParams?.auth_url) {
-            throw new Error('无法获取第三方登录地址')
+        let authUrl: string
+        if (shouldFetchProviderAuthorizeUrl(providerId)) {
+            const oauthParams = await this.getOAuthURL(providerId, params)
+            if (!oauthParams?.auth_url) {
+                throw new Error('无法获取登录地址')
+            }
+            authUrl = oauthParams.auth_url
+        } else {
+            authUrl = this.buildFirstPartyAuthorizeUrl(params)
         }
 
         if (isAuthorizeAttemptStale(attemptEpoch)) {
@@ -684,14 +614,13 @@ export class SSOService extends ApiService {
             throw new Error('OAuth authorize superseded')
         }
 
-        if (pendingPkce) {
-            commitPkceBundle(pendingPkce.state, pendingPkce.codeVerifier)
-            console.log('✅ PKCE参数已存储到localStorage')
-        }
+        commitPkceBundle(pendingPkce.state, pendingPkce.codeVerifier, {
+            redirectUri: pendingPkce.redirectUri,
+            returnTo: pendingPkce.returnTo,
+        })
+        saveAuthorizeRedirectContext(pendingPkce.redirectUri, pendingPkce.returnTo)
 
-        console.log(oauthParams.auth_url, 'oauthParamsoauthParams')
-
-        return oauthParams.auth_url
+        return authUrl
     }
 
     // async buildAuthorizationUrlForLocal(config) {
@@ -759,7 +688,7 @@ export class SSOService extends ApiService {
             error: urlParams.get('error') || undefined,
             error_description: urlParams.get('error_description') || undefined,
             error_uri: urlParams.get('error_uri') || undefined,
-            redirect_uri: this.config.redirectUri
+            redirect_uri: readAuthorizeRedirectUri() || this.config.redirectUri
         }
     }
 
@@ -808,7 +737,7 @@ export class SSOService extends ApiService {
      * 子项目：用 IdP session cookie 静默恢复当前应用的 token（W-92 强免登）
      */
     async tryRecoverSubProjectSession(): Promise<boolean> {
-        if (this.isInCallbackMode()) {
+        if (isLogoutInProgress() || this.isInCallbackMode()) {
             return false
         }
 
@@ -831,7 +760,7 @@ export class SSOService extends ApiService {
      * 弱免登：有 IdP session 时跳转 authorize（由 8080 直接发 code，通常不经 3033）
      */
     async trySilentAuthorize(): Promise<void> {
-        if (!this.isSubProjectApp()) {
+        if (isLogoutInProgress() || !this.isSubProjectApp()) {
             return
         }
         if (this.isInCallbackMode()) {
@@ -851,7 +780,6 @@ export class SSOService extends ApiService {
                 client_id: this.config.clientId,
                 app_id: this.resolveAppId(),
                 grant_type: 'authorization_code',
-                redirect_uri: this.config.redirectUri,
                 response_type: 'code',
                 scope: (this.config.scope || []).join?.(' ') || (Array.isArray(this.config.scope) ? this.config.scope.join(' ') : 'openid profile email'),
             })
@@ -884,7 +812,11 @@ export class SSOService extends ApiService {
         state?: string,
         codeVerifier?: string | null,
     ): Promise<SSOLoginResponse> {
-        const provider = storage.get('login_provider', StorageType.LOCAL);
+        const storedProvider = storage.get('login_provider', StorageType.LOCAL) as string | null
+        // 子项目换票始终按第一方；避免本地残留的 github/google 把请求打到 oauth-login
+        const provider = this.isSubProjectApp()
+            ? (isFirstPartyProviderId(storedProvider) ? storedProvider : 'sub_job')
+            : storedProvider
         // 获取当前provider的配置
         const providerConfig = this.getCurrentProviderConfig(provider)
         const tokenEndpoint = this.resolveOAuthEndpoint(this.config.tokenEndpoint)
@@ -896,7 +828,11 @@ export class SSOService extends ApiService {
 
         // 构建token交换请求参数 - 双重验证模式
         const finalState = state || readPkceState()
-        const redirectUri = providerConfig?.redirect_uri || this.config.redirectUri
+        const redirectUri =
+            readPkceBundle()?.redirectUri ||
+            readAuthorizeRedirectUri() ||
+            providerConfig?.redirect_uri ||
+            this.config.redirectUri
 
         // 解析state参数（可能是JSON格式）
         let parsedState = finalState
@@ -909,8 +845,8 @@ export class SSOService extends ApiService {
             parsedState = finalState
         }
 
-        // 第三方 OAuth（GitHub/Google/微信）用 code 换 token 走 oauth-login，不走 SSO client 的 oauth/token
-        if (isSocialProviderId(provider)) {
+        // 仅登录中心的 GitHub/Google/微信走 oauth-login；子项目一律 oauth/token
+        if (shouldUseSocialOAuthLogin(provider, this.isSubProjectApp())) {
             const oauthLoginPayload = {
                 provider,
                 code,
@@ -998,7 +934,9 @@ export class SSOService extends ApiService {
 
 
             // 使用统一的API服务进行token交换
-            const response = await this.post<SSOToken>(tokenEndpoint, tokenRequestData)
+            const response = await this.post<SSOToken>(tokenEndpoint, tokenRequestData, {
+                withCredentials: false,
+            })
 
 
 
@@ -1186,41 +1124,60 @@ export class SSOService extends ApiService {
     }
 
 
-    // 登出
+    buildLogoutHref({
+        id_token_hint,
+        post_logout_redirect_uri,
+        state,
+    }: {
+        id_token_hint?: string
+        post_logout_redirect_uri?: string
+        state?: string
+    } = {}): string {
+        const redirectUri =
+            post_logout_redirect_uri ||
+            this.config.redirectUri ||
+            `${window.location.origin}${window.location.pathname}`
+        return buildOAuthLogoutHref({
+            ssoServerUrl: this.baseURL || this.config.ssoServerUrl,
+            logoutPath: this.config.logoutEndpoint || this.config.logoutUrl,
+            idTokenHint: id_token_hint,
+            postLogoutRedirectUri: redirectUri,
+            state,
+        })
+    }
+
+    // 登出：先假定调用方已清本地；这里再清一遍，然后跳 IdP（无 id_token 也跳）
     async ssoLogout({
         id_token_hint,
         post_logout_redirect_uri,
         state,
     }: {
-        id_token_hint: string
+        id_token_hint?: string
         post_logout_redirect_uri?: string
         state?: string
-    }, requestType = 'href') {
+    } = {}, requestType = 'href') {
         await this.tokenManager.clearTokens()
         await this.sessionManager.destroySession()
         storage.clearAuth()
         this.clearSessionCookies()
 
-        const redirectUri =
-            post_logout_redirect_uri ||
-            this.config.redirectUri ||
-            `${window.location.origin}${window.location.pathname}`
+        const uri = this.buildLogoutHref({
+            id_token_hint,
+            post_logout_redirect_uri,
+            state,
+        })
 
         if (requestType === 'href') {
-            const querys = new URLSearchParams()
-            querys.set('id_token_hint', id_token_hint)
-            querys.set('post_logout_redirect_uri', redirectUri)
-            if (state) {
-                querys.set('state', state)
-            }
-            const uri = `${this.baseURL}/api/v1/auth/oauth/logout?${querys.toString()}`
             window.location.href = uri
             return
         }
 
         return this.post(`/api/v1/auth/oauth/logout`, {
-            id_token_hint,
-            post_logout_redirect_uri: redirectUri,
+            ...(id_token_hint ? { id_token_hint } : {}),
+            post_logout_redirect_uri:
+                post_logout_redirect_uri ||
+                this.config.redirectUri ||
+                `${window.location.origin}${window.location.pathname}`,
             ...(state ? { state } : {}),
         })
     }
@@ -1229,19 +1186,7 @@ export class SSOService extends ApiService {
      * 构建登出URL
      */
     private buildLogoutUrl(request: SSOLogoutRequest): string {
-        const params = new URLSearchParams()
-
-        if (request.id_token_hint) {
-            params.append('id_token_hint', request.id_token_hint)
-        }
-        if (request.post_logout_redirect_uri) {
-            params.append('post_logout_redirect_uri', request.post_logout_redirect_uri)
-        }
-        if (request.state) {
-            params.append('state', request.state)
-        }
-
-        return `${this.config.logoutEndpoint}?${params.toString()}`
+        return this.buildLogoutHref(request)
     }
 
     /** 登录中心 Web（3033） */

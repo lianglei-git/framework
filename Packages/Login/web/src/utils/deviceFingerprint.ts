@@ -3,6 +3,8 @@
  * 用于唯一标识用户的设备，支持 session 去重
  */
 
+import { getLocalStorage } from './browserStorage'
+
 const STORAGE_KEY = 'device_fingerprint'
 
 /**
@@ -11,14 +13,15 @@ const STORAGE_KEY = 'device_fingerprint'
  */
 export function getDeviceFingerprint(): string {
     // 尝试从 localStorage 读取已有的设备ID
-    let deviceId = localStorage.getItem(STORAGE_KEY)
+    const store = getLocalStorage()
+    let deviceId = store?.getItem(STORAGE_KEY) ?? null
     
     if (!deviceId) {
         // 生成新的设备ID
         deviceId = generateDeviceId()
         
         try {
-            localStorage.setItem(STORAGE_KEY, deviceId)
+            store?.setItem(STORAGE_KEY, deviceId)
             console.log('✅ 设备指纹已生成:', deviceId)
         } catch (error) {
             console.error('❌ 保存设备指纹失败:', error)
@@ -81,7 +84,7 @@ function simpleHash(str: string): string {
  */
 export function clearDeviceFingerprint(): void {
     try {
-        localStorage.removeItem(STORAGE_KEY)
+        getLocalStorage()?.removeItem(STORAGE_KEY)
         console.log('✅ 设备指纹已清除')
     } catch (error) {
         console.error('❌ 清除设备指纹失败:', error)
@@ -92,6 +95,6 @@ export function clearDeviceFingerprint(): void {
  * 检查是否已有设备指纹
  */
 export function hasDeviceFingerprint(): boolean {
-    return !!localStorage.getItem(STORAGE_KEY)
+    return !!getLocalStorage()?.getItem(STORAGE_KEY)
 }
 

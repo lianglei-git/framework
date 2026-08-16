@@ -1,3 +1,5 @@
+import { getLocalStorage } from '../utils/browserStorage'
+
 const PKCE_STATE_KEY = 'pkce_state'
 const PKCE_VERIFIER_KEY = 'pkce_code_verifier'
 const PKCE_BUNDLE_KEY = 'pkce_oauth_bundle'
@@ -5,23 +7,40 @@ const PKCE_BUNDLE_KEY = 'pkce_oauth_bundle'
 export interface PkceBundle {
     state: string
     codeVerifier: string
+    redirectUri?: string
+    returnTo?: string
 }
 
 function writeLegacyPkceKeys(state: string, codeVerifier: string): void {
-    localStorage.setItem(PKCE_STATE_KEY, state)
-    localStorage.setItem(PKCE_VERIFIER_KEY, codeVerifier)
+    const store = getLocalStorage()
+    if (!store) return
+    store.setItem(PKCE_STATE_KEY, state)
+    store.setItem(PKCE_VERIFIER_KEY, codeVerifier)
 }
 
 /** Commit PKCE only after authorize URL is finalized (not superseded). */
-export function commitPkceBundle(state: string, codeVerifier: string): void {
-    const bundle: PkceBundle = { state, codeVerifier }
-    localStorage.setItem(PKCE_BUNDLE_KEY, JSON.stringify(bundle))
+export function commitPkceBundle(
+    state: string,
+    codeVerifier: string,
+    extras?: { redirectUri?: string; returnTo?: string | null },
+): void {
+    const store = getLocalStorage()
+    if (!store) return
+    const bundle: PkceBundle = {
+        state,
+        codeVerifier,
+        ...(extras?.redirectUri ? { redirectUri: extras.redirectUri } : {}),
+        ...(extras?.returnTo ? { returnTo: extras.returnTo } : {}),
+    }
+    store.setItem(PKCE_BUNDLE_KEY, JSON.stringify(bundle))
     writeLegacyPkceKeys(state, codeVerifier)
 }
 
 export function readPkceBundle(): PkceBundle | null {
+    const store = getLocalStorage()
+    if (!store) return null
     try {
-        const raw = localStorage.getItem(PKCE_BUNDLE_KEY)
+        const raw = store.getItem(PKCE_BUNDLE_KEY)
         if (raw) {
             const parsed = JSON.parse(raw) as PkceBundle
             if (parsed?.state && parsed?.codeVerifier) {
@@ -32,8 +51,8 @@ export function readPkceBundle(): PkceBundle | null {
         // fall through to legacy keys
     }
 
-    const state = localStorage.getItem(PKCE_STATE_KEY)
-    const codeVerifier = localStorage.getItem(PKCE_VERIFIER_KEY)
+    const state = store.getItem(PKCE_STATE_KEY)
+    const codeVerifier = store.getItem(PKCE_VERIFIER_KEY)
     if (state && codeVerifier) {
         return { state, codeVerifier }
     }
@@ -49,10 +68,12 @@ export function readPkceCodeVerifier(): string | null {
 }
 
 export function clearPkceBundle(): void {
-    localStorage.removeItem(PKCE_BUNDLE_KEY)
-    localStorage.removeItem(PKCE_STATE_KEY)
-    localStorage.removeItem(PKCE_VERIFIER_KEY)
-    localStorage.removeItem('sso_state')
+    const store = getLocalStorage()
+    if (!store) return
+    store.removeItem(PKCE_BUNDLE_KEY)
+    store.removeItem(PKCE_STATE_KEY)
+    store.removeItem(PKCE_VERIFIER_KEY)
+    store.removeItem('sso_state')
 }
 
 /**

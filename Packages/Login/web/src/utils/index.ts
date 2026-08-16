@@ -15,6 +15,21 @@ export {
 
 // 存储工具
 export { storage, storageManager, StorageManager } from './storage'
+export {
+    clearClientAuth,
+    clearClientAuthStorage,
+    peekIdToken,
+    isLogoutInProgress,
+    markLogoutInProgress,
+} from './clearClientAuth'
+export { buildOAuthLogoutHref, withLogoutQuery } from './oauthLogoutUrl'
+export {
+    resolveAuthorizeRedirectUri,
+    currentPageRedirectUri,
+    toCleanOrigin,
+    applyReturnTo,
+    consumeReturnTo,
+} from './oauthRedirectUri'
 
 // 错误文案
 export { formatAuthError, throwAuthError, isUnauthorizedError } from './authError'

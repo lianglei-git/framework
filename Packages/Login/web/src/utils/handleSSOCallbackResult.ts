@@ -1,3 +1,4 @@
+import { getSessionStorage } from "./browserStorage"
 import { cleanOAuthParamsFromUrl } from "./oauthLoading"
 import { getSSOConfig } from "../sso/config"
 import { globalUserStore } from "../stores/UserStore"
@@ -30,7 +31,7 @@ function isLoginCenterPage(): boolean {
 
 function shouldBlockRedirectLoop(authorizeUrl: string): boolean {
     try {
-        const raw = sessionStorage.getItem(REDIRECT_GUARD_KEY)
+        const raw = getSessionStorage()?.getItem(REDIRECT_GUARD_KEY)
         if (!raw) return false
         const { url, at } = JSON.parse(raw) as { url: string; at: number }
         return url === authorizeUrl && Date.now() - at < REDIRECT_GUARD_MS
@@ -40,7 +41,7 @@ function shouldBlockRedirectLoop(authorizeUrl: string): boolean {
 }
 
 function markRedirectAttempt(authorizeUrl: string): void {
-    sessionStorage.setItem(
+    getSessionStorage()?.setItem(
         REDIRECT_GUARD_KEY,
         JSON.stringify({ url: authorizeUrl, at: Date.now() }),
     )
@@ -57,7 +58,7 @@ function canRedirectToOriginAuthorize(opts?: SSOCallbackOptions): boolean {
 }
 
 export function clearAuthorizeRedirectGuard(): void {
-    sessionStorage.removeItem(REDIRECT_GUARD_KEY)
+    getSessionStorage()?.removeItem(REDIRECT_GUARD_KEY)
 }
 
 // 处理SSO回调结果

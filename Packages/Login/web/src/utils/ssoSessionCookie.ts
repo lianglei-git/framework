@@ -55,9 +55,20 @@ export function readSsoSessionCookies(): { sessionId: string | null; appId: stri
 }
 
 export function clearSsoSessionCookies(): void {
+    if (typeof document === 'undefined') return
     const domain = getSsoCookieDomain()
-    const domainPart = domain ? `; domain=${domain}` : ''
     const expires = 'expires=Thu, 01 Jan 1970 00:00:00 GMT'
-    document.cookie = `sso_session_id=; path=/; ${expires}${domainPart}`
-    document.cookie = `sso_app_id=; path=/; ${expires}${domainPart}`
+    const variants = [
+        `path=/; ${expires}`,
+        `path=/; ${expires}; SameSite=Lax`,
+    ]
+    if (domain) {
+        variants.push(`path=/; ${expires}; domain=${domain}`)
+        variants.push(`path=/; ${expires}; domain=${domain}; SameSite=Lax`)
+    }
+    for (const name of ['sso_session_id', 'sso_app_id']) {
+        for (const attrs of variants) {
+            document.cookie = `${name}=; ${attrs}`
+        }
+    }
 }

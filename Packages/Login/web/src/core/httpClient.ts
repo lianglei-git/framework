@@ -2,6 +2,7 @@ import axios from 'axios'
 import { storage } from '../utils/storage'
 import { getGenresType } from '../utils/getGenresType'
 import { throwAuthError } from '../utils/authError'
+import { readLegacyAuthToken } from '../utils/browserStorage'
 
 /**
  * 传输层。禁止在本文件 import OAuth / UserStore / core 桶，
@@ -165,7 +166,7 @@ export class ApiService {
             } : undefined
         }
 
-        const token = localStorage.getItem('auth_token')
+        const token = readLegacyAuthToken()
         if (token) {
             config.headers = {
                 ...config.headers,
@@ -177,7 +178,7 @@ export class ApiService {
     }
 
     async download(url: string, filename?: string): Promise<void> {
-        const token = localStorage.getItem('auth_token')
+        const token = readLegacyAuthToken()
         const headers: Record<string, string> = {}
 
         if (token) {
