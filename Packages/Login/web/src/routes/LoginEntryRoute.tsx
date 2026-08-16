@@ -11,6 +11,7 @@ import {
     syncLoginEntryContext,
 } from './loginEntry'
 import { getSubAppAuthorizeUrl, rememberSubAppAuthorizeUrl } from '../utils/ssoOriginRedirect'
+import { isLoginCenterHost } from '../utils/isLoginCenterHost'
 import { clearSsoSessionCookies, readSsoSessionCookies } from '../utils/ssoSessionCookie'
 import { SESSION_REVOKED_EVENT } from '../utils/forcedLogout'
 import { globalUserStore } from '../stores/UserStore'
@@ -39,7 +40,7 @@ export const LoginEntryRoute: React.FC = observer(() => {
 
     useEffect(() => {
         if (!auth.isAuthenticated) return
-        if (window.location.port !== '3033') return
+        if (!isLoginCenterHost()) return
         const { sessionId } = readSsoSessionCookies()
         if (!sessionId) {
             globalUserStore.clearLocalAuth()

@@ -2,6 +2,7 @@ import { getSessionStorage } from "./browserStorage"
 import { cleanOAuthParamsFromUrl } from "./oauthLoading"
 import { getSSOConfig } from "../sso/config"
 import { globalUserStore } from "../stores/UserStore"
+import { isLoginCenterHost } from "./isLoginCenterHost"
 import { readSsoSessionCookies } from "./ssoSessionCookie"
 import {
     clearSubAppRedirectContext,
@@ -25,8 +26,7 @@ const REDIRECT_GUARD_KEY = 'sso_authorize_redirect_guard'
 const REDIRECT_GUARD_MS = 12_000
 
 function isLoginCenterPage(): boolean {
-    if (typeof window === 'undefined') return false
-    return window.location.port === '3033'
+    return isLoginCenterHost(window.location, getSSOConfig()?.ssoHomeUrl)
 }
 
 function shouldBlockRedirectLoop(authorizeUrl: string): boolean {
@@ -47,13 +47,13 @@ function markRedirectAttempt(authorizeUrl: string): void {
     )
 }
 
-/** 登录中心：须显式 afterLogin，或已有 IdP session cookie + 本地登录态 */
+/** 登录中心：必须有 IdP session cookie。本地残留登录态不够（退出后常见）。 */
 function canRedirectToOriginAuthorize(opts?: SSOCallbackOptions): boolean {
-    if (opts?.afterLogin === true) return true
     if (!isLoginCenterPage()) return true
 
     const { sessionId } = readSsoSessionCookies()
     if (!sessionId) return false
+    if (opts?.afterLogin === true) return true
     return globalUserStore.isLogin
 }
 
@@ -99,10 +99,7 @@ export const handleSSOCallbackResult = async (opts?: SSOCallbackOptions) => {
         return false
     }
 
-    // 已解析出回跳地址后清除持久化 origin，避免裸访问 3033 时误跳子项目（URL 参数仍可供重试）
-    clearSubAppRedirectContext()
-
-    if (shouldBlockRedirectLoop(resolvedAuthorizeUrl)) {
+    if (shouldBlockRedirectLoop(resolvedAuthorizeUrl) && !opts?.afterLogin) {
         console.warn('⚠️ 检测到 authorize 回跳循环，已暂停自动跳转，请手动点击「返回应用」')
         return false
     }
@@ -112,6 +109,12 @@ export const handleSSOCallbackResult = async (opts?: SSOCallbackOptions) => {
         return false
     }
 
+    if (opts?.afterLogin) {
+        clearAuthorizeRedirectGuard()
+    }
+
+    // 确定要跳了再清持久化 origin，避免被 guard 拦住后丢回跳地址
+    clearSubAppRedirectContext()
     markRedirectAttempt(resolvedAuthorizeUrl)
     stripSubAppRedirectParamsFromUrl()
     window.location.href = resolvedAuthorizeUrl

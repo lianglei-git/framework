@@ -43,6 +43,7 @@ import {
 } from './oauthState'
 import { handleForcedLogout, isSessionRevokedError } from '../utils/forcedLogout'
 import { isLogoutInProgress } from '../utils/clearClientAuth'
+import { isLoginCenterHost } from '../utils/isLoginCenterHost'
 import { buildOAuthLogoutHref } from '../utils/oauthLogoutUrl'
 import {
     applyReturnTo,
@@ -222,7 +223,7 @@ export class SSOService extends ApiService {
                             console.log('子项目 OAuth 回调完成，已清理 URL')
                         } else {
                             const handled = await handleSSOCallbackResult({ afterLogin: true })
-                            if (!handled && window.location.port === '3033') {
+                            if (!handled && isLoginCenterHost()) {
                                 window.location.replace('/account')
                             }
                         }
@@ -1189,10 +1190,9 @@ export class SSOService extends ApiService {
         return this.buildLogoutHref(request)
     }
 
-    /** 登录中心 Web（3033） */
+    /** 登录中心 Web（3033 / auth.znewbie.com） */
     isLoginCenterApp(): boolean {
-        if (typeof window === 'undefined') return false
-        return window.location.port === '3033'
+        return isLoginCenterHost(window.location, this.config.ssoHomeUrl || getSSOConfig()?.ssoHomeUrl)
     }
 
     /**

@@ -1,10 +1,20 @@
 import { getLocalStorage, isBrowser } from './browserStorage'
 
 const RETURN_TO_KEY = 'sso_return_to'
+const PREFERRED_RETURN_KEY = 'sso_preferred_return_to'
 const AUTHORIZE_REDIRECT_KEY = 'sso_authorize_redirect_uri'
-const OAUTH_QUERY_KEYS = ['code', 'state', 'error', 'error_description', 'error_uri'] as const
+const OAUTH_QUERY_KEYS = ['code', 'state', 'error', 'error_description', 'error_uri', 'logout'] as const
 
-/** 当前页（去掉 OAuth 回调参数），作为登录后回跳 */
+function isBareOriginOrRoot(url: string, origin: string): boolean {
+    try {
+        const parsed = new URL(url)
+        return parsed.origin === origin && (parsed.pathname === '/' || parsed.pathname === '')
+    } catch {
+        return false
+    }
+}
+
+/** 当前页（去掉 OAuth / logout 参数），作为登录后回跳 */
 export function currentPageRedirectUri(): string | null {
     if (!isBrowser()) return null
     const url = new URL(window.location.href)
@@ -44,10 +54,21 @@ export function resolveAuthorizeRedirectUri(options: {
         || toCleanOrigin(current)
         || ''
 
-    const returnTo =
+    let returnTo =
         current && redirectUri && current !== redirectUri && sameOriginUrl(current, redirectUri)
             ? current
             : null
+
+    if (returnTo && isBareOriginOrRoot(returnTo, redirectUri)) {
+        const preferred = getLocalStorage()?.getItem(PREFERRED_RETURN_KEY)
+        if (preferred && sameOriginUrl(preferred, redirectUri) && !isBareOriginOrRoot(preferred, redirectUri)) {
+            returnTo = preferred
+        } else {
+            returnTo = null
+        }
+    } else if (returnTo && !isBareOriginOrRoot(returnTo, redirectUri)) {
+        getLocalStorage()?.setItem(PREFERRED_RETURN_KEY, returnTo)
+    }
 
     return { redirectUri, returnTo }
 }
