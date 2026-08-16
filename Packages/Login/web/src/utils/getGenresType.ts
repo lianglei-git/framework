@@ -1,4 +1,6 @@
-const searchParams = new URLSearchParams(window.location.search)
+const searchParams = new URLSearchParams(
+    typeof window !== 'undefined' ? window.location.search : '',
+)
 
 // 登录归属Id
 const getGenresType = () => {

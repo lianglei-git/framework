@@ -1,9 +1,11 @@
 import { makeAutoObservable } from "mobx"
 import { User, UserRole, type SSOSession, type SSOUser } from '../types'
-import { authApi } from '../core/authApi'
-import { userApi } from '../core/userApi'
+import { basicUrl } from '../core/httpClient'
+// 禁止顶层 import authApi / userApi：它们 extends ApiService，
+// 会与 SSOService → UserStore 形成环，Turbopack 报 ApiService TDZ。
 import { storageManager } from "../utils"
 import { storage } from '../utils/storage'
+import { resolveAvatarUrl } from '../utils/avatarUrl'
 import { clearOriginAppUri } from '../utils/ssoOriginRedirect'
 import { formatAuthError } from '../utils/authError'
 
@@ -52,9 +54,11 @@ class UserStore {
         makeAutoObservable(this)
         this.getLocalStorageUserInfo()
 
-        window.addEventListener('auth:login', () => {
-            this.syncFromStorage()
-        })
+        if (typeof window !== 'undefined') {
+            window.addEventListener('auth:login', () => {
+                this.syncFromStorage()
+            })
+        }
     }
 
     // 计算属性
@@ -78,7 +82,7 @@ class UserStore {
     }
 
     get avatarSrc() {
-        return this.info.avatar_url || userApi.getAvatarSrc(this.info.avatar)
+        return this.info.avatar_url || resolveAvatarUrl(this.info.avatar, basicUrl)
     }
 
     get isLogin() {
@@ -162,6 +166,7 @@ class UserStore {
     logout = async () => {
         this.isLoading = true
         try {
+            const { authApi } = await import('../core/authApi')
             await authApi.logout()
         } catch {
             // ignore
@@ -266,6 +271,7 @@ class UserStore {
         this.error = null
 
         try {
+            const { userApi } = await import('../core/userApi')
             const updatedUser = await userApi.updateProfile(userData)
             this.info = {
                 ...this.info,
@@ -290,6 +296,7 @@ class UserStore {
     // 请求用户详细信息
     async requestUserDetailsInfo() {
         try {
+            const { userApi } = await import('../core/userApi')
             const response = await userApi.getProfile()
             this.detailsUserInfo = response
             this.info = {
@@ -376,7 +383,9 @@ class UserStore {
 // 创建全局用户存储实例
 const globalUserStore = new UserStore()
 
-window.globalUserStore = globalUserStore
+if (typeof window !== 'undefined') {
+    window.globalUserStore = globalUserStore
+}
 
 export {
     globalUserStore,

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { setSSOConfig, SSOService } from '../sso'
+import { setSSOConfig } from '../sso/config'
 import { createAuthConfig } from '../core/createAuthConfig'
 import { getSubProjectConfig, SubProjectConfig } from '../config/subproject-integration'
 import { type SSOToken, type SSOUser, type SSOSession, StorageType } from '../types'
