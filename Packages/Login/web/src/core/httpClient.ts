@@ -2,11 +2,19 @@ import axios from 'axios'
 import { storage } from '../utils/storage'
 import { getGenresType } from '../utils/getGenresType'
 import { throwAuthError } from '../utils/authError'
-import {
-    refreshOAuthTokenOnce,
-    shouldAttemptOAuthRefreshOn401,
-} from '../utils/oauthRefreshOn401'
-import { recoverOAuthSessionAfterRefreshFailure } from '../utils/oauthSessionRecovery'
+
+/**
+ * 传输层。禁止在本文件 import OAuth / UserStore / core 桶，
+ * 否则 `class ApiService` 会与上层形成环（Next/Turbopack TDZ）。
+ * 401 重试由上层通过 setUnauthorizedRetry 注入。
+ */
+export type UnauthorizedRetry = (url: string) => Promise<boolean>
+
+let unauthorizedRetry: UnauthorizedRetry | null = null
+
+export function setUnauthorizedRetry(handler: UnauthorizedRetry | null): void {
+    unauthorizedRetry = handler
+}
 
 export const basicUrl = import.meta.env.VITE_SSO_SERVER_URL
 export const getCommonHeaders = (token?: string) => {
@@ -67,16 +75,25 @@ export class ApiService {
             if (
                 axios.isAxiosError(error) &&
                 error.response?.status === 401 &&
-                !options._oauthRetried &&
-                shouldAttemptOAuthRefreshOn401(config.url)
+                !options._oauthRetried
             ) {
-                const refreshed = await refreshOAuthTokenOnce()
-                if (refreshed) {
-                    return this.request<T>(url, { ...options, _oauthRetried: true })
-                }
-                const recovery = await recoverOAuthSessionAfterRefreshFailure()
-                if (recovery === 'recovered') {
-                    return this.request<T>(url, { ...options, _oauthRetried: true })
+                // 延迟加载：这两个模块会碰到 UserStore → core 桶，顶层 import 会在
+                // ApiService 初始化前形成环（Next/Turbopack 报 TDZ）。
+                const { refreshOAuthTokenOnce, shouldAttemptOAuthRefreshOn401 } = await import(
+                    '../utils/oauthRefreshOn401'
+                )
+                if (shouldAttemptOAuthRefreshOn401(config.url)) {
+                    const refreshed = await refreshOAuthTokenOnce()
+                    if (refreshed) {
+                        return this.request<T>(url, { ...options, _oauthRetried: true })
+                    }
+                    const { recoverOAuthSessionAfterRefreshFailure } = await import(
+                        '../utils/oauthSessionRecovery'
+                    )
+                    const recovery = await recoverOAuthSessionAfterRefreshFailure()
+                    if (recovery === 'recovered') {
+                        return this.request<T>(url, { ...options, _oauthRetried: true })
+                    }
                 }
             }
             console.error('API request error:', error)

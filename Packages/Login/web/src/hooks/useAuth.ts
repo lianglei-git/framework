@@ -9,7 +9,9 @@ import {
     type PhoneResetPasswordRequest,
     type unifiedNormalLocalLoginRequest,
 } from '../types'
-import { authApi, userApi, createAuthConfig } from '../core'
+import { authApi } from '../core/authApi'
+import { userApi } from '../core/userApi'
+import { createAuthConfig } from '../core/createAuthConfig'
 import { storage } from '../utils/storage'
 import { clearOriginAppUri } from '../utils/ssoOriginRedirect'
 import { readSsoSessionCookies } from '../utils/ssoSessionCookie'
