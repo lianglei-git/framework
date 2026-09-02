@@ -106,7 +106,7 @@ type RS256TokenClaims struct {
 	Lid              string `json:"lid,omitempty"`
 	RegisteredClaims jwt.RegisteredClaims
 	User             *models.User
-	// Req              models.UnifiedOAuthLoginRequest
+	DB               *gorm.DB `json:"-"`
 }
 
 // JWKSet JSON Web Key Set
@@ -826,6 +826,7 @@ func generateTokensFromClaims(c *gin.Context, db *gorm.DB, claims jwt.MapClaims,
 
 	now := time.Now()
 	allJWTDatas := &RS256TokenClaims{
+		DB:          db,
 		ClientID:    clientID,
 		UserID:      user.ID,
 		Email:       *user.Email,
@@ -944,19 +945,62 @@ func GenerateAccessTokenWithRS256(allJWTDatas *RS256TokenClaims) (string, error)
 	if rsaPrivateKey == nil {
 		return "", fmt.Errorf("RSA private key is not initialized")
 	}
+	if allJWTDatas == nil {
+		allJWTDatas = &RS256TokenClaims{}
+	}
+
+	now := time.Now()
+	exp := now.Add(config.AccessTokenTTL())
+	iat := now
+	jti := uuid.New().String()
+	if allJWTDatas.RegisteredClaims.ExpiresAt != nil {
+		exp = allJWTDatas.RegisteredClaims.ExpiresAt.Time
+	}
+	if allJWTDatas.RegisteredClaims.IssuedAt != nil {
+		iat = allJWTDatas.RegisteredClaims.IssuedAt.Time
+	}
+	if allJWTDatas.RegisteredClaims.ID != "" {
+		jti = allJWTDatas.RegisteredClaims.ID
+	}
+
+	userID := allJWTDatas.UserID
+	if userID == "" && allJWTDatas.User != nil {
+		userID = allJWTDatas.User.ID
+	}
+	email := allJWTDatas.Email
+	if email == "" && allJWTDatas.User != nil && allJWTDatas.User.Email != nil {
+		email = *allJWTDatas.User.Email
+	}
+	role := allJWTDatas.Role
+	if role == "" && allJWTDatas.User != nil {
+		role = allJWTDatas.User.Role
+	}
 
 	claims := jwt.MapClaims{
-		"iss": os.Getenv("JWT_ISS"),
-		"sub": allJWTDatas.UserID,
-		"aud": allJWTDatas.ClientID,
-		// jwt.NewNumericDate(now.Add(time.Duration(config.AppConfig.JWTExpiration) * time.Hour))
-		"exp":           allJWTDatas.RegisteredClaims.ExpiresAt.Unix(),
-		"iat":           allJWTDatas.RegisteredClaims.IssuedAt.Unix(),
-		"jti":           allJWTDatas.RegisteredClaims.ID,
+		"iss":           os.Getenv("JWT_ISS"),
+		"sub":           userID,
+		"user_id":       userID,
+		"aud":           allJWTDatas.ClientID,
+		"exp":           exp.Unix(),
+		"iat":           iat.Unix(),
+		"jti":           jti,
 		"local_user_id": allJWTDatas.LocalUserID,
 		"lid":           allJWTDatas.Lid,
-		"role":          allJWTDatas.Role,
+		"role":          role,
 		"app_id":        allJWTDatas.AppID,
+	}
+	if email != "" {
+		claims["email"] = email
+	}
+
+	db := allJWTDatas.DB
+	if db == nil {
+		db = models.GetDB()
+	}
+	if beta := models.BetaClaimMap(db, userID); beta != nil {
+		claims["beta"] = beta
+	} else if role == "beta" {
+		log.Printf("⚠️ access token: role=beta but no user_beta_profiles row for user %s", userID)
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
@@ -1485,20 +1529,17 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 		log.Println("⚠️ Refresh token即将过期，需要轮换")
 	}
 	userID := claims["sub"].(string)
-	userEmail := "" // claims["email"].(string)
-	userRole := ""  // claims["role"].(string)
-
-	// 🚀 性能优化：移除 Client 查询
-	// JWT签名已经验证了客户端合法性，无需再查询数据库
-
-	// 🚀 性能优化：只查询必要的用户字段
+	userEmail := ""
+	userRole := ""
 	var user models.User
-	// if err := db.Where("id = ?", userID).
-	// 	Select("id, email, role, username").
-	// 	First(&user).Error; err != nil {
-	// 	utils.ReturnUserNotFound(c)
-	// 	return
-	// }
+	if err := db.Where("id = ?", userID).First(&user).Error; err == nil {
+		userRole = user.Role
+		if user.Email != nil {
+			userEmail = *user.Email
+		}
+	}
+
+	// JWT签名已经验证了客户端合法性，无需再查询数据库
 
 	// 查询 local_user_id（仅在需要时）
 	// localID := ""
@@ -1520,6 +1561,7 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 
 	now := time.Now()
 	allJWTDatas := &RS256TokenClaims{
+		DB:          db,
 		ClientID:    clientID,
 		UserID:      userID,
 		Email:       userEmail,
@@ -1687,7 +1729,26 @@ func handlePasswordGrant(c *gin.Context, db *gorm.DB, username, password, client
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": "Request body must be valid JSON"})
 		return
 	}
-	allJWTDatas := &RS256TokenClaims{}
+	now := time.Now()
+	email := ""
+	if user.Email != nil {
+		email = *user.Email
+	}
+	allJWTDatas := &RS256TokenClaims{
+		DB:       db,
+		ClientID: clientID,
+		UserID:   user.ID,
+		Email:    email,
+		Role:     user.Role,
+		User:     &user,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(config.AccessTokenTTL())),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			Issuer:    os.Getenv("JWT_ISS"),
+			ID:        uuid.New().String(),
+		},
+	}
 	// 生成访问令牌
 	accessToken, err := GenerateAccessTokenWithRS256(allJWTDatas)
 	if err != nil {
@@ -1942,6 +2003,9 @@ func validateAuthorizationCodeWithPKCE(db *gorm.DB, code, clientID, redirectURI,
 		"role":         user.Role,
 		"username":     user.Username,
 	}
+	if beta := models.BetaClaimForUser(models.GetDB(), user.ID); beta != nil {
+		claims["beta"] = beta
+	}
 
 	// 添加用户信息
 	if user.Email != nil {
@@ -2040,8 +2104,28 @@ func handleCodeVerifierGrant(c *gin.Context, db *gorm.DB, code, clientID, client
 		fmt.Printf("Failed to record login log: %v\n", err)
 	}
 
+	now := time.Now()
+	email := ""
+	if user.Email != nil {
+		email = *user.Email
+	}
 	// 生成访问令牌
-	accessToken, err := GenerateAccessTokenWithRS256(&RS256TokenClaims{})
+	accessToken, err := GenerateAccessTokenWithRS256(&RS256TokenClaims{
+		DB:       db,
+		ClientID: clientID,
+		UserID:   user.ID,
+		Email:    email,
+		Role:     user.Role,
+		AppID:    appID,
+		User:     &user,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(now.Add(config.AccessTokenTTL())),
+			IssuedAt:  jwt.NewNumericDate(now),
+			NotBefore: jwt.NewNumericDate(now),
+			Issuer:    os.Getenv("JWT_ISS"),
+			ID:        uuid.New().String(),
+		},
+	})
 	if err != nil {
 		utils.ReturnTokenGenerationFailed(c)
 		return

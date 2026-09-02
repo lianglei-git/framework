@@ -74,7 +74,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		c.Set("local_user_id", claims.LocalUserID)
 		c.Set("email", claims.Email)
 		c.Set("role", claims.Role)
-
+		log.Println("claims :::::: ", claims)
 		c.Next()
 	}
 }

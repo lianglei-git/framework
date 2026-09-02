@@ -35,6 +35,9 @@ const KNOWN_EN_MESSAGES: Record<string, string> = {
   'User not found': '用户不存在',
   'Invalid role': '无效的角色',
   'Invalid status': '无效的状态',
+  'beta profile required': '内测角色必须填写内测档案',
+  'invalid beta group': '内测分组仅支持 A / B / C',
+  'invalid beta status': '内测资格状态无效',
   'SSO client not found': 'SSO 客户端不存在',
   'Client ID is required': '缺少客户端 ID',
 }

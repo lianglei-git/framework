@@ -18,11 +18,18 @@ type StandaloneConfig struct {
 	HTTPClient   *http.Client
 }
 
+type jwtBeta struct {
+	BetaGroup string `json:"beta_group"`
+	Status    int    `json:"status"`
+	ExpiresAt string `json:"expires_at"`
+}
+
 // jwtClaims only consumes UUID user_id; local_user_id is ignored.
 type jwtClaims struct {
-	UserID string `json:"user_id"`
-	Email  string `json:"email"`
-	Role   string `json:"role"`
+	UserID string   `json:"user_id"`
+	Email  string   `json:"email"`
+	Role   string   `json:"role"`
+	Beta   *jwtBeta `json:"beta,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -81,7 +88,15 @@ func introspectToken(token string, cfg StandaloneConfig) (Identity, error) {
 		UserID: info.UserID,
 		Email:  info.Email,
 		Role:   info.Role,
+		Beta:   betaFromSDK(info.Beta),
 	}, nil
+}
+
+func betaFromSDK(b *sdk.BetaProfile) *BetaProfile {
+	if b == nil {
+		return nil
+	}
+	return &BetaProfile{Group: b.BetaGroup, Status: b.Status, ExpiresAt: b.ExpiresAt}
 }
 
 func verifyLocalJWT(tokenString, secret string) (Identity, error) {
@@ -98,9 +113,17 @@ func verifyLocalJWT(tokenString, secret string) (Identity, error) {
 	if strings.TrimSpace(claims.UserID) == "" {
 		return Identity{}, errors.New("missing user_id claim")
 	}
-	return Identity{
+	id := Identity{
 		UserID: claims.UserID,
 		Email:  claims.Email,
 		Role:   claims.Role,
-	}, nil
+	}
+	if claims.Beta != nil {
+		id.Beta = &BetaProfile{
+			Group:     claims.Beta.BetaGroup,
+			Status:    claims.Beta.Status,
+			ExpiresAt: claims.Beta.ExpiresAt,
+		}
+	}
+	return id, nil
 }

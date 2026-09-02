@@ -53,13 +53,21 @@ type SessionCheckRequest struct {
 
 // IntrospectResponse token 内省结果
 type IntrospectResponse struct {
-	Active      bool   `json:"active"`
-	UserID      string `json:"user_id"`
-	Email       string `json:"email"`
-	Role        string `json:"role"`
-	TokenType   string `json:"token_type"`
-	Exp         int64  `json:"exp"`
-	ExpiresAt   string `json:"expires_at"`
+	Active    bool         `json:"active"`
+	UserID    string       `json:"user_id"`
+	Email     string       `json:"email"`
+	Role      string       `json:"role"`
+	Beta      *BetaProfile `json:"beta,omitempty"`
+	TokenType string       `json:"token_type"`
+	Exp       int64        `json:"exp"`
+	ExpiresAt string       `json:"expires_at"`
+}
+
+// BetaProfile 内测档案（token claims / introspect 嵌套字段）
+type BetaProfile struct {
+	BetaGroup string `json:"beta_group"`
+	Status    int    `json:"status"`
+	ExpiresAt string `json:"expires_at,omitempty"`
 }
 
 // AuthURLResponse BFF 常用：包装后的授权 URL

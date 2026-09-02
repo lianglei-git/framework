@@ -27,8 +27,8 @@ export interface UserInfo {
   phone: string
   username: string
   nickname: string
-  role: 'admin' | 'moderator' | 'user'
-  status: 'active' | 'inactive' | 'suspended' | 'pending'
+  role: 'admin' | 'moderator' | 'user' | 'beta' | 'ops'
+  status: 'active' | 'frozen' | 'cancelled'
   email_verified: boolean
   phone_verified: boolean
   login_count?: number
@@ -52,6 +52,15 @@ export interface LoginResponse {
 
 // ==================== 用户管理 ====================
 
+export interface UserBetaProfile {
+  user_id: string
+  beta_group: string
+  status: number
+  expires_at: string | null
+  created_at?: string
+  updated_at?: string
+}
+
 export interface AdminUser {
   id: string
   email: string
@@ -67,6 +76,7 @@ export interface AdminUser {
   created_at: string
   updated_at: string
   meta?: Record<string, unknown>
+  beta?: UserBetaProfile | null
 }
 
 export interface UserListParams {
@@ -94,6 +104,11 @@ export interface UpdateUserRequest {
   email_verified?: boolean
   phone_verified?: boolean
   meta?: Record<string, unknown>
+  beta?: {
+    beta_group: string
+    status: number
+    expires_at?: string | null
+  }
 }
 
 export interface BulkUpdateRequest {

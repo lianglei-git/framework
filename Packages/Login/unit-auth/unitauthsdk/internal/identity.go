@@ -2,11 +2,19 @@ package internal
 
 import "context"
 
+// BetaProfile is optional beta-qualification from token / introspect / plugin headers.
+type BetaProfile struct {
+	Group     string
+	Status    int
+	ExpiresAt string
+}
+
 // Identity is the v4 business identity (UUID user_id only).
 type Identity struct {
 	UserID string
 	Email  string
 	Role   string
+	Beta   *BetaProfile
 }
 
 type ctxKey int

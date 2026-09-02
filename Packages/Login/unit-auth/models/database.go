@@ -78,6 +78,7 @@ func InitDB() (*gorm.DB, error) {
 	err = db.AutoMigrate(
 		// 核心用户表
 		&User{},              // 核心用户表
+		&UserBetaProfile{},   // 内测资格档案
 		&EmailVerification{}, // 邮箱验证表
 		&PasswordReset{},     // 密码重置表
 		&SMSVerification{},   // 短信验证表
@@ -136,6 +137,8 @@ func InitDB() (*gorm.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to migrate database: %v", err)
 	}
+
+	migrateUserAccountStatus(db)
 
 	// 默认种子：nature_trans 项目（若不存在）
 	var cnt int64
@@ -439,6 +442,16 @@ func createMonitoringStatsView(db *gorm.DB) error {
 	`
 
 	return db.Exec(viewSQL).Error
+}
+
+// migrateUserAccountStatus 将旧状态值收敛为 active / frozen / cancelled
+func migrateUserAccountStatus(db *gorm.DB) {
+	if err := db.Exec("UPDATE users SET status = 'frozen' WHERE status IN ('suspended', 'inactive')").Error; err != nil {
+		log.Printf("Warning: failed to migrate frozen account status: %v", err)
+	}
+	if err := db.Exec("UPDATE users SET status = 'active' WHERE status = 'pending'").Error; err != nil {
+		log.Printf("Warning: failed to migrate pending account status: %v", err)
+	}
 }
 
 // 获取数据库连接

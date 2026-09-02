@@ -36,6 +36,24 @@ func revokeOtherUserSessions(db *gorm.DB, userID, keepSessionID string) {
 	}
 }
 
+// revokeAllUserSessions 冻结/注销后吊销该用户全部 SSO session 与 refresh token
+func revokeAllUserSessions(db *gorm.DB, userID string) {
+	if userID == "" {
+		return
+	}
+	now := time.Now()
+	if result := db.Model(&models.SSOSession{}).
+		Where("user_id = ? AND status = ?", userID, "active").
+		Updates(map[string]interface{}{"status": "revoked", "last_activity": now}); result.Error != nil {
+		fmt.Printf("⚠️ revoke all sessions failed for user %s: %v\n", userID, result.Error)
+	}
+	if result := db.Model(&models.RefreshToken{}).
+		Where("user_id = ? AND is_revoked = ?", userID, false).
+		Updates(map[string]interface{}{"is_revoked": true}); result.Error != nil {
+		fmt.Printf("⚠️ revoke refresh tokens failed for user %s: %v\n", userID, result.Error)
+	}
+}
+
 // CheckSessionAndGetToken 验证session并返回新token
 // 这是SSO自动恢复登录的关键接口
 func CheckSessionAndGetToken(db *gorm.DB) gin.HandlerFunc {

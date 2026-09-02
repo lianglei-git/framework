@@ -56,6 +56,7 @@ func IntrospectToken() gin.HandlerFunc {
 			"user_id":       claims.UserID,
 			"email":         claims.Email,
 			"role":          claims.Role,
+			"beta":          claims.Beta,
 			"project_key":   claims.ProjectKey,
 			"local_user_id": claims.LocalUserID,
 			"token_type":    claims.TokenType,

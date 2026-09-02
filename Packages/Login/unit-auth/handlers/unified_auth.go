@@ -499,6 +499,7 @@ func generateAndReturnTokensCore(db *gorm.DB, c *gin.Context, user *models.User,
 
 	// 构建所有jwt数据
 	allJWTDatas := &RS256TokenClaims{
+		DB:          db,
 		ClientID:    req.ClientID,
 		UserID:      user.ID,
 		Email:       *user.Email,
@@ -971,6 +972,7 @@ func (h *UnifiedAuthHandler) UnifiedPhoneLogin() gin.HandlerFunc {
 
 		now := time.Now()
 		allJWTDatas := &RS256TokenClaims{
+			DB:          h.db,
 			ClientID:    clientID,
 			UserID:      user.ID,
 			Email:       *user.Email,
@@ -1238,6 +1240,7 @@ func (h *UnifiedAuthHandler) UnifiedDoubleVerification() gin.HandlerFunc {
 
 			now := time.Now()
 			allJWTDatas := &RS256TokenClaims{
+				DB:          h.db,
 				ClientID:    clientID,
 				UserID:      user.ID,
 				Email:       *user.Email,
@@ -1356,15 +1359,15 @@ func (h *UnifiedAuthHandler) UnifiedDoubleVerification() gin.HandlerFunc {
 					fmt.Printf("❌ Failed to update existing session: %v\n", err)
 				} else {
 					fmt.Printf("✅ 复用已有session(double_verification): %s (device=%s)\n", sessionID, deviceFingerprint[:8]+"...")
+				}
 			}
-		}
 
-		if sessionID != "" {
-			revokeOtherUserSessions(h.db, user.ID, sessionID)
-		}
+			if sessionID != "" {
+				revokeOtherUserSessions(h.db, user.ID, sessionID)
+			}
 
-		// 构建响应
-		response := gin.H{
+			// 构建响应
+			response := gin.H{
 				"access_token":        accessToken,
 				"id_token":            idToken,
 				"refresh_token":       refreshToken,

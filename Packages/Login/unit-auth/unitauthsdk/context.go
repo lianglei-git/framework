@@ -46,6 +46,22 @@ func Role(c *gin.Context) string {
 	return ""
 }
 
+// BetaProfile is optional beta-qualification from token / introspect / plugin headers.
+type BetaProfile = internal.BetaProfile
+
+// Beta returns inner-test profile from gin context; nil if unset.
+func Beta(c *gin.Context) *BetaProfile {
+	if c == nil {
+		return nil
+	}
+	if v, ok := c.Get(ContextKeyBeta); ok {
+		if b, ok := v.(*BetaProfile); ok {
+			return b
+		}
+	}
+	return nil
+}
+
 // UserIDFromContext returns UUID from a stdlib context previously set via middleware
 // (Request.Context after gin inject) or internal.WithIdentity.
 func UserIDFromContext(ctx context.Context) string {
@@ -60,5 +76,8 @@ func setIdentity(c *gin.Context, id internal.Identity) {
 	c.Set(ContextKeyUserID, id.UserID)
 	c.Set(ContextKeyEmail, id.Email)
 	c.Set(ContextKeyRole, id.Role)
+	if id.Beta != nil {
+		c.Set(ContextKeyBeta, id.Beta)
+	}
 	c.Request = c.Request.WithContext(internal.WithIdentity(c.Request.Context(), id))
 }

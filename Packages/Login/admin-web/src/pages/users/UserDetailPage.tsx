@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import {
   Card,
   Descriptions,
@@ -10,41 +10,30 @@ import {
   Alert,
   Popconfirm,
   message,
+  Form,
+  Modal,
 } from 'antd'
-import { ArrowLeftOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, EditOutlined, DeleteOutlined, ExclamationCircleOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getUser, deleteUser } from '../../core/adminApi'
+import { getUser, deleteUser, updateUser } from '../../core/adminApi'
 import type { AdminUser } from '../../types'
 import { formatAuthError } from '../../utils/authError'
+import {
+  ROLE_COLOR,
+  ROLE_LABEL,
+  STATUS_COLOR,
+  STATUS_LABEL,
+  BETA_STATUS_LABEL,
+} from '../../utils/userLabels'
+import {
+  UserEditDrawer,
+  buildUpdatePayload,
+  fillUserEditForm,
+  type UserEditFormValues,
+} from './UserEditDrawer'
 
 const { Title } = Typography
-
-const STATUS_COLOR: Record<string, string> = {
-  active: 'green',
-  inactive: 'orange',
-  suspended: 'red',
-  pending: 'blue',
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  active: '活跃',
-  inactive: '非活跃',
-  suspended: '已暂停',
-  pending: '待审核',
-}
-
-const ROLE_COLOR: Record<string, string> = {
-  admin: 'purple',
-  moderator: 'blue',
-  user: 'default',
-}
-
-const ROLE_LABEL: Record<string, string> = {
-  admin: '管理员',
-  moderator: '版主',
-  user: '普通用户',
-}
 
 export default function UserDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -52,8 +41,11 @@ export default function UserDetailPage() {
   const [user, setUser] = useState<AdminUser | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [editDrawerOpen, setEditDrawerOpen] = useState(false)
+  const [editForm] = Form.useForm<UserEditFormValues>()
+  const [editLoading, setEditLoading] = useState(false)
 
-  useEffect(() => {
+  const loadUser = useCallback(() => {
     if (!id) return
     setLoading(true)
     setError(null)
@@ -63,6 +55,10 @@ export default function UserDetailPage() {
       .finally(() => setLoading(false))
   }, [id])
 
+  useEffect(() => {
+    loadUser()
+  }, [loadUser])
+
   const handleDelete = async () => {
     if (!id) return
     try {
@@ -71,6 +67,54 @@ export default function UserDetailPage() {
       navigate('/users')
     } catch (err) {
       message.error(formatAuthError(err, '删除失败'))
+    }
+  }
+
+  const openEditDrawer = () => {
+    if (!user) return
+    editForm.setFieldsValue(fillUserEditForm(user))
+    setEditDrawerOpen(true)
+  }
+
+  const saveEdit = async (values: UserEditFormValues) => {
+    if (!user) return
+    setEditLoading(true)
+    try {
+      await updateUser(user.id, buildUpdatePayload(values))
+      message.success('用户信息已更新')
+      setEditDrawerOpen(false)
+      loadUser()
+    } catch (err) {
+      message.error(formatAuthError(err, '更新失败'))
+    } finally {
+      setEditLoading(false)
+    }
+  }
+
+  const handleEditSubmit = async () => {
+    if (!user) return
+    try {
+      const values = await editForm.validateFields()
+      if (
+        (values.status === 'frozen' || values.status === 'cancelled') &&
+        values.status !== user.status
+      ) {
+        const label = values.status === 'frozen' ? '冻结' : '注销'
+        Modal.confirm({
+          title: `确认${label}该账号？`,
+          icon: <ExclamationCircleOutlined />,
+          content: `${label}后该用户将无法登录，已有会话会被立即吊销。`,
+          okText: '确认',
+          cancelText: '取消',
+          okType: values.status === 'cancelled' ? 'danger' : 'primary',
+          onOk: () => saveEdit(values),
+        })
+        return
+      }
+      await saveEdit(values)
+    } catch (err) {
+      if ((err as { errorFields?: unknown }).errorFields) return
+      message.error(formatAuthError(err, '更新失败'))
     }
   }
 
@@ -112,7 +156,7 @@ export default function UserDetailPage() {
               <Button
                 type="primary"
                 icon={<EditOutlined />}
-                onClick={() => navigate('/users')}
+                onClick={openEditDrawer}
               >
                 编辑
               </Button>
@@ -163,6 +207,19 @@ export default function UserDetailPage() {
                 {STATUS_LABEL[user.status] || user.status}
               </Tag>
             </Descriptions.Item>
+            {user.beta && (
+              <>
+                <Descriptions.Item label="内测分组">{user.beta.beta_group || '-'}</Descriptions.Item>
+                <Descriptions.Item label="内测资格">
+                  {BETA_STATUS_LABEL[user.beta.status] ?? user.beta.status}
+                </Descriptions.Item>
+                <Descriptions.Item label="内测到期" span={2}>
+                  {user.beta.expires_at
+                    ? dayjs(user.beta.expires_at).format('YYYY-MM-DD HH:mm:ss')
+                    : '不过期'}
+                </Descriptions.Item>
+              </>
+            )}
             <Descriptions.Item label="登录次数">{user.login_count}</Descriptions.Item>
             <Descriptions.Item label="最后登录">
               {user.last_login_at ? dayjs(user.last_login_at).format('YYYY-MM-DD HH:mm:ss') : '-'}
@@ -185,6 +242,15 @@ export default function UserDetailPage() {
       ) : !error ? (
         <Alert message="用户不存在" type="warning" showIcon />
       ) : null}
+
+      <UserEditDrawer
+        open={editDrawerOpen}
+        user={user}
+        form={editForm}
+        loading={editLoading}
+        onClose={() => setEditDrawerOpen(false)}
+        onSubmit={handleEditSubmit}
+      />
     </div>
   )
 }

@@ -2,6 +2,7 @@ package internal
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -19,6 +20,28 @@ type PluginResult struct {
 	OK       bool
 	Status   int
 	Error    string // JSON "error" field when !OK
+}
+
+const (
+	headerUserBetaGroup   = "X-User-Beta-Group"
+	headerUserBetaStatus  = "X-User-Beta-Status"
+	headerUserBetaExpires = "X-User-Beta-Expires"
+)
+
+func betaFromPluginHeaders(r *http.Request) *BetaProfile {
+	group := strings.TrimSpace(r.Header.Get(headerUserBetaGroup))
+	statusRaw := strings.TrimSpace(r.Header.Get(headerUserBetaStatus))
+	expires := strings.TrimSpace(r.Header.Get(headerUserBetaExpires))
+	if group == "" && statusRaw == "" && expires == "" {
+		return nil
+	}
+	status := 0
+	if statusRaw != "" {
+		if n, err := strconv.Atoi(statusRaw); err == nil {
+			status = n
+		}
+	}
+	return &BetaProfile{Group: group, Status: status, ExpiresAt: expires}
 }
 
 // AuthenticatePlugin reads identity from headers. Missing X-User-Id → 400 missing_user_id.
@@ -42,6 +65,7 @@ func AuthenticatePlugin(r *http.Request, h PluginHeaders) PluginResult {
 			UserID: userID,
 			Email:  strings.TrimSpace(r.Header.Get(h.Email)),
 			Role:   strings.TrimSpace(r.Header.Get(h.Role)),
+			Beta:   betaFromPluginHeaders(r),
 		},
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -20,11 +21,16 @@ func newTestRouter(mw gin.HandlerFunc) *gin.Engine {
 	r := gin.New()
 	r.Use(mw)
 	r.GET("/ping", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
+		out := gin.H{
 			"user_id": unitauthsdk.UserID(c),
 			"email":   unitauthsdk.Email(c),
 			"role":    unitauthsdk.Role(c),
-		})
+		}
+		if b := unitauthsdk.Beta(c); b != nil {
+			out["beta_group"] = b.Group
+			out["beta_status"] = strconv.Itoa(b.Status)
+		}
+		c.JSON(http.StatusOK, out)
 	})
 	return r
 }
@@ -74,6 +80,29 @@ func TestPlugin_WithUserID_OK(t *testing.T) {
 	}
 	if body["email"] != "u@example.com" || body["role"] != "user" {
 		t.Fatalf("email/role = %+v", body)
+	}
+}
+
+func TestPlugin_WithBetaHeaders_OK(t *testing.T) {
+	mw, err := unitauthsdk.NewMiddleware(unitauthsdk.MiddlewareConfig{Mode: unitauthsdk.ModePlugin})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newTestRouter(mw)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	req.Header.Set(unitauthsdk.HeaderUserID, "550e8400-e29b-41d4-a716-446655440000")
+	req.Header.Set(unitauthsdk.HeaderUserRole, "beta")
+	req.Header.Set(unitauthsdk.HeaderUserBetaGroup, "B")
+	req.Header.Set(unitauthsdk.HeaderUserBetaStatus, "1")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var body map[string]string
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body["beta_group"] != "B" || body["beta_status"] != "1" {
+		t.Fatalf("beta = %+v", body)
 	}
 }
 
@@ -166,6 +195,7 @@ func TestStandalone_ValidJWT_IgnoresLocalUserID(t *testing.T) {
 		"email":         "a@b.c",
 		"role":          "admin",
 		"local_user_id": "999", // must NOT become business identity
+		"beta":          map[string]interface{}{"beta_group": "A", "status": 1},
 		"exp":           time.Now().Add(time.Hour).Unix(),
 	})
 	signed, err := tok.SignedString([]byte(secret))
@@ -194,6 +224,9 @@ func TestStandalone_ValidJWT_IgnoresLocalUserID(t *testing.T) {
 	if body["user_id"] != uid {
 		t.Fatalf("user_id = %q, want UUID (not local_user_id)", body["user_id"])
 	}
+	if body["beta_group"] != "A" || body["beta_status"] != "1" {
+		t.Fatalf("beta = %+v", body)
+	}
 }
 
 func TestStandalone_Introspect_Active(t *testing.T) {
@@ -208,6 +241,7 @@ func TestStandalone_Introspect_Active(t *testing.T) {
 			"user_id": uid,
 			"email":   "i@example.com",
 			"role":    "user",
+			"beta":    map[string]interface{}{"beta_group": "C", "status": 2},
 		})
 	}))
 	defer srv.Close()
@@ -233,6 +267,9 @@ func TestStandalone_Introspect_Active(t *testing.T) {
 	_ = json.Unmarshal(w.Body.Bytes(), &body)
 	if body["user_id"] != uid {
 		t.Fatalf("user_id = %q", body["user_id"])
+	}
+	if body["beta_group"] != "C" || body["beta_status"] != "2" {
+		t.Fatalf("beta = %+v", body)
 	}
 }
 

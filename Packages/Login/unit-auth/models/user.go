@@ -39,8 +39,10 @@ type User struct {
 	Username      string  `json:"username" gorm:"uniqueIndex;size:50"`
 	Nickname      string  `json:"nickname" gorm:"size:100"`
 	Password      string  `json:"-" gorm:"not null;size:255"` // 不返回密码
-	Role          string  `json:"role" gorm:"default:'user';size:20"`
-	Status        string  `json:"status" gorm:"default:'active';size:20"`
+	// Role: user | admin | moderator | beta | ops（API 字符串，非 TINYINT）
+	Role string `json:"role" gorm:"default:'user';size:20"`
+	// Status: active=正常 frozen=冻结 cancelled=注销（API 字符串，非 TINYINT）
+	Status string `json:"status" gorm:"default:'active';size:20"`
 	EmailVerified bool    `json:"email_verified" gorm:"default:false"`
 	PhoneVerified bool    `json:"phone_verified" gorm:"default:false"`
 
@@ -415,17 +417,25 @@ type WeChatQRStatusResponse struct {
 	Token   string        `json:"token,omitempty"`
 }
 
+// AdminBetaProfileRequest 内测档案（角色=beta 时写入）
+type AdminBetaProfileRequest struct {
+	BetaGroup string     `json:"beta_group"`
+	Status    *int       `json:"status"`
+	ExpiresAt *time.Time `json:"expires_at"`
+}
+
 // AdminUpdateUserRequest 管理员更新用户请求
 type AdminUpdateUserRequest struct {
-	Username      string    `json:"username"`
-	Nickname      string    `json:"nickname"`
-	Email         string    `json:"email"`
-	Phone         string    `json:"phone"`
-	Role          string    `json:"role"`
-	Status        string    `json:"status"`
-	EmailVerified *bool     `json:"email_verified"`
-	PhoneVerified *bool     `json:"phone_verified"`
-	Meta          *UserMeta `json:"meta,omitempty"`
+	Username      string                   `json:"username"`
+	Nickname      string                   `json:"nickname"`
+	Email         string                   `json:"email"`
+	Phone         string                   `json:"phone"`
+	Role          string                   `json:"role"`
+	Status        string                   `json:"status"`
+	EmailVerified *bool                    `json:"email_verified"`
+	PhoneVerified *bool                    `json:"phone_verified"`
+	Meta          *UserMeta                `json:"meta,omitempty"`
+	Beta          *AdminBetaProfileRequest `json:"beta,omitempty"`
 }
 
 // BulkUpdateUsersRequest 批量更新用户请求

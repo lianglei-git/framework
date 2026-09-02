@@ -9,7 +9,6 @@ import {
   Typography,
   message,
   Popconfirm,
-  Drawer,
   Form,
   Row,
   Col,
@@ -35,37 +34,18 @@ import {
   updateUser,
   bulkUpdateUsers,
 } from '../../core/adminApi'
-import type { AdminUser, UpdateUserRequest } from '../../types'
+import type { AdminUser } from '../../types'
 import { formatAuthError } from '../../utils/authError'
+import { ROLE_COLOR, ROLE_LABEL, STATUS_COLOR, STATUS_LABEL } from '../../utils/userLabels'
+import {
+  UserEditDrawer,
+  buildUpdatePayload,
+  fillUserEditForm,
+  type UserEditFormValues,
+} from './UserEditDrawer'
 
 const { Title } = Typography
 const { Option } = Select
-
-const STATUS_COLOR: Record<string, string> = {
-  active: 'green',
-  inactive: 'orange',
-  suspended: 'red',
-  pending: 'blue',
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  active: '活跃',
-  inactive: '非活跃',
-  suspended: '已暂停',
-  pending: '待审核',
-}
-
-const ROLE_COLOR: Record<string, string> = {
-  admin: 'purple',
-  moderator: 'blue',
-  user: 'default',
-}
-
-const ROLE_LABEL: Record<string, string> = {
-  admin: '管理员',
-  moderator: '版主',
-  user: '普通用户',
-}
 
 export default function UsersPage() {
   const navigate = useNavigate()
@@ -80,10 +60,9 @@ export default function UsersPage() {
   const [roleFilter, setRoleFilter] = useState<string>('')
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([])
 
-  // Edit drawer
   const [editDrawerOpen, setEditDrawerOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null)
-  const [editForm] = Form.useForm<UpdateUserRequest>()
+  const [editForm] = Form.useForm<UserEditFormValues>()
   const [editLoading, setEditLoading] = useState(false)
 
   const fetchUsers = useCallback(async () => {
@@ -124,33 +103,49 @@ export default function UsersPage() {
 
   const openEditDrawer = (user: AdminUser) => {
     setEditingUser(user)
-    editForm.setFieldsValue({
-      username: user.username,
-      nickname: user.nickname,
-      email: user.email,
-      phone: user.phone,
-      role: user.role,
-      status: user.status,
-      email_verified: user.email_verified,
-      phone_verified: user.phone_verified,
-    })
+    editForm.setFieldsValue(fillUserEditForm(user))
     setEditDrawerOpen(true)
+  }
+
+  const saveEdit = async (values: UserEditFormValues) => {
+    if (!editingUser) return
+    setEditLoading(true)
+    try {
+      await updateUser(editingUser.id, buildUpdatePayload(values))
+      message.success('用户信息已更新')
+      setEditDrawerOpen(false)
+      fetchUsers()
+    } catch (err) {
+      message.error(formatAuthError(err, '更新失败'))
+    } finally {
+      setEditLoading(false)
+    }
   }
 
   const handleEditSubmit = async () => {
     if (!editingUser) return
     try {
       const values = await editForm.validateFields()
-      setEditLoading(true)
-      await updateUser(editingUser.id, values)
-      message.success('用户信息已更新')
-      setEditDrawerOpen(false)
-      fetchUsers()
+      if (
+        (values.status === 'frozen' || values.status === 'cancelled') &&
+        values.status !== editingUser.status
+      ) {
+        const label = values.status === 'frozen' ? '冻结' : '注销'
+        Modal.confirm({
+          title: `确认${label}该账号？`,
+          icon: <ExclamationCircleOutlined />,
+          content: `${label}后该用户将无法登录，已有会话会被立即吊销。`,
+          okText: '确认',
+          cancelText: '取消',
+          okType: values.status === 'cancelled' ? 'danger' : 'primary',
+          onOk: () => saveEdit(values),
+        })
+        return
+      }
+      await saveEdit(values)
     } catch (err) {
       if ((err as { errorFields?: unknown }).errorFields) return
       message.error(formatAuthError(err, '更新失败'))
-    } finally {
-      setEditLoading(false)
     }
   }
 
@@ -159,7 +154,7 @@ export default function UsersPage() {
       message.warning('请先选择用户')
       return
     }
-    const actionLabel = action === 'activate' ? '激活' : action === 'deactivate' ? '停用' : '删除'
+    const actionLabel = action === 'activate' ? '激活' : action === 'deactivate' ? '冻结' : '删除'
     Modal.confirm({
       title: `批量${actionLabel}`,
       icon: <ExclamationCircleOutlined />,
@@ -332,7 +327,6 @@ export default function UsersPage() {
         />
       )}
 
-      {/* Filters */}
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         <Col xs={24} sm={8} lg={6}>
           <Input
@@ -354,10 +348,9 @@ export default function UsersPage() {
             allowClear
             style={{ width: '100%' }}
           >
-            <Option value="active">活跃</Option>
-            <Option value="inactive">非活跃</Option>
-            <Option value="suspended">已暂停</Option>
-            <Option value="pending">待审核</Option>
+            <Option value="active">正常</Option>
+            <Option value="frozen">冻结</Option>
+            <Option value="cancelled">注销</Option>
           </Select>
         </Col>
         <Col xs={12} sm={6} lg={4}>
@@ -371,11 +364,12 @@ export default function UsersPage() {
             <Option value="admin">管理员</Option>
             <Option value="moderator">版主</Option>
             <Option value="user">普通用户</Option>
+            <Option value="beta">内测</Option>
+            <Option value="ops">运营</Option>
           </Select>
         </Col>
       </Row>
 
-      {/* Bulk actions */}
       {selectedRowKeys.length > 0 && (
         <div
           style={{
@@ -393,7 +387,7 @@ export default function UsersPage() {
             批量激活
           </Button>
           <Button size="small" onClick={() => handleBulkAction('deactivate')}>
-            批量停用
+            批量冻结
           </Button>
           <Button size="small" danger onClick={() => handleBulkAction('delete')}>
             批量删除
@@ -430,93 +424,14 @@ export default function UsersPage() {
         locale={{ emptyText: '暂无用户数据' }}
       />
 
-      {/* Edit Drawer */}
-      <Drawer
-        title={`编辑用户：${editingUser?.username || ''}`}
+      <UserEditDrawer
         open={editDrawerOpen}
+        user={editingUser}
+        form={editForm}
+        loading={editLoading}
         onClose={() => setEditDrawerOpen(false)}
-        width={480}
-        footer={
-          <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
-            <Button onClick={() => setEditDrawerOpen(false)}>取消</Button>
-            <Button type="primary" loading={editLoading} onClick={handleEditSubmit}>
-              保存
-            </Button>
-          </Space>
-        }
-      >
-        <Form form={editForm} layout="vertical">
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item
-                name="username"
-                label="用户名"
-                rules={[{ min: 2, message: '至少 2 个字符' }]}
-              >
-                <Input placeholder="用户名" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="nickname" label="昵称">
-                <Input placeholder="昵称" />
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Form.Item
-            name="email"
-            label="邮箱"
-            rules={[{ type: 'email', message: '请输入有效邮箱' }]}
-          >
-            <Input placeholder="邮箱" />
-          </Form.Item>
-
-          <Form.Item name="phone" label="手机号">
-            <Input placeholder="手机号" />
-          </Form.Item>
-
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item name="role" label="角色">
-                <Select>
-                  <Option value="user">普通用户</Option>
-                  <Option value="moderator">版主</Option>
-                  <Option value="admin">管理员</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="status" label="状态">
-                <Select>
-                  <Option value="active">活跃</Option>
-                  <Option value="inactive">非活跃</Option>
-                  <Option value="suspended">已暂停</Option>
-                  <Option value="pending">待审核</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
-
-          <Row gutter={12}>
-            <Col span={12}>
-              <Form.Item name="email_verified" label="邮箱验证">
-                <Select>
-                  <Option value={true}>已验证</Option>
-                  <Option value={false}>未验证</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="phone_verified" label="手机验证">
-                <Select>
-                  <Option value={true}>已验证</Option>
-                  <Option value={false}>未验证</Option>
-                </Select>
-              </Form.Item>
-            </Col>
-          </Row>
-        </Form>
-      </Drawer>
+        onSubmit={handleEditSubmit}
+      />
     </div>
   )
 }

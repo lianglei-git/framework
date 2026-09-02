@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 	"unit-auth/config"
+	"unit-auth/models"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
@@ -16,14 +17,15 @@ import (
 
 // EnhancedClaims 增强的JWT声明 - 支持双Token扩展
 type EnhancedClaims struct {
-	UserID      string `json:"user_id"`
-	Email       string `json:"email"`
-	Role        string `json:"role"`
-	ProjectKey  string `json:"project_key,omitempty"`
-	LocalUserID string `json:"local_user_id,omitempty"`
-	TokenType   string `json:"token_type"`           // "access", "refresh", "remember_me"
-	SessionID   string `json:"session_id,omitempty"` // 会话ID（中心化SSO）
-	ProjectID   string `json:"project_id,omitempty"` // 项目ID
+	UserID      string                 `json:"user_id"`
+	Email       string                 `json:"email"`
+	Role        string                 `json:"role"`
+	ProjectKey  string                 `json:"project_key,omitempty"`
+	LocalUserID string                 `json:"local_user_id,omitempty"`
+	TokenType   string                 `json:"token_type"`           // "access", "refresh", "remember_me"
+	SessionID   string                 `json:"session_id,omitempty"` // 会话ID（中心化SSO）
+	ProjectID   string                 `json:"project_id,omitempty"` // 项目ID
+	Beta        *models.BetaTokenClaim `json:"beta,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -57,27 +59,29 @@ func (e *EnhancedClaims) GetSubject() (string, error) {
 
 // 自定义JWT声明结构，避免类型冲突
 type CustomClaims struct {
-	UserID      string `json:"user_id"`
-	Email       string `json:"email"`
-	Role        string `json:"role"`
-	ProjectKey  string `json:"project_key,omitempty"`
-	LocalUserID string `json:"local_user_id,omitempty"`
-	TokenType   string `json:"token_type"`           // "access", "refresh", "remember_me"
-	SessionID   string `json:"session_id,omitempty"` // 会话ID（中心化SSO）
-	ProjectID   string `json:"project_id,omitempty"` // 项目ID
+	UserID      string                 `json:"user_id"`
+	Email       string                 `json:"email"`
+	Role        string                 `json:"role"`
+	ProjectKey  string                 `json:"project_key,omitempty"`
+	LocalUserID string                 `json:"local_user_id,omitempty"`
+	TokenType   string                 `json:"token_type"`           // "access", "refresh", "remember_me"
+	SessionID   string                 `json:"session_id,omitempty"` // 会话ID（中心化SSO）
+	ProjectID   string                 `json:"project_id,omitempty"` // 项目ID
+	Beta        *models.BetaTokenClaim `json:"beta,omitempty"`
 	jwt.RegisteredClaims
 }
 
 // TokenClaims 用于创建Token的声明结构
 type TokenClaims struct {
-	UserID      string `json:"user_id"`
-	Email       string `json:"email"`
-	Role        string `json:"role"`
-	ProjectKey  string `json:"project_key,omitempty"`
-	LocalUserID string `json:"local_user_id,omitempty"`
-	TokenType   string `json:"token_type"`           // "access", "refresh", "remember_me"
-	SessionID   string `json:"session_id,omitempty"` // 会话ID（中心化SSO）
-	ProjectID   string `json:"project_id,omitempty"` // 项目ID
+	UserID      string                 `json:"user_id"`
+	Email       string                 `json:"email"`
+	Role        string                 `json:"role"`
+	ProjectKey  string                 `json:"project_key,omitempty"`
+	LocalUserID string                 `json:"local_user_id,omitempty"`
+	TokenType   string                 `json:"token_type"`           // "access", "refresh", "remember_me"
+	SessionID   string                 `json:"session_id,omitempty"` // 会话ID（中心化SSO）
+	ProjectID   string                 `json:"project_id,omitempty"` // 项目ID
+	Beta        *models.BetaTokenClaim `json:"beta,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -123,6 +127,47 @@ func GetJWTSecret() string {
 	return config.AppConfig.JWTSecret
 }
 
+func lookupBetaClaim(userID string) *models.BetaTokenClaim {
+	return models.BetaClaimForUser(models.GetDB(), userID)
+}
+
+func parseBetaClaim(claims jwt.MapClaims) *models.BetaTokenClaim {
+	raw, ok := claims["beta"]
+	if !ok || raw == nil {
+		return nil
+	}
+	m, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	out := &models.BetaTokenClaim{}
+	if v, ok := m["beta_group"].(string); ok {
+		out.BetaGroup = v
+	}
+	switch v := m["status"].(type) {
+	case float64:
+		out.Status = int(v)
+	case int:
+		out.Status = v
+	}
+	switch v := m["expires_at"].(type) {
+	case string:
+		if v == "" {
+			break
+		}
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			out.ExpiresAt = &t
+		}
+	case float64:
+		t := time.Unix(int64(v), 0)
+		out.ExpiresAt = &t
+	}
+	if out.BetaGroup == "" && out.Status == 0 && out.ExpiresAt == nil {
+		return nil
+	}
+	return out
+}
+
 // TokenResponse token响应结构 - 支持双Token
 type TokenResponse struct {
 	AccessToken      string `json:"access_token"`
@@ -152,6 +197,7 @@ func GenerateAccessToken(userID string, email, role string) (string, error) {
 		Email:     email,
 		Role:      role,
 		TokenType: "access",
+		Beta:      lookupBetaClaim(userID),
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expirationTime),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -252,6 +298,7 @@ func ValidateEnhancedTokenIgnoreExpiry(tokenString string) (*EnhancedClaims, err
 	if v, ok := claims["role"].(string); ok {
 		enh.Role = v
 	}
+	enh.Beta = parseBetaClaim(claims)
 	// local user id
 	if v, ok := claims["local_user_id"].(string); ok {
 		enh.LocalUserID = v
@@ -347,6 +394,7 @@ func ValidateEnhancedToken(tokenString string) (*EnhancedClaims, error) {
 	if v, ok := claims["role"].(string); ok {
 		enh.Role = v
 	}
+	enh.Beta = parseBetaClaim(claims)
 	// project/local ids
 	if v, ok := claims["project_key"].(string); ok {
 		enh.ProjectKey = v
@@ -576,6 +624,7 @@ func GenerateAccessTokenWithAudience(userID string, email, role, audience, proje
 		ProjectKey:  projectKey,
 		LocalUserID: localUserID,
 		TokenType:   "access",
+		Beta:        lookupBetaClaim(userID),
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(config.AccessTokenTTL())),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -607,6 +656,7 @@ func GenerateCompactAccessToken(userID string, emailOrIdentifier, role, projectK
 		ProjectKey:  projectKey,
 		LocalUserID: localUserID,
 		TokenType:   "access",
+		Beta:        lookupBetaClaim(userID),
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(config.AccessTokenTTL())),
 			IssuedAt:  jwt.NewNumericDate(now),

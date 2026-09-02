@@ -15,19 +15,112 @@ import (
 
 // AdminUserResponse 管理员用户响应
 type AdminUserResponse struct {
-	ID            string     `json:"id"`
-	Email         string     `json:"email"`
-	Phone         string     `json:"phone"`
-	Username      string     `json:"username"`
-	Nickname      string     `json:"nickname"`
-	Role          string     `json:"role"`
-	Status        string     `json:"status"`
-	EmailVerified bool       `json:"email_verified"`
-	PhoneVerified bool       `json:"phone_verified"`
-	LoginCount    int64      `json:"login_count"`
-	LastLoginAt   *time.Time `json:"last_login_at"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	ID            string                  `json:"id"`
+	Email         string                  `json:"email"`
+	Phone         string                  `json:"phone"`
+	Username      string                  `json:"username"`
+	Nickname      string                  `json:"nickname"`
+	Role          string                  `json:"role"`
+	Status        string                  `json:"status"`
+	EmailVerified bool                    `json:"email_verified"`
+	PhoneVerified bool                    `json:"phone_verified"`
+	LoginCount    int64                   `json:"login_count"`
+	LastLoginAt   *time.Time              `json:"last_login_at"`
+	CreatedAt     time.Time               `json:"created_at"`
+	UpdatedAt     time.Time               `json:"updated_at"`
+	Beta          *models.UserBetaProfile `json:"beta"`
+}
+
+func toAdminUserResponse(user models.User, beta *models.UserBetaProfile) AdminUserResponse {
+	resp := AdminUserResponse{
+		ID:            user.ID,
+		Username:      user.Username,
+		Nickname:      user.Nickname,
+		Role:          user.Role,
+		Status:        user.Status,
+		EmailVerified: user.EmailVerified,
+		PhoneVerified: user.PhoneVerified,
+		LoginCount:    user.LoginCount,
+		LastLoginAt:   user.LastLoginAt,
+		CreatedAt:     user.CreatedAt,
+		UpdatedAt:     user.UpdatedAt,
+		Beta:          beta,
+	}
+	if user.Email != nil {
+		resp.Email = *user.Email
+	}
+	if user.Phone != nil {
+		resp.Phone = *user.Phone
+	}
+	return resp
+}
+
+func loadBetaProfiles(db *gorm.DB, userIDs []string) map[string]models.UserBetaProfile {
+	out := make(map[string]models.UserBetaProfile, len(userIDs))
+	if len(userIDs) == 0 {
+		return out
+	}
+	var rows []models.UserBetaProfile
+	if err := db.Where("user_id IN ?", userIDs).Find(&rows).Error; err != nil {
+		return out
+	}
+	for _, row := range rows {
+		out[row.UserID] = row
+	}
+	return out
+}
+
+func loadBetaProfile(db *gorm.DB, userID string) *models.UserBetaProfile {
+	var row models.UserBetaProfile
+	if err := db.Where("user_id = ?", userID).First(&row).Error; err != nil {
+		return nil
+	}
+	return &row
+}
+
+func upsertBetaProfile(db *gorm.DB, userID string, req *models.AdminBetaProfileRequest) error {
+	if req == nil {
+		return fmt.Errorf("beta profile required")
+	}
+	group := req.BetaGroup
+	if group == "" {
+		group = "A"
+	}
+	if !utils.IsValidBetaGroup(group) {
+		return fmt.Errorf("invalid beta group")
+	}
+	status := 1
+	if req.Status != nil {
+		if !utils.IsValidBetaStatus(*req.Status) {
+			return fmt.Errorf("invalid beta status")
+		}
+		status = *req.Status
+	}
+
+	var existing models.UserBetaProfile
+	err := db.Where("user_id = ?", userID).First(&existing).Error
+	if err != nil {
+		if err != gorm.ErrRecordNotFound {
+			return err
+		}
+		row := models.UserBetaProfile{
+			UserID:    userID,
+			BetaGroup: group,
+			Status:    status,
+			ExpiresAt: req.ExpiresAt,
+		}
+		return db.Create(&row).Error
+	}
+	existing.BetaGroup = group
+	existing.Status = status
+	existing.ExpiresAt = req.ExpiresAt
+	return db.Save(&existing).Error
+}
+
+func invalidateBetaProfile(db *gorm.DB, userID string) error {
+	return db.Model(&models.UserBetaProfile{}).
+		Where("user_id = ?", userID).
+		Update("status", 0).Error
 }
 
 // GetUsers 获取用户列表（管理员）
@@ -86,34 +179,20 @@ func GetUsers(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// 转换为响应格式
+		userIDs := make([]string, 0, len(users))
+		for _, user := range users {
+			userIDs = append(userIDs, user.ID)
+		}
+		betaMap := loadBetaProfiles(db, userIDs)
+
 		var userResponses []AdminUserResponse
 		for _, user := range users {
-			userResponse := AdminUserResponse{
-				ID:            user.ID,
-				Email:         "",
-				Phone:         "",
-				Username:      user.Username,
-				Nickname:      user.Nickname,
-				Role:          user.Role,
-				Status:        user.Status,
-				EmailVerified: user.EmailVerified,
-				PhoneVerified: user.PhoneVerified,
-				LoginCount:    user.LoginCount,
-				LastLoginAt:   user.LastLoginAt,
-				CreatedAt:     user.CreatedAt,
-				UpdatedAt:     user.UpdatedAt,
+			var beta *models.UserBetaProfile
+			if row, ok := betaMap[user.ID]; ok {
+				cp := row
+				beta = &cp
 			}
-
-			// 处理指针类型字段
-			if user.Email != nil {
-				userResponse.Email = *user.Email
-			}
-			if user.Phone != nil {
-				userResponse.Phone = *user.Phone
-			}
-
-			userResponses = append(userResponses, userResponse)
+			userResponses = append(userResponses, toAdminUserResponse(user, beta))
 		}
 
 		c.JSON(http.StatusOK, models.Response{
@@ -146,35 +225,10 @@ func GetUser(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// 转换为管理员响应格式
-		userResponse := AdminUserResponse{
-			ID:            user.ID,
-			Email:         "",
-			Phone:         "",
-			Username:      user.Username,
-			Nickname:      user.Nickname,
-			Role:          user.Role,
-			Status:        user.Status,
-			EmailVerified: user.EmailVerified,
-			PhoneVerified: user.PhoneVerified,
-			LoginCount:    user.LoginCount,
-			LastLoginAt:   user.LastLoginAt,
-			CreatedAt:     user.CreatedAt,
-			UpdatedAt:     user.UpdatedAt,
-		}
-
-		// 处理指针类型字段
-		if user.Email != nil {
-			userResponse.Email = *user.Email
-		}
-		if user.Phone != nil {
-			userResponse.Phone = *user.Phone
-		}
-
 		c.JSON(http.StatusOK, models.Response{
 			Code:    200,
 			Message: "User retrieved successfully",
-			Data:    userResponse,
+			Data:    toAdminUserResponse(user, loadBetaProfile(db, user.ID)),
 		})
 	}
 }
@@ -221,7 +275,6 @@ func UpdateUser(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		if req.Role != "" {
-			// 验证角色
 			if !utils.IsValidRole(req.Role) {
 				c.JSON(http.StatusBadRequest, models.Response{
 					Code:    400,
@@ -229,11 +282,17 @@ func UpdateUser(db *gorm.DB) gin.HandlerFunc {
 				})
 				return
 			}
+			if req.Role == "beta" && req.Beta == nil {
+				c.JSON(http.StatusBadRequest, models.Response{
+					Code:    400,
+					Message: "beta profile required",
+				})
+				return
+			}
 			user.Role = req.Role
 		}
 
 		if req.Status != "" {
-			// 验证状态
 			if !utils.IsValidStatus(req.Status) {
 				c.JSON(http.StatusBadRequest, models.Response{
 					Code:    400,
@@ -282,7 +341,41 @@ func UpdateUser(db *gorm.DB) gin.HandlerFunc {
 			user.SetMeta(req.Meta)
 		}
 
-		if err := db.Save(&user).Error; err != nil {
+		tx := db.Begin()
+		if err := tx.Save(&user).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, models.Response{
+				Code:    500,
+				Message: "Failed to update user",
+			})
+			return
+		}
+
+		if user.Role == "beta" && req.Beta != nil {
+			if err := upsertBetaProfile(tx, user.ID, req.Beta); err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusBadRequest, models.Response{
+					Code:    400,
+					Message: err.Error(),
+				})
+				return
+			}
+		} else if req.Role != "" && req.Role != "beta" {
+			if err := invalidateBetaProfile(tx, user.ID); err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, models.Response{
+					Code:    500,
+					Message: "Failed to update beta profile",
+				})
+				return
+			}
+		}
+
+		if user.Status == "frozen" || user.Status == "cancelled" {
+			revokeAllUserSessions(tx, user.ID)
+		}
+
+		if err := tx.Commit().Error; err != nil {
 			c.JSON(http.StatusInternalServerError, models.Response{
 				Code:    500,
 				Message: "Failed to update user",
@@ -293,7 +386,7 @@ func UpdateUser(db *gorm.DB) gin.HandlerFunc {
 		c.JSON(http.StatusOK, models.Response{
 			Code:    200,
 			Message: "User updated successfully",
-			Data:    user.ToResponse(),
+			Data:    toAdminUserResponse(user, loadBetaProfile(db, user.ID)),
 		})
 	}
 }
@@ -429,8 +522,8 @@ func GetUserStats(db *gorm.DB) gin.HandlerFunc {
 		// 活跃用户数
 		db.Model(&models.User{}).Where("status = ?", "active").Count(&stats.ActiveUsers)
 
-		// 非活跃用户数
-		db.Model(&models.User{}).Where("status = ?", "inactive").Count(&stats.InactiveUsers)
+		// 非正常账号（冻结 + 注销）
+		db.Model(&models.User{}).Where("status IN ?", []string{"frozen", "cancelled"}).Count(&stats.InactiveUsers)
 
 		// 邮箱验证用户数
 		db.Model(&models.User{}).Where("email_verified = ?", true).Count(&stats.EmailVerified)
@@ -509,8 +602,9 @@ func BulkUpdateUsers(db *gorm.DB) gin.HandlerFunc {
 					updatedCount++
 				}
 			case "deactivate":
-				user.Status = "inactive"
+				user.Status = "frozen"
 				if err := tx.Save(&user).Error; err == nil {
+					revokeAllUserSessions(tx, user.ID)
 					updatedCount++
 				}
 			case "delete":

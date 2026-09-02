@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -124,6 +125,15 @@ func MountPluginProxy(r gin.IRouter, auth *Client, cfg PluginProxyConfig) {
 		}
 		if info.Role != "" {
 			req.Header.Set(HeaderUserRole, info.Role)
+		}
+		if info.Beta != nil {
+			if info.Beta.BetaGroup != "" {
+				req.Header.Set(HeaderUserBetaGroup, info.Beta.BetaGroup)
+			}
+			req.Header.Set(HeaderUserBetaStatus, strconv.Itoa(info.Beta.Status))
+			if info.Beta.ExpiresAt != "" {
+				req.Header.Set(HeaderUserBetaExpires, info.Beta.ExpiresAt)
+			}
 		}
 		if cfg.InternalToken != "" {
 			req.Header.Set(HeaderInternalToken, cfg.InternalToken)

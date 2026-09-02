@@ -242,8 +242,7 @@ func (h *StatsHandler) GetUserStats() gin.HandlerFunc {
 		// 活跃用户数
 		h.statsService.GetDB().Model(&models.User{}).Where("status = ?", "active").Count(&stats.ActiveUsers)
 
-		// 非活跃用户数
-		h.statsService.GetDB().Model(&models.User{}).Where("status = ?", "inactive").Count(&stats.InactiveUsers)
+		h.statsService.GetDB().Model(&models.User{}).Where("status IN ?", []string{"frozen", "cancelled"}).Count(&stats.InactiveUsers)
 
 		// 邮箱验证用户数
 		h.statsService.GetDB().Model(&models.User{}).Where("email_verified = ?", true).Count(&stats.EmailVerified)

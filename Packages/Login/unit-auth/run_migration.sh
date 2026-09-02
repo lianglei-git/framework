@@ -58,6 +58,7 @@ main() {
         "migrations/002_add_extended_features.sql"
         "migrations/003_add_sso_support.sql"
         "migrations/004_add_refresh_tokens.sql"
+        "migrations/009_user_status_role_beta.sql"
     )
 
     passed=0
