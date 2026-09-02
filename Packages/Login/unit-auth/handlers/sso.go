@@ -102,8 +102,6 @@ type RS256TokenClaims struct {
 	Role             string `json:"role"`
 	AppID            string `json:"app_id,omitempty"`
 	Email            string `json:"email"`
-	LocalUserID      string `json:"local_user_id,omitempty"`
-	Lid              string `json:"lid,omitempty"`
 	RegisteredClaims jwt.RegisteredClaims
 	User             *models.User
 	DB               *gorm.DB `json:"-"`
@@ -816,27 +814,15 @@ func generateTokensFromClaims(c *gin.Context, db *gorm.DB, claims jwt.MapClaims,
 		fmt.Printf("Failed to record login log: %v\n", err)
 	}
 
-	localID := ""
-	if req.AppID != "" {
-		var pm models.ProjectMapping
-		if err := db.Where("project_name = ? AND user_id = ?", req.AppID, user.ID).First(&pm).Error; err == nil {
-			localID = pm.LocalUserID
-		}
-	}
-
 	now := time.Now()
 	allJWTDatas := &RS256TokenClaims{
-		DB:          db,
-		ClientID:    clientID,
-		UserID:      user.ID,
-		Email:       *user.Email,
-		Role:        user.Role,
-		AppID:       req.AppID,
-		LocalUserID: localID,
-		Lid:         localID,
-		// Req:         req,
-
-		User: &user,
+		DB:       db,
+		ClientID: clientID,
+		UserID:   user.ID,
+		Email:    *user.Email,
+		Role:     user.Role,
+		AppID:    req.AppID,
+		User:     &user,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(config.AccessTokenTTL())), // 1小时
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -977,17 +963,15 @@ func GenerateAccessTokenWithRS256(allJWTDatas *RS256TokenClaims) (string, error)
 	}
 
 	claims := jwt.MapClaims{
-		"iss":           os.Getenv("JWT_ISS"),
-		"sub":           userID,
-		"user_id":       userID,
-		"aud":           allJWTDatas.ClientID,
-		"exp":           exp.Unix(),
-		"iat":           iat.Unix(),
-		"jti":           jti,
-		"local_user_id": allJWTDatas.LocalUserID,
-		"lid":           allJWTDatas.Lid,
-		"role":          role,
-		"app_id":        allJWTDatas.AppID,
+		"iss":     os.Getenv("JWT_ISS"),
+		"sub":     userID,
+		"user_id": userID,
+		"aud":     allJWTDatas.ClientID,
+		"exp":     exp.Unix(),
+		"iat":     iat.Unix(),
+		"jti":     jti,
+		"role":    role,
+		"app_id":  allJWTDatas.AppID,
 	}
 	if email != "" {
 		claims["email"] = email
@@ -1539,39 +1523,15 @@ func handleRefreshTokenGrant(c *gin.Context, db *gorm.DB, req OAuthTokenRequest)
 		}
 	}
 
-	// JWT签名已经验证了客户端合法性，无需再查询数据库
-
-	// 查询 local_user_id（仅在需要时）
-	// localID := ""
-	var localID string
-	if v, ok := claims["lid"].(string); ok {
-		localID = v
-	} else {
-		localID = ""
-	}
-
-	// if req.AppID != "" {
-	// 	var pm models.ProjectMapping
-	// 	if err := db.Where("project_name = ? AND user_id = ?", req.AppID, user.ID).
-	// 		Select("local_user_id").
-	// 		First(&pm).Error; err == nil {
-	// 		localID = pm.LocalUserID
-	// 	}
-	// }
-
 	now := time.Now()
 	allJWTDatas := &RS256TokenClaims{
-		DB:          db,
-		ClientID:    clientID,
-		UserID:      userID,
-		Email:       userEmail,
-		Role:        userRole,
-		AppID:       req.AppID,
-		LocalUserID: localID,
-		Lid:         localID,
-		// Req:         req,
-
-		User: &user,
+		DB:       db,
+		ClientID: clientID,
+		UserID:   userID,
+		Email:    userEmail,
+		Role:     userRole,
+		AppID:    req.AppID,
+		User:     &user,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(config.AccessTokenTTL())), // 1小时
 			IssuedAt:  jwt.NewNumericDate(now),

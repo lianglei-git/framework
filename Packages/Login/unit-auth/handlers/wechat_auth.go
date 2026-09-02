@@ -128,14 +128,7 @@ func (h *WeChatAuthHandler) HandleCallback() gin.HandlerFunc {
 		if v, ok := c.Get(middleware.CtxProjectKey); ok {
 			projectKey = v.(string)
 		}
-		localID := ""
-		if projectKey != "" {
-			var pm models.ProjectMapping
-			if err := h.db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
-				localID = pm.LocalUserID
-			}
-		}
-		token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey, localID)
+		token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.Response{
 				Code:    500,
@@ -191,14 +184,7 @@ func (h *WeChatAuthHandler) CheckLoginStatus() gin.HandlerFunc {
 				if v, ok := c.Get(middleware.CtxProjectKey); ok {
 					projectKey = v.(string)
 				}
-				localID := ""
-				if projectKey != "" {
-					var pm models.ProjectMapping
-					if err := h.db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
-						localID = pm.LocalUserID
-					}
-				}
-				token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey, localID)
+				token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey)
 				if err == nil {
 					c.JSON(http.StatusOK, models.Response{Code: 200, Message: "Login successful", Data: models.LoginResponse{User: services.PresentUserResponse(&user, RequestAPIBase(c)), Token: token}})
 					return

@@ -71,10 +71,8 @@ func AuthMiddleware() gin.HandlerFunc {
 
 		// 将用户信息存储到上下文中
 		c.Set("user_id", claims.UserID)
-		c.Set("local_user_id", claims.LocalUserID)
 		c.Set("email", claims.Email)
 		c.Set("role", claims.Role)
-		log.Println("claims :::::: ", claims)
 		c.Next()
 	}
 }
@@ -327,7 +325,7 @@ func LoginWithRememberMe(db *gorm.DB) gin.HandlerFunc {
 		if req.RememberMe {
 			token, err = utils.GenerateRememberMeToken(user.ID, *user.Email, user.Role)
 		} else {
-			token, err = utils.GenerateUnifiedToken(user.ID, *user.Email, user.Role, "", "")
+			token, err = utils.GenerateUnifiedToken(user.ID, *user.Email, user.Role, "")
 		}
 
 		if err != nil {
@@ -354,7 +352,7 @@ func somePlaceGeneratingToken(user *models.User) (string, error) {
 	if user.Email != nil {
 		identifier = *user.Email
 	}
-	return utils.GenerateUnifiedToken(user.ID, identifier, user.Role, "", "")
+	return utils.GenerateUnifiedToken(user.ID, identifier, user.Role, "")
 }
 
 // ===============================================

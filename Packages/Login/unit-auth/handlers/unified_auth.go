@@ -485,31 +485,17 @@ func generateAndReturnTokensCore(db *gorm.DB, c *gin.Context, user *models.User,
 		req.ClientID = "centralized"
 	}
 
-	// 查询子项目ID
-
-	localID := ""
-	if req.AppID != "" {
-		var pm models.ProjectMapping
-		if err := db.Where("project_name = ? AND user_id = ?", req.AppID, user.ID).First(&pm).Error; err == nil {
-			localID = pm.LocalUserID
-		}
-	}
-
 	now := time.Now()
 
 	// 构建所有jwt数据
 	allJWTDatas := &RS256TokenClaims{
-		DB:          db,
-		ClientID:    req.ClientID,
-		UserID:      user.ID,
-		Email:       *user.Email,
-		Role:        user.Role,
-		AppID:       req.AppID,
-		LocalUserID: localID,
-		Lid:         localID,
-		// Req:         req,
-
-		User: user,
+		DB:       db,
+		ClientID: req.ClientID,
+		UserID:   user.ID,
+		Email:    *user.Email,
+		Role:     user.Role,
+		AppID:    req.AppID,
+		User:     user,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(config.AccessTokenTTL())), // 1小时
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -961,27 +947,15 @@ func (h *UnifiedAuthHandler) UnifiedPhoneLogin() gin.HandlerFunc {
 			clientID = "default-client"
 		}
 
-		// 构建JWT数据
-		localID := ""
-		if req.AppID != "" {
-			var pm models.ProjectMapping
-			if err := h.db.Where("project_name = ? AND user_id = ?", req.AppID, user.ID).First(&pm).Error; err == nil {
-				localID = pm.LocalUserID
-			}
-		}
-
 		now := time.Now()
 		allJWTDatas := &RS256TokenClaims{
-			DB:          h.db,
-			ClientID:    clientID,
-			UserID:      user.ID,
-			Email:       *user.Email,
-			Role:        user.Role,
-			AppID:       req.AppID,
-			LocalUserID: localID,
-			Lid:         localID,
-			// Req:         req,
-			User: &user,
+			DB:       h.db,
+			ClientID: clientID,
+			UserID:   user.ID,
+			Email:    *user.Email,
+			Role:     user.Role,
+			AppID:    req.AppID,
+			User:     &user,
 			RegisteredClaims: jwt.RegisteredClaims{
 				ExpiresAt: jwt.NewNumericDate(now.Add(config.AccessTokenTTL())), // 1小时
 				IssuedAt:  jwt.NewNumericDate(now),
@@ -1230,26 +1204,15 @@ func (h *UnifiedAuthHandler) UnifiedDoubleVerification() gin.HandlerFunc {
 				req = models.UnifiedOAuthLoginRequest{}
 			}
 
-			localID := ""
-			if appID != "" {
-				var pm models.ProjectMapping
-				if err := h.db.Where("project_name = ? AND user_id = ?", appID, user.ID).First(&pm).Error; err == nil {
-					localID = pm.LocalUserID
-				}
-			}
-
 			now := time.Now()
 			allJWTDatas := &RS256TokenClaims{
-				DB:          h.db,
-				ClientID:    clientID,
-				UserID:      user.ID,
-				Email:       *user.Email,
-				Role:        user.Role,
-				AppID:       appID,
-				LocalUserID: localID,
-				Lid:         localID,
-				// Req:         req,
-				User: user,
+				DB:       h.db,
+				ClientID: clientID,
+				UserID:   user.ID,
+				Email:    *user.Email,
+				Role:     user.Role,
+				AppID:    appID,
+				User:     user,
 				RegisteredClaims: jwt.RegisteredClaims{
 					ExpiresAt: jwt.NewNumericDate(now.Add(config.AccessTokenTTL())), // 1小时
 					IssuedAt:  jwt.NewNumericDate(now),

@@ -272,7 +272,7 @@ func LoginWithRememberMe(db *gorm.DB) gin.HandlerFunc {
 		if req.RememberMe {
 			token, err = utils.GenerateRememberMeToken(user.ID, identifier, user.Role)
 		} else {
-			token, err = utils.GenerateUnifiedToken(user.ID, identifier, user.Role, "", "")
+			token, err = utils.GenerateUnifiedToken(user.ID, identifier, user.Role, "")
 		}
 
 		if err != nil {

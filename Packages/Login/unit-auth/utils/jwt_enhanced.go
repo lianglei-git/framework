@@ -17,15 +17,14 @@ import (
 
 // EnhancedClaims 增强的JWT声明 - 支持双Token扩展
 type EnhancedClaims struct {
-	UserID      string                 `json:"user_id"`
-	Email       string                 `json:"email"`
-	Role        string                 `json:"role"`
-	ProjectKey  string                 `json:"project_key,omitempty"`
-	LocalUserID string                 `json:"local_user_id,omitempty"`
-	TokenType   string                 `json:"token_type"`           // "access", "refresh", "remember_me"
-	SessionID   string                 `json:"session_id,omitempty"` // 会话ID（中心化SSO）
-	ProjectID   string                 `json:"project_id,omitempty"` // 项目ID
-	Beta        *models.BetaTokenClaim `json:"beta,omitempty"`
+	UserID     string                 `json:"user_id"`
+	Email      string                 `json:"email"`
+	Role       string                 `json:"role"`
+	ProjectKey string                 `json:"project_key,omitempty"`
+	TokenType  string                 `json:"token_type"`           // "access", "refresh", "remember_me"
+	SessionID  string                 `json:"session_id,omitempty"` // 会话ID（中心化SSO）
+	ProjectID  string                 `json:"project_id,omitempty"` // 项目ID
+	Beta       *models.BetaTokenClaim `json:"beta,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -59,29 +58,27 @@ func (e *EnhancedClaims) GetSubject() (string, error) {
 
 // 自定义JWT声明结构，避免类型冲突
 type CustomClaims struct {
-	UserID      string                 `json:"user_id"`
-	Email       string                 `json:"email"`
-	Role        string                 `json:"role"`
-	ProjectKey  string                 `json:"project_key,omitempty"`
-	LocalUserID string                 `json:"local_user_id,omitempty"`
-	TokenType   string                 `json:"token_type"`           // "access", "refresh", "remember_me"
-	SessionID   string                 `json:"session_id,omitempty"` // 会话ID（中心化SSO）
-	ProjectID   string                 `json:"project_id,omitempty"` // 项目ID
-	Beta        *models.BetaTokenClaim `json:"beta,omitempty"`
+	UserID     string                 `json:"user_id"`
+	Email      string                 `json:"email"`
+	Role       string                 `json:"role"`
+	ProjectKey string                 `json:"project_key,omitempty"`
+	TokenType  string                 `json:"token_type"`           // "access", "refresh", "remember_me"
+	SessionID  string                 `json:"session_id,omitempty"` // 会话ID（中心化SSO）
+	ProjectID  string                 `json:"project_id,omitempty"` // 项目ID
+	Beta       *models.BetaTokenClaim `json:"beta,omitempty"`
 	jwt.RegisteredClaims
 }
 
 // TokenClaims 用于创建Token的声明结构
 type TokenClaims struct {
-	UserID      string                 `json:"user_id"`
-	Email       string                 `json:"email"`
-	Role        string                 `json:"role"`
-	ProjectKey  string                 `json:"project_key,omitempty"`
-	LocalUserID string                 `json:"local_user_id,omitempty"`
-	TokenType   string                 `json:"token_type"`           // "access", "refresh", "remember_me"
-	SessionID   string                 `json:"session_id,omitempty"` // 会话ID（中心化SSO）
-	ProjectID   string                 `json:"project_id,omitempty"` // 项目ID
-	Beta        *models.BetaTokenClaim `json:"beta,omitempty"`
+	UserID     string                 `json:"user_id"`
+	Email      string                 `json:"email"`
+	Role       string                 `json:"role"`
+	ProjectKey string                 `json:"project_key,omitempty"`
+	TokenType  string                 `json:"token_type"`           // "access", "refresh", "remember_me"
+	SessionID  string                 `json:"session_id,omitempty"` // 会话ID（中心化SSO）
+	ProjectID  string                 `json:"project_id,omitempty"` // 项目ID
+	Beta       *models.BetaTokenClaim `json:"beta,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -299,15 +296,6 @@ func ValidateEnhancedTokenIgnoreExpiry(tokenString string) (*EnhancedClaims, err
 		enh.Role = v
 	}
 	enh.Beta = parseBetaClaim(claims)
-	// local user id
-	if v, ok := claims["local_user_id"].(string); ok {
-		enh.LocalUserID = v
-	}
-	if enh.LocalUserID == "" {
-		if v, ok := claims["luid"].(string); ok {
-			enh.LocalUserID = v
-		}
-	}
 	// token type
 	if v, ok := claims["token_type"].(string); ok {
 		enh.TokenType = v
@@ -360,7 +348,7 @@ func jwtValidationKey(token *jwt.Token) (interface{}, error) {
 	}
 }
 
-// ValidateEnhancedToken 验证增强的JWT Token（兼容 HS256 与 RS256，及紧凑字段 uid/pid/luid）
+// ValidateEnhancedToken 验证增强的JWT Token（兼容 HS256 与 RS256，及紧凑字段 uid/pid）
 func ValidateEnhancedToken(tokenString string) (*EnhancedClaims, error) {
 	claims := jwt.MapClaims{}
 	token, err := jwt.ParseWithClaims(tokenString, claims, jwtValidationKey)
@@ -395,18 +383,11 @@ func ValidateEnhancedToken(tokenString string) (*EnhancedClaims, error) {
 		enh.Role = v
 	}
 	enh.Beta = parseBetaClaim(claims)
-	// project/local ids
 	if v, ok := claims["project_key"].(string); ok {
 		enh.ProjectKey = v
 	}
 	if v, ok := claims["pid"].(string); ok && v != "" {
 		enh.ProjectKey = v
-	}
-	if v, ok := claims["local_user_id"].(string); ok {
-		enh.LocalUserID = v
-	}
-	if v, ok := claims["luid"].(string); ok && v != "" {
-		enh.LocalUserID = v
 	}
 	// token type（默认为 access）
 	if v, ok := claims["token_type"].(string); ok && v != "" {
@@ -593,7 +574,7 @@ func SplitToken(authHeader string) []string {
 
 // 保持向后兼容的函数
 func GenerateToken(userID string, email, role string) (string, error) {
-	return GenerateUnifiedToken(userID, email, role, "", "")
+	return GenerateUnifiedToken(userID, email, role, "")
 }
 
 func ValidateToken(tokenString string) (*EnhancedClaims, error) {
@@ -606,25 +587,24 @@ func ValidateToken(tokenString string) (*EnhancedClaims, error) {
 	return enhancedClaims, nil
 }
 
-func GenerateAccessTokenWithProject(userID string, email, role, projectKey, localUserID string) (string, error) {
-	return GenerateUnifiedToken(userID, email, role, projectKey, localUserID)
+func GenerateAccessTokenWithProject(userID string, email, role, projectKey string) (string, error) {
+	return GenerateUnifiedToken(userID, email, role, projectKey)
 }
 
-func GenerateTokenWithProject(userID string, email, role, projectKey, localUserID string) (string, error) {
-	return GenerateUnifiedToken(userID, email, role, projectKey, localUserID)
+func GenerateTokenWithProject(userID string, email, role, projectKey string) (string, error) {
+	return GenerateUnifiedToken(userID, email, role, projectKey)
 }
 
 // GenerateAccessTokenWithAudience 生成带aud、并保留项目字段的访问token
-func GenerateAccessTokenWithAudience(userID string, email, role, audience, projectKey, localUserID string) (string, error) {
+func GenerateAccessTokenWithAudience(userID string, email, role, audience, projectKey string) (string, error) {
 	now := time.Now()
 	claims := &TokenClaims{
-		UserID:      userID,
-		Email:       email,
-		Role:        role,
-		ProjectKey:  projectKey,
-		LocalUserID: localUserID,
-		TokenType:   "access",
-		Beta:        lookupBetaClaim(userID),
+		UserID:     userID,
+		Email:      email,
+		Role:       role,
+		ProjectKey: projectKey,
+		TokenType:  "access",
+		Beta:       lookupBetaClaim(userID),
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(config.AccessTokenTTL())),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -645,18 +625,16 @@ func GenerateAccessTokenWithAudience(userID string, email, role, audience, proje
 	return token.SignedString([]byte(config.AppConfig.JWTSecret))
 }
 
-// GenerateCompactAccessToken 生成带短字段的访问token（sub, uid, pid, luid, iss, aud, iat, exp, jti）
-func GenerateCompactAccessToken(userID string, emailOrIdentifier, role, projectKey, localUserID string) (string, error) {
-	// 创建TokenClaims结构
+// GenerateCompactAccessToken 生成带短字段的访问token
+func GenerateCompactAccessToken(userID string, emailOrIdentifier, role, projectKey string) (string, error) {
 	now := time.Now()
 	claims := &TokenClaims{
-		UserID:      userID,
-		Email:       emailOrIdentifier,
-		Role:        role,
-		ProjectKey:  projectKey,
-		LocalUserID: localUserID,
-		TokenType:   "access",
-		Beta:        lookupBetaClaim(userID),
+		UserID:     userID,
+		Email:      emailOrIdentifier,
+		Role:       role,
+		ProjectKey: projectKey,
+		TokenType:  "access",
+		Beta:       lookupBetaClaim(userID),
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(config.AccessTokenTTL())),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -666,7 +644,6 @@ func GenerateCompactAccessToken(userID string, emailOrIdentifier, role, projectK
 		},
 	}
 
-	// 设置audience如果有projectKey
 	if strings.TrimSpace(projectKey) != "" {
 		claims.RegisteredClaims.Audience = jwt.ClaimStrings{projectKey}
 	}
@@ -677,7 +654,7 @@ func GenerateCompactAccessToken(userID string, emailOrIdentifier, role, projectK
 	return token.SignedString([]byte(config.AppConfig.JWTSecret))
 }
 
-// GenerateUnifiedToken 统一的token生成（紧凑字段），当 projectKey/localUserID 为空时不写入相关字段
-func GenerateUnifiedToken(userID, identifier, role, projectKey, localUserID string) (string, error) {
-	return GenerateCompactAccessToken(userID, identifier, role, projectKey, localUserID)
+// GenerateUnifiedToken 统一的token生成，当 projectKey 为空时不写入相关字段
+func GenerateUnifiedToken(userID, identifier, role, projectKey string) (string, error) {
+	return GenerateCompactAccessToken(userID, identifier, role, projectKey)
 }

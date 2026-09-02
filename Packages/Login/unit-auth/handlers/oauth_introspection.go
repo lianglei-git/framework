@@ -52,16 +52,15 @@ func IntrospectToken() gin.HandlerFunc {
 		}
 		exp := claims.ExpiresAt.Time
 		c.JSON(http.StatusOK, gin.H{
-			"active":        true,
-			"user_id":       claims.UserID,
-			"email":         claims.Email,
-			"role":          claims.Role,
-			"beta":          claims.Beta,
-			"project_key":   claims.ProjectKey,
-			"local_user_id": claims.LocalUserID,
-			"token_type":    claims.TokenType,
-			"exp":           exp.Unix(),
-			"expires_at":    exp.Format(time.RFC3339),
+			"active":      true,
+			"user_id":     claims.UserID,
+			"email":       claims.Email,
+			"role":        claims.Role,
+			"beta":        claims.Beta,
+			"project_key": claims.ProjectKey,
+			"token_type":  claims.TokenType,
+			"exp":         exp.Unix(),
+			"expires_at":  exp.Format(time.RFC3339),
 		})
 	}
 }
@@ -83,7 +82,7 @@ func TokenExchange() gin.HandlerFunc {
 			return
 		}
 		// 生成一个更短期、指定受众的访问令牌（仍使用相同密钥示例）
-		token, err := utils.GenerateAccessTokenWithAudience(claims.UserID, claims.Email, claims.Role, req.Audience, claims.ProjectKey, claims.LocalUserID)
+		token, err := utils.GenerateAccessTokenWithAudience(claims.UserID, claims.Email, claims.Role, req.Audience, claims.ProjectKey)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "failed to issue token"})
 			return

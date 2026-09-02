@@ -148,18 +148,11 @@ func Login(db *gorm.DB) gin.HandlerFunc {
 		if keyVal, ok := c.Get(middleware.CtxProjectKey); ok {
 			projectKey = keyVal.(string)
 		}
-		localID := ""
-		if projectKey != "" {
-			var pm models.ProjectMapping
-			if err := db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Debug().Error; err == nil {
-				localID = pm.LocalUserID
-			}
-		}
 		identifier := ""
 		if user.Email != nil {
 			identifier = *user.Email
 		}
-		token, err := utils.GenerateCompactAccessToken(user.ID, identifier, user.Role, projectKey, localID)
+		token, err := utils.GenerateCompactAccessToken(user.ID, identifier, user.Role, projectKey)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
 			return
@@ -756,32 +749,15 @@ func PhoneDirectLogin(db *gorm.DB) gin.HandlerFunc {
 			identifier = user.ID
 		}
 		projectKey := ""
-		localID := ""
-
-		// localID := ""
-		// if projectKey != "" {
-		// 	var pm models.ProjectMapping
-		// 	if err := db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
-		// 		localID = pm.LocalUserID
-		// 	}
-		// }
-
 		if keyVal, ok := c.Get(middleware.CtxProjectKey); ok {
 			projectKey = keyVal.(string)
-			// var p models.Project
-			// if err := db.Where("`key` = ? AND enabled = ?", projectKey, true).First(&p).Error; err == nil {
-			var pm models.ProjectMapping
-			if err := db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
-				localID = pm.LocalUserID
-			}
-			// }
 		}
 
-		log.Println("projectKey :::::: ", projectKey, localID)
+		log.Println("projectKey :::::: ", projectKey)
 		token := ""
-		if projectKey != "" && localID != "" {
+		if projectKey != "" {
 			var err2 error
-			token, err2 = utils.GenerateTokenWithProject(user.ID, identifier, user.Role, projectKey, localID)
+			token, err2 = utils.GenerateTokenWithProject(user.ID, identifier, user.Role, projectKey)
 			if err2 != nil {
 				tx.Rollback()
 				c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
@@ -911,20 +887,14 @@ func EmailCodeLogin(db *gorm.DB, mailer *utils.Mailer) gin.HandlerFunc {
 		if keyVal, ok := c.Get(middleware.CtxProjectKey); ok {
 			projectKey = keyVal.(string)
 		}
-		localID := ""
-		if v, ok := c.Get("local_user_id"); ok {
-			if s, ok2 := v.(string); ok2 {
-				localID = s
-			}
-		}
 		identifier := user.ID
 		if user.Email != nil {
 			identifier = *user.Email
 		}
 		var token string
 		var err error
-		if projectKey != "" && localID != "" {
-			token, err = utils.GenerateTokenWithProject(user.ID, identifier, user.Role, projectKey, localID)
+		if projectKey != "" {
+			token, err = utils.GenerateTokenWithProject(user.ID, identifier, user.Role, projectKey)
 		} else {
 			token, err = utils.GenerateToken(user.ID, identifier, user.Role)
 		}

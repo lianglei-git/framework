@@ -348,7 +348,7 @@ func (cts *CentralizedTokenService) checkSlidingRenewal(session *models.SSOSessi
 // generateNewAccessToken 生成新的Access Token
 func (cts *CentralizedTokenService) generateNewAccessToken(session *models.SSOSession, appID string) (string, error) {
 	// 使用现有的Token生成方法
-	return utils.GenerateUnifiedToken(session.UserID, session.UserID, "user", appID, "")
+	return utils.GenerateUnifiedToken(session.UserID, session.UserID, "user", appID)
 }
 
 // updateSessionTokens 更新会话Token

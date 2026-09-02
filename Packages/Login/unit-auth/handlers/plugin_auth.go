@@ -51,23 +51,15 @@ func (h *PluginAuthHandler) Login() gin.HandlerFunc {
 			return
 		}
 
-		// 统一生成token（含项目claims）
-		projectKey := ""
-		if v, ok := c.Get(middleware.CtxProjectKey); ok {
-			projectKey = v.(string)
-		}
-		localID := ""
-		if projectKey != "" {
-			var pm models.ProjectMapping
-			if err := h.db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
-				localID = pm.LocalUserID
-			}
-		}
 		identifier := ""
 		if user.Email != nil {
 			identifier = *user.Email
 		}
-		token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey, localID)
+		projectKey := ""
+		if v, ok := c.Get(middleware.CtxProjectKey); ok {
+			projectKey = v.(string)
+		}
+		token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
 			return
@@ -109,14 +101,7 @@ func (h *PluginAuthHandler) PhoneLogin() gin.HandlerFunc {
 		if v, ok := c.Get(middleware.CtxProjectKey); ok {
 			projectKey = v.(string)
 		}
-		localID := ""
-		if projectKey != "" {
-			var pm models.ProjectMapping
-			if err := h.db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
-				localID = pm.LocalUserID
-			}
-		}
-		token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey, localID)
+		token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
 			return
@@ -158,15 +143,8 @@ func (h *PluginAuthHandler) OAuthLogin() gin.HandlerFunc {
 		if v, ok := c.Get(middleware.CtxProjectKey); ok {
 			projectKey = v.(string)
 		}
-		localID := ""
-		if projectKey != "" {
-			var pm models.ProjectMapping
-			if err := h.db.Where("project_name = ? AND user_id = ?", projectKey, user.ID).First(&pm).Error; err == nil {
-				localID = pm.LocalUserID
-			}
-		}
 		// 一定要有 project_name
-		token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey, localID)
+		token, err := utils.GenerateUnifiedToken(user.ID, identifier, user.Role, projectKey)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, models.Response{Code: 500, Message: "Failed to generate token"})
 			return
