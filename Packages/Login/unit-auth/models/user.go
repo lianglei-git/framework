@@ -33,18 +33,18 @@ type UserMeta struct {
 
 // User 用户表 - 重构后的核心用户信息
 type User struct {
-	ID            string  `json:"id" gorm:"primaryKey;type:varchar(36)"`
-	Email         *string `json:"email" gorm:"uniqueIndex:idx_email;size:255"` // 使用指针类型，允许NULL
-	Phone         *string `json:"phone" gorm:"uniqueIndex:idx_phone;size:20"`  // 使用指针类型，允许NULL
-	Username      string  `json:"username" gorm:"uniqueIndex;size:50"`
-	Nickname      string  `json:"nickname" gorm:"size:100"`
-	Password      string  `json:"-" gorm:"not null;size:255"` // 不返回密码
+	ID       string  `json:"id" gorm:"primaryKey;type:varchar(36)"`
+	Email    *string `json:"email" gorm:"uniqueIndex:idx_email;size:255"` // 使用指针类型，允许NULL
+	Phone    *string `json:"phone" gorm:"uniqueIndex:idx_phone;size:20"`  // 使用指针类型，允许NULL
+	Username string  `json:"username" gorm:"uniqueIndex;size:50"`
+	Nickname string  `json:"nickname" gorm:"size:100"`
+	Password string  `json:"-" gorm:"not null;size:255"` // 不返回密码
 	// Role: user | admin | moderator | beta | ops（API 字符串，非 TINYINT）
 	Role string `json:"role" gorm:"default:'user';size:20"`
 	// Status: active=正常 frozen=冻结 cancelled=注销（API 字符串，非 TINYINT）
-	Status string `json:"status" gorm:"default:'active';size:20"`
-	EmailVerified bool    `json:"email_verified" gorm:"default:false"`
-	PhoneVerified bool    `json:"phone_verified" gorm:"default:false"`
+	Status        string `json:"status" gorm:"default:'active';size:20"`
+	EmailVerified bool   `json:"email_verified" gorm:"default:false"`
+	PhoneVerified bool   `json:"phone_verified" gorm:"default:false"`
 
 	// 第三方认证ID - 使用指针类型，允许NULL
 	GoogleID *string `json:"google_id" gorm:"uniqueIndex;size:100"`
@@ -422,6 +422,20 @@ type AdminBetaProfileRequest struct {
 	BetaGroup string     `json:"beta_group"`
 	Status    *int       `json:"status"`
 	ExpiresAt *time.Time `json:"expires_at"`
+}
+
+// AdminCreateUserRequest 管理员创建用户请求
+type AdminCreateUserRequest struct {
+	Username      string                   `json:"username"`
+	Password      string                   `json:"password"`
+	Nickname      string                   `json:"nickname"`
+	Email         string                   `json:"email"`
+	Phone         string                   `json:"phone"`
+	Role          string                   `json:"role"`
+	Status        string                   `json:"status"`
+	EmailVerified *bool                    `json:"email_verified"`
+	PhoneVerified *bool                    `json:"phone_verified"`
+	Beta          *AdminBetaProfileRequest `json:"beta,omitempty"`
 }
 
 // AdminUpdateUserRequest 管理员更新用户请求

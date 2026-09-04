@@ -301,6 +301,7 @@ func main() {
 		{
 			// 用户管理
 			admin.GET("/users", handlers.GetUsers(db))
+			admin.POST("/users", handlers.CreateUser(db))
 			admin.GET("/users/:id", handlers.GetUser(db))
 			admin.PUT("/users/:id", handlers.UpdateUser(db))
 			admin.DELETE("/users/:id", handlers.DeleteUser(db))

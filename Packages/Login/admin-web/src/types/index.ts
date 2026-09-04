@@ -94,6 +94,23 @@ export interface UserListResponse {
   pagination: Pagination
 }
 
+export interface CreateUserRequest {
+  username: string
+  password: string
+  nickname?: string
+  email?: string
+  phone?: string
+  role?: string
+  status?: string
+  email_verified?: boolean
+  phone_verified?: boolean
+  beta?: {
+    beta_group: string
+    status: number
+    expires_at?: string | null
+  }
+}
+
 export interface UpdateUserRequest {
   username?: string
   nickname?: string

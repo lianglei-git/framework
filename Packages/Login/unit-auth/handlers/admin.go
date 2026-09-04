@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 	"unit-auth/models"
 	"unit-auth/services"
@@ -229,6 +230,141 @@ func GetUser(db *gorm.DB) gin.HandlerFunc {
 			Code:    200,
 			Message: "User retrieved successfully",
 			Data:    toAdminUserResponse(user, loadBetaProfile(db, user.ID)),
+		})
+	}
+}
+
+// CreateUser 管理员创建本地登录账号
+func CreateUser(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req models.AdminCreateUserRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, models.Response{
+				Code:    400,
+				Message: "Invalid request data: " + err.Error(),
+			})
+			return
+		}
+
+		username := strings.TrimSpace(req.Username)
+		if len(username) < 2 {
+			c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: "Username is required"})
+			return
+		}
+		if len(req.Password) < 8 {
+			c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: "Password must be at least 8 characters"})
+			return
+		}
+
+		email := strings.TrimSpace(req.Email)
+		phone := strings.TrimSpace(req.Phone)
+		if email == "" && phone == "" {
+			c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: "Email or phone is required"})
+			return
+		}
+
+		role := req.Role
+		if role == "" {
+			role = "user"
+		}
+		if !utils.IsValidRole(role) {
+			c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: "Invalid role"})
+			return
+		}
+		if role == "beta" && req.Beta == nil {
+			c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: "beta profile required"})
+			return
+		}
+
+		status := req.Status
+		if status == "" {
+			status = "active"
+		}
+		if !utils.IsValidStatus(status) {
+			c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: "Invalid status"})
+			return
+		}
+
+		var existing models.User
+		if err := db.Where("username = ?", username).First(&existing).Error; err == nil {
+			c.JSON(http.StatusConflict, models.Response{Code: 409, Message: "Username already exists"})
+			return
+		}
+		if email != "" {
+			if err := db.Where("email = ?", email).First(&existing).Error; err == nil {
+				c.JSON(http.StatusConflict, models.Response{Code: 409, Message: "Email already exists"})
+				return
+			}
+		}
+		if phone != "" {
+			if err := db.Where("phone = ?", phone).First(&existing).Error; err == nil {
+				c.JSON(http.StatusConflict, models.Response{Code: 409, Message: "Phone number already exists"})
+				return
+			}
+		}
+
+		emailVerified := true
+		if req.EmailVerified != nil {
+			emailVerified = *req.EmailVerified
+		}
+		if email == "" {
+			emailVerified = false
+		}
+		phoneVerified := false
+		if req.PhoneVerified != nil {
+			phoneVerified = *req.PhoneVerified
+		}
+
+		var emailPtr *string
+		if email != "" {
+			emailPtr = &email
+		}
+		var phonePtr *string
+		if phone != "" {
+			phonePtr = &phone
+		}
+
+		user, err := services.RegisterUser(db, nil, services.RegistrationOptions{
+			Email:          emailPtr,
+			Phone:          phonePtr,
+			Username:       username,
+			Nickname:       strings.TrimSpace(req.Nickname),
+			Password:       req.Password,
+			EmailVerified:  emailVerified,
+			PhoneVerified:  phoneVerified,
+			Role:           role,
+			Status:         status,
+			StrictUsername: true,
+		})
+		if err != nil {
+			msg := err.Error()
+			code := http.StatusBadRequest
+			if strings.Contains(msg, "already exists") {
+				code = http.StatusConflict
+			}
+			c.JSON(code, models.Response{Code: code, Message: msg})
+			return
+		}
+
+		_ = db.Model(user).Updates(map[string]interface{}{
+			"login_count":   0,
+			"last_login_at": nil,
+		}).Error
+		user.LoginCount = 0
+		user.LastLoginAt = nil
+
+		if role == "beta" {
+			if err := upsertBetaProfile(db, user.ID, req.Beta); err != nil {
+				_ = db.Delete(user).Error
+				c.JSON(http.StatusBadRequest, models.Response{Code: 400, Message: err.Error()})
+				return
+			}
+		}
+
+		c.JSON(http.StatusOK, models.Response{
+			Code:    200,
+			Message: "User created successfully",
+			Data:    toAdminUserResponse(*user, loadBetaProfile(db, user.ID)),
 		})
 	}
 }

@@ -15,16 +15,17 @@ import (
 
 // RegistrationOptions 控制注册默认行为
 type RegistrationOptions struct {
-	Email         *string
-	Phone         *string
-	Username      string // 可留空，函数会基于 Email/Phone 衍生
-	Nickname      string // 可留空，默认与 Username 一致
-	Password      string // 可留空，不设置密码
-	EmailVerified bool
-	PhoneVerified bool
-	Role          string // 默认 user
-	Status        string // 默认 active
-	SendWelcome   bool   // 是否发送欢迎邮件
+	Email          *string
+	Phone          *string
+	Username       string // 可留空，函数会基于 Email/Phone 衍生
+	Nickname       string // 可留空，默认与 Username 一致
+	Password       string // 可留空，不设置密码
+	EmailVerified  bool
+	PhoneVerified  bool
+	Role           string // 默认 user
+	Status         string // 默认 active
+	SendWelcome    bool   // 是否发送欢迎邮件
+	StrictUsername bool   // true 时用户名冲突直接失败，不自动加后缀
 
 	// 项目映射（可选）
 	ProjectKey           string       // 若非空，则在注册内强制创建/校验映射
@@ -62,6 +63,9 @@ func RegisterUser(db *gorm.DB, mailer *utils.Mailer, opts RegistrationOptions) (
 		var cnt int64
 		tx.Model(&models.User{}).Where("username = ?", username).Count(&cnt)
 		if cnt > 0 {
+			if opts.StrictUsername {
+				return fmt.Errorf("Username already exists")
+			}
 			username = fmt.Sprintf("%s_%d", username, time.Now().Unix())
 		}
 

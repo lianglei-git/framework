@@ -6,6 +6,7 @@ import type {
   UserListParams,
   UserListResponse,
   AdminUser,
+  CreateUserRequest,
   UpdateUserRequest,
   BulkUpdateRequest,
   BulkUpdateResponse,
@@ -38,6 +39,12 @@ export async function listUsers(params?: UserListParams): Promise<UserListRespon
 
 export async function getUser(id: string): Promise<AdminUser> {
   const res = await httpClient.get<ApiResponse<AdminUser>>(`/api/v1/admin/users/${id}`)
+  if (res.code !== 200) throw new Error(res.message)
+  return res.data!
+}
+
+export async function createUser(body: CreateUserRequest): Promise<AdminUser> {
+  const res = await httpClient.post<ApiResponse<AdminUser>>('/api/v1/admin/users', body)
   if (res.code !== 200) throw new Error(res.message)
   return res.data!
 }

@@ -2,12 +2,13 @@ import React from 'react'
 import { Button, Col, DatePicker, Drawer, Form, Input, Row, Select, Space } from 'antd'
 import type { FormInstance } from 'antd/es/form'
 import dayjs, { type Dayjs } from 'dayjs'
-import type { AdminUser, UpdateUserRequest } from '../../types'
+import type { AdminUser, CreateUserRequest, UpdateUserRequest } from '../../types'
 
 const { Option } = Select
 
 export interface UserEditFormValues {
   username?: string
+  password?: string
   nickname?: string
   email?: string
   phone?: string
@@ -19,6 +20,25 @@ export interface UserEditFormValues {
     beta_group?: string
     status?: number
     expires_at?: Dayjs | null
+  }
+}
+
+export function emptyCreateForm(): UserEditFormValues {
+  return {
+    username: '',
+    password: '',
+    nickname: '',
+    email: '',
+    phone: '',
+    role: 'user',
+    status: 'active',
+    email_verified: true,
+    phone_verified: false,
+    beta: {
+      beta_group: 'A',
+      status: 1,
+      expires_at: null,
+    },
   }
 }
 
@@ -40,6 +60,30 @@ export function fillUserEditForm(user: AdminUser): UserEditFormValues {
   }
 }
 
+function buildBetaPayload(values: UserEditFormValues) {
+  if (values.role !== 'beta') return undefined
+  return {
+    beta_group: values.beta?.beta_group || 'A',
+    status: values.beta?.status ?? 1,
+    expires_at: values.beta?.expires_at ? values.beta.expires_at.toISOString() : null,
+  }
+}
+
+export function buildCreatePayload(values: UserEditFormValues): CreateUserRequest {
+  return {
+    username: values.username || '',
+    password: values.password || '',
+    nickname: values.nickname,
+    email: values.email,
+    phone: values.phone,
+    role: values.role,
+    status: values.status,
+    email_verified: values.email_verified,
+    phone_verified: values.phone_verified,
+    beta: buildBetaPayload(values),
+  }
+}
+
 export function buildUpdatePayload(values: UserEditFormValues): UpdateUserRequest {
   const payload: UpdateUserRequest = {
     username: values.username,
@@ -51,20 +95,13 @@ export function buildUpdatePayload(values: UserEditFormValues): UpdateUserReques
     email_verified: values.email_verified,
     phone_verified: values.phone_verified,
   }
-  if (values.role === 'beta') {
-    payload.beta = {
-      beta_group: values.beta?.beta_group || 'A',
-      status: values.beta?.status ?? 1,
-      expires_at: values.beta?.expires_at
-        ? values.beta.expires_at.toISOString()
-        : null,
-    }
-  }
+  payload.beta = buildBetaPayload(values)
   return payload
 }
 
 interface UserEditDrawerProps {
   open: boolean
+  mode?: 'create' | 'edit'
   user: AdminUser | null
   form: FormInstance<UserEditFormValues>
   loading: boolean
@@ -74,6 +111,7 @@ interface UserEditDrawerProps {
 
 export function UserEditDrawer({
   open,
+  mode = 'edit',
   user,
   form,
   loading,
@@ -81,10 +119,11 @@ export function UserEditDrawer({
   onSubmit,
 }: UserEditDrawerProps) {
   const role = Form.useWatch('role', form)
+  const isCreate = mode === 'create'
 
   return (
     <Drawer
-      title={`编辑用户：${user?.username || ''}`}
+      title={isCreate ? '增加用户' : `编辑用户：${user?.username || ''}`}
       open={open}
       onClose={onClose}
       width={480}
@@ -92,7 +131,7 @@ export function UserEditDrawer({
         <Space style={{ justifyContent: 'flex-end', width: '100%' }}>
           <Button onClick={onClose}>取消</Button>
           <Button type="primary" loading={loading} onClick={onSubmit}>
-            保存
+            {isCreate ? '创建' : '保存'}
           </Button>
         </Space>
       }
@@ -103,7 +142,10 @@ export function UserEditDrawer({
             <Form.Item
               name="username"
               label="用户名"
-              rules={[{ min: 2, message: '至少 2 个字符' }]}
+              rules={[
+                { required: isCreate, message: '请填写用户名' },
+                { min: 2, message: '至少 2 个字符' },
+              ]}
             >
               <Input placeholder="用户名" />
             </Form.Item>
@@ -115,15 +157,53 @@ export function UserEditDrawer({
           </Col>
         </Row>
 
+        {isCreate && (
+          <Form.Item
+            name="password"
+            label="密码"
+            rules={[
+              { required: true, message: '请填写密码' },
+              { min: 8, message: '密码至少 8 位' },
+            ]}
+          >
+            <Input.Password placeholder="至少 8 位，创建后仅展示一次" />
+          </Form.Item>
+        )}
+
         <Form.Item
           name="email"
           label="邮箱"
-          rules={[{ type: 'email', message: '请输入有效邮箱' }]}
+          dependencies={['phone']}
+          rules={[
+            { type: 'email', message: '请输入有效邮箱' },
+            ({ getFieldValue }) => ({
+              validator: async () => {
+                if (!isCreate) return
+                if (!getFieldValue('email') && !getFieldValue('phone')) {
+                  throw new Error('请填写邮箱或手机号')
+                }
+              },
+            }),
+          ]}
         >
           <Input placeholder="邮箱" />
         </Form.Item>
 
-        <Form.Item name="phone" label="手机号">
+        <Form.Item
+          name="phone"
+          label="手机号"
+          dependencies={['email']}
+          rules={[
+            ({ getFieldValue }) => ({
+              validator: async () => {
+                if (!isCreate) return
+                if (!getFieldValue('email') && !getFieldValue('phone')) {
+                  throw new Error('请填写邮箱或手机号')
+                }
+              },
+            }),
+          ]}
+        >
           <Input placeholder="手机号" />
         </Form.Item>
 

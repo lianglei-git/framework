@@ -23,6 +23,7 @@ import {
   DeleteOutlined,
   EyeOutlined,
   ReloadOutlined,
+  PlusOutlined,
   ExclamationCircleOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
@@ -31,6 +32,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   listUsers,
   deleteUser,
+  createUser,
   updateUser,
   bulkUpdateUsers,
 } from '../../core/adminApi'
@@ -39,7 +41,9 @@ import { formatAuthError } from '../../utils/authError'
 import { ROLE_COLOR, ROLE_LABEL, STATUS_COLOR, STATUS_LABEL } from '../../utils/userLabels'
 import {
   UserEditDrawer,
+  buildCreatePayload,
   buildUpdatePayload,
+  emptyCreateForm,
   fillUserEditForm,
   type UserEditFormValues,
 } from './UserEditDrawer'
@@ -61,6 +65,7 @@ export default function UsersPage() {
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([])
 
   const [editDrawerOpen, setEditDrawerOpen] = useState(false)
+  const [drawerMode, setDrawerMode] = useState<'create' | 'edit'>('edit')
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null)
   const [editForm] = Form.useForm<UserEditFormValues>()
   const [editLoading, setEditLoading] = useState(false)
@@ -101,10 +106,45 @@ export default function UsersPage() {
     }
   }
 
+  const openCreateDrawer = () => {
+    setDrawerMode('create')
+    setEditingUser(null)
+    editForm.resetFields()
+    editForm.setFieldsValue(emptyCreateForm())
+    setEditDrawerOpen(true)
+  }
+
   const openEditDrawer = (user: AdminUser) => {
+    setDrawerMode('edit')
     setEditingUser(user)
     editForm.setFieldsValue(fillUserEditForm(user))
     setEditDrawerOpen(true)
+  }
+
+  const showCreatedPassword = (username: string, password: string) => {
+    Modal.success({
+      title: '用户已创建',
+      content: (
+        <div>
+          <p>账号 <strong>{username}</strong> 已可登录。密码仅展示这一次，请复制后妥善保存。</p>
+          <Input.Password value={password} readOnly />
+          <Button
+            type="link"
+            style={{ paddingLeft: 0, marginTop: 8 }}
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(password)
+                message.success('密码已复制')
+              } catch {
+                message.error('复制失败，请手动复制')
+              }
+            }}
+          >
+            复制密码
+          </Button>
+        </div>
+      ),
+    })
   }
 
   const saveEdit = async (values: UserEditFormValues) => {
@@ -122,30 +162,70 @@ export default function UsersPage() {
     }
   }
 
+  const saveCreate = async (values: UserEditFormValues) => {
+    setEditLoading(true)
+    try {
+      const created = await createUser(buildCreatePayload(values))
+      setEditDrawerOpen(false)
+      fetchUsers()
+      showCreatedPassword(created.username, values.password || '')
+    } catch (err) {
+      message.error(formatAuthError(err, '创建失败'))
+    } finally {
+      setEditLoading(false)
+    }
+  }
+
+  const confirmSensitiveThen = (
+    values: UserEditFormValues,
+    onOk: () => void | Promise<void>,
+    isCreate: boolean
+  ) => {
+    if (values.role === 'admin' && (isCreate || editingUser?.role !== 'admin')) {
+      Modal.confirm({
+        title: '确认授予管理员权限？',
+        icon: <ExclamationCircleOutlined />,
+        content: '该账号将能进入管理后台并管理其他用户，请确认操作人可信。',
+        okText: '确认',
+        cancelText: '取消',
+        okType: 'danger',
+        onOk,
+      })
+      return
+    }
+    if (
+      (values.status === 'frozen' || values.status === 'cancelled') &&
+      (isCreate || values.status !== editingUser?.status)
+    ) {
+      const label = values.status === 'frozen' ? '冻结' : '注销'
+      Modal.confirm({
+        title: isCreate ? `确认直接创建为${label}账号？` : `确认${label}该账号？`,
+        icon: <ExclamationCircleOutlined />,
+        content: isCreate
+          ? `${label}账号创建后无法登录，除非之后改回正常。`
+          : `${label}后该用户将无法登录，已有会话会被立即吊销。`,
+        okText: '确认',
+        cancelText: '取消',
+        okType: values.status === 'cancelled' ? 'danger' : 'primary',
+        onOk,
+      })
+      return
+    }
+    void onOk()
+  }
+
   const handleEditSubmit = async () => {
-    if (!editingUser) return
     try {
       const values = await editForm.validateFields()
-      if (
-        (values.status === 'frozen' || values.status === 'cancelled') &&
-        values.status !== editingUser.status
-      ) {
-        const label = values.status === 'frozen' ? '冻结' : '注销'
-        Modal.confirm({
-          title: `确认${label}该账号？`,
-          icon: <ExclamationCircleOutlined />,
-          content: `${label}后该用户将无法登录，已有会话会被立即吊销。`,
-          okText: '确认',
-          cancelText: '取消',
-          okType: values.status === 'cancelled' ? 'danger' : 'primary',
-          onOk: () => saveEdit(values),
-        })
+      if (drawerMode === 'create') {
+        confirmSensitiveThen(values, () => saveCreate(values), true)
         return
       }
-      await saveEdit(values)
+      if (!editingUser) return
+      confirmSensitiveThen(values, () => saveEdit(values), false)
     } catch (err) {
       if ((err as { errorFields?: unknown }).errorFields) return
-      message.error(formatAuthError(err, '更新失败'))
+      message.error(formatAuthError(err, drawerMode === 'create' ? '创建失败' : '更新失败'))
     }
   }
 
@@ -311,9 +391,14 @@ export default function UsersPage() {
         <Title level={4} style={{ margin: 0 }}>
           用户管理
         </Title>
-        <Button icon={<ReloadOutlined />} onClick={fetchUsers} loading={loading}>
-          刷新
-        </Button>
+        <Space>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateDrawer}>
+            增加用户
+          </Button>
+          <Button icon={<ReloadOutlined />} onClick={fetchUsers} loading={loading}>
+            刷新
+          </Button>
+        </Space>
       </div>
 
       {error && (
@@ -426,6 +511,7 @@ export default function UsersPage() {
 
       <UserEditDrawer
         open={editDrawerOpen}
+        mode={drawerMode}
         user={editingUser}
         form={editForm}
         loading={editLoading}
