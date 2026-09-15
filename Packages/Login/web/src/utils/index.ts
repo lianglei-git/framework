@@ -48,3 +48,7 @@ export type { CodeChannel } from './codeLoginContact'
 // 登录第二步模式
 export { resolveLoginStepMode, isOtpSigninMode } from './loginStepMode'
 export type { PreviewStatus, LoginStepMode } from './loginStepMode'
+
+
+export { refreshOAuthTokenOnce } from './oauthRefreshOn401'
+export { recoverOAuthSessionAfterRefreshFailure } from './oauthSessionRecovery'
